@@ -147,7 +147,6 @@ cards just like most flashcard apps.
 | `g` | Refresh review buffer               |
 | `e` | Edit current word                   |
 | `t` | Edit current hint                   |
-| `h` | Show keybinding help                |
 | `D` | Delete current card                 |
 | `q` | Quit review                         |
 | `l` | Look up word with default provider  |
@@ -173,7 +172,6 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `D`   | Delete current or marked cards            |
 | `e`   | Edit word at point                        |
 | `t`   | Edit hint at point                        |
-| `h`   | Show keybinding help                      |
 | `+`   | Quick add card                            |
 | `/ r` | Filter review cards                       |
 | `/ l` | Filter learning cards                     |
