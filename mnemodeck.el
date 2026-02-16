@@ -1527,12 +1527,54 @@ One of: all, review, learning, archived.")
     (if (numberp value) value (string-to-number value))))
 
 (defun mnemodeck-edit--restore-position (line win-line)
-  "Restore point position in edit buffer using LINE and WIN-LINE."
+  "Restore edit-buffer position using LINE and WIN-LINE.
+LINE is the 1-based buffer line number to move point to.
+WIN-LINE is the point's screen-line offset from window start, used by
+`recenter' to keep a stable on-screen position after refresh."
   (let ((max-line (line-number-at-pos (point-max))))
     (goto-char (point-min))
     (forward-line (1- (min line max-line))))
   (when (and win-line (numberp win-line))
     (recenter win-line)))
+
+(defun mnemodeck-edit--nearest-surviving-word (deleted-words)
+  "Return the nearest table word not listed in DELETED-WORDS.
+If multiple words are equally near point, prefer a following line."
+  (let* ((origin-line (line-number-at-pos))
+         (best-word nil)
+         (best-distance nil)
+         (best-forward nil))
+    (save-excursion
+      (goto-char (point-min))
+      (while (< (point) (point-max))
+        (let ((word (tabulated-list-get-id)))
+          (when (and word
+                     (not (member word deleted-words)))
+            (let* ((line (line-number-at-pos))
+                   (delta (abs (- line origin-line)))
+                   (forward (>= line origin-line)))
+              (when (or (null best-distance)
+                        (< delta best-distance)
+                        (and (= delta best-distance)
+                             (and forward (not best-forward))))
+                (setq best-word word
+                      best-distance delta
+                      best-forward forward)))))
+        (forward-line 1)))
+    best-word))
+
+(defun mnemodeck-edit--line-of-word (word)
+  "Return line number of WORD in current edit table, or nil if not found."
+  (when word
+    (save-excursion
+      (goto-char (point-min))
+      (let (line)
+        (while (and (not line) (< (point) (point-max)))
+          (when (let ((row-word (tabulated-list-get-id)))
+                  (and row-word (string-equal row-word word)))
+            (setq line (line-number-at-pos)))
+          (forward-line 1))
+        line))))
 
 (defmacro mnemodeck-edit--column-sorter (column)
   "Return a sorter lambda for COLUMN."
@@ -1785,13 +1827,16 @@ WORDS can be a single word string or a list of words."
   (interactive)
   (let ((marked (mnemodeck-edit--marked-words)))
     (if marked
-        (progn
+        (let* ((win-line (count-screen-lines (window-start) (point)))
+               (target-word (mnemodeck-edit--nearest-surviving-word marked)))
           (mnemodeck-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "Delete %d marked cards? " (length marked)))
             (dolist (word marked)
               (mnemodeck-delete-card word))
             (mnemodeck-edit--clear-marks)
             (mnemodeck-edit-refresh)
+            (when-let ((target-line (mnemodeck-edit--line-of-word target-word)))
+              (mnemodeck-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
       (mnemodeck-edit-delete-card))))
 
@@ -1829,14 +1874,21 @@ WORDS can be a single word string or a list of words."
   (interactive)
   (let ((marked (mnemodeck-edit--marked-words)))
     (if marked
-        (progn
+        (let* ((unarchive-p (eq mnemodeck-edit--filter 'archived))
+               (verb (if unarchive-p "Unarchive" "Archive"))
+               (done-verb (if unarchive-p "Unarchived" "Archived"))
+               (action (if unarchive-p #'mnemodeck-unarchive-card #'mnemodeck-archive-card))
+               (win-line (count-screen-lines (window-start) (point)))
+               (target-word (mnemodeck-edit--nearest-surviving-word marked)))
           (mnemodeck-edit--ensure-not-current marked)
-          (when (yes-or-no-p (format "Archive %d marked cards? " (length marked)))
+          (when (yes-or-no-p (format "%s %d marked cards? " verb (length marked)))
             (dolist (word marked)
-              (mnemodeck-archive-card word))
+              (funcall action word))
             (mnemodeck-edit--clear-marks)
             (mnemodeck-edit-refresh)
-            (message "Archived %d cards" (length marked))))
+            (when-let ((target-line (mnemodeck-edit--line-of-word target-word)))
+              (mnemodeck-edit--restore-position target-line win-line))
+            (message "%s %d cards" done-verb (length marked))))
       (if (eq mnemodeck-edit--filter 'archived)
           (mnemodeck-edit-unarchive-card)
         (mnemodeck-edit-archive-card)))))
