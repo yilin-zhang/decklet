@@ -3236,13 +3236,23 @@ CONTEXT is used as the error message prefix when command execution fails."
      "Failed to clear database")
     (message "Database cleared successfully")))
 
+(defun mnemodeck-import-kobo--normalize-word (word)
+  "Normalize WORD captured by Kobo."
+  ;; Sometimes Kobo doesn't remove the trailing comma.
+  (if (string-suffix-p "," word)
+      (substring word 0 -1)
+    word))
+
 (defun mnemodeck-import-kobo--read-words (db-file)
-  "Return a list of unique words from Kobo DB-FILE."
-  (split-string (mnemodeck-import--sqlite-call
-                 db-file
-                 "SELECT Text FROM WordList ORDER BY rowid;"
-                 "Failed to query database")
-                "\n" t))
+  "Return a list of unique normalized words from Kobo DB-FILE."
+  ;; We need to deduplicate after normalization
+  (seq-uniq
+   (mapcar #'mnemodeck-import-kobo--normalize-word
+           (split-string (mnemodeck-import--sqlite-call
+                          db-file
+                          "SELECT Text FROM WordList ORDER BY rowid;"
+                          "Failed to query database")
+                         "\n" t))))
 
 (defun mnemodeck-import-kobo--maybe-clear-db (db-file)
   "Prompt to clear imported word rows from Kobo DB-FILE."
