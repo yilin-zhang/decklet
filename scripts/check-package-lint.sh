@@ -38,6 +38,17 @@ emacs --batch \
                     (\"melpa\" . \"https://melpa.org/packages/\")))
             (package-initialize)
             (unless (assq 'fsrs package-archive-contents)
-              (package-refresh-contents)))" \
+              (package-refresh-contents))
+            ;; Lint as a multi-file package with mnemodeck.el as canonical main file.
+            (setq package-lint-main-file \"mnemodeck.el\"))" \
   -f package-lint-batch-and-exit \
-  mnemodeck.el
+  mnemodeck.el \
+  mnemodeck-core.el \
+  mnemodeck-schedular.el \
+  mnemodeck-db.el \
+  mnemodeck-deck.el \
+  mnemodeck-edit.el \
+  mnemodeck-review.el \
+  mnemodeck-dictionary.el \
+  mnemodeck-calendar.el \
+  mnemodeck-import.el
