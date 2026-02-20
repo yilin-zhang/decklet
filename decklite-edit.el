@@ -287,7 +287,7 @@ WORDS can be a single word string or a list of words."
                              'decklite-edit-word-archived-face
                            'decklite-edit-word-face))
               (hint (if hint
-                        (replace-regexp-in-string "[\r\n]+" " ↵ " hint nil 'literal)
+                        (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
                       ""))
               (added (or added ""))
               (last-review (or last-review ""))
