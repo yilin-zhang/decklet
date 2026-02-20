@@ -532,17 +532,16 @@ Interval labels are included when
            (concat (decklite-review--instruction-key-label 'decklite-review-rate-again)
                    " Again"
                    (decklite-review--instruction-interval-label decklite-current-word meta 1))
-           ;; Add one extra space after "Hard", "Good", and "Easy" to make interval labels vertically aligned
            (concat (decklite-review--instruction-key-label 'decklite-review-rate-hard)
-                   " Hard "
+                   " Hard"
                    (decklite-review--instruction-interval-label decklite-current-word meta 2))
            (concat (decklite-review--instruction-key-label 'decklite-review-rate-good)
-                   " Good "
+                   " Good"
                    (decklite-review--instruction-interval-label decklite-current-word meta 3))
            (concat (decklite-review--instruction-key-label 'decklite-review-rate-easy)
-                   " Easy "
+                   " Easy"
                    (decklite-review--instruction-interval-label decklite-current-word meta 4)))))
-    (decklite-center-text (string-join option-lines "\n"))))
+    (decklite-center-text (string-join option-lines "   "))))
 
 (defun decklite-review-component-separator ()
   "Return the separator line for the review components."
@@ -716,7 +715,9 @@ When current list is empty, re-check for due cards and continue if any exist."
   (run-hooks 'decklite-review-start-hook)
   (decklite--refresh-due-words)
   (if (null decklite-due-words)
-      (message "No words to review")
+      (progn
+        (decklite-review-quit)
+        (message "No words to review"))
     (let ((buffer (decklite-review--setup-buffer)))
       (switch-to-buffer buffer)
       (decklite--refresh-counter)
