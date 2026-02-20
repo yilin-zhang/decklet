@@ -1,4 +1,4 @@
-;;; mnemodeck-calendar.el --- Calendar integration for MnemoDeck -*- lexical-binding: t; -*-
+;;; decklite-calendar.el --- Calendar integration for DeckLite -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026
 
@@ -11,107 +11,107 @@
 (require 'ansi-color)
 (require 'calendar)
 
-(require 'mnemodeck-db)
+(require 'decklite-db)
 
-(defgroup mnemodeck-calendar nil
-  "Calendar integration for MnemoDeck."
-  :group 'mnemodeck)
+(defgroup decklite-calendar nil
+  "Calendar integration for DeckLite."
+  :group 'decklite)
 
-(defcustom mnemodeck-calendar-days-ahead 90
+(defcustom decklite-calendar-days-ahead 90
   "Number of days ahead to calculate due cards for calendar display."
   :type 'integer
-  :group 'mnemodeck-calendar)
+  :group 'decklite-calendar)
 
-(defcustom mnemodeck-calendar-thresholds
+(defcustom decklite-calendar-thresholds
   '(25 50 75)
   "List of 3 thresholds for highlighting calendar dates with due cards.
 Each value represents the maximum number of cards for a new color level."
   :type '(repeat integer)
-  :group 'mnemodeck-calendar)
+  :group 'decklite-calendar)
 
-(defface mnemodeck-calendar-level-1-face
+(defface decklite-calendar-level-1-face
   `((t :background ,(face-attribute 'ansi-color-green :foreground)
        :foreground ,(face-attribute 'ansi-color-black :foreground)
        :weight bold))
   "Face for dates with few due cards (level 1)."
-  :group 'mnemodeck-calendar)
+  :group 'decklite-calendar)
 
-(defface mnemodeck-calendar-level-2-face
+(defface decklite-calendar-level-2-face
   `((t :background ,(face-attribute 'ansi-color-yellow :foreground)
        :foreground ,(face-attribute 'ansi-color-black :foreground)
        :weight bold))
   "Face for dates with some due cards (level 2)."
-  :group 'mnemodeck-calendar)
+  :group 'decklite-calendar)
 
-(defface mnemodeck-calendar-level-3-face
+(defface decklite-calendar-level-3-face
   `((t :background ,(face-attribute 'ansi-color-red :foreground)
        :foreground ,(face-attribute 'ansi-color-black :foreground)
        :weight bold))
   "Face for dates with many due cards (level 3)."
-  :group 'mnemodeck-calendar)
+  :group 'decklite-calendar)
 
-(defface mnemodeck-calendar-level-4-face
+(defface decklite-calendar-level-4-face
   `((t :background ,(face-attribute 'ansi-color-magenta :foreground)
        :foreground ,(face-attribute 'ansi-color-black :foreground)
        :weight bold))
   "Face for dates with very many due cards (level 4)."
-  :group 'mnemodeck-calendar)
+  :group 'decklite-calendar)
 
-(defvar mnemodeck-calendar--due-counts (make-hash-table :test 'equal)
+(defvar decklite-calendar--due-counts (make-hash-table :test 'equal)
   "Cache of due-card counts keyed by calendar date.")
 
 ;; Internal functions
 
-(defun mnemodeck-calendar--get-face-for-count (count)
+(defun decklite-calendar--get-face-for-count (count)
   "Return the appropriate face for COUNT due cards."
-  (let ((thresholds mnemodeck-calendar-thresholds))
+  (let ((thresholds decklite-calendar-thresholds))
     (cond
-     ((< count (nth 0 thresholds)) 'mnemodeck-calendar-level-1-face)
-     ((< count (nth 1 thresholds)) 'mnemodeck-calendar-level-2-face)
-     ((< count (nth 2 thresholds)) 'mnemodeck-calendar-level-3-face)
-     (t 'mnemodeck-calendar-level-4-face))))
+     ((< count (nth 0 thresholds)) 'decklite-calendar-level-1-face)
+     ((< count (nth 1 thresholds)) 'decklite-calendar-level-2-face)
+     ((< count (nth 2 thresholds)) 'decklite-calendar-level-3-face)
+     (t 'decklite-calendar-level-4-face))))
 
-(defun mnemodeck-calendar--date-string-to-date (date-string)
+(defun decklite-calendar--date-string-to-date (date-string)
   "Convert DATE-STRING (YYYY-MM-DD) into (month day year) calendar date."
   (when (and date-string (string-match "\\`\\([0-9]\\{4\\}\\)-\\([0-9]\\{2\\}\\)-\\([0-9]\\{2\\}\\)\\'" date-string))
     (list (string-to-number (match-string 2 date-string))
           (string-to-number (match-string 3 date-string))
           (string-to-number (match-string 1 date-string)))))
 
-(defun mnemodeck-calendar--time->calendar-date (time)
+(defun decklite-calendar--time->calendar-date (time)
   "Convert TIME to a calendar date list (month day year)."
   (let ((decoded (decode-time time)))
     (list (nth 4 decoded) (nth 3 decoded) (nth 5 decoded))))
 
-(defun mnemodeck-calendar--hash-inc (table key delta)
+(defun decklite-calendar--hash-inc (table key delta)
   "Increment TABLE at KEY by DELTA."
   (puthash key (+ delta (gethash key table 0)) table))
 
-(defun mnemodeck-calendar--get-due-cards-by-date ()
+(defun decklite-calendar--get-due-cards-by-date ()
   "Get a hash table mapping due dates to card counts.
-Dates follow the review day defined by `mnemodeck-day-rollover-hour'."
+Dates follow the review day defined by `decklite-day-rollover-hour'."
   (let* ((due-counts (make-hash-table :test 'equal))
-         (day-start (mnemodeck--day-start-time))
-         (cutoff (time-add day-start (days-to-time mnemodeck-calendar-days-ahead)))
-         (result (mnemodeck-db--due-counts-by-date day-start cutoff))
+         (day-start (decklite--day-start-time))
+         (cutoff (time-add day-start (days-to-time decklite-calendar-days-ahead)))
+         (result (decklite-db--due-counts-by-date day-start cutoff))
          (rows (plist-get result :rows))
          (overdue-count (plist-get result :overdue)))
     ;; Rows are grouped by local date; add each to the calendar hash.
     (dolist (row rows)
       (pcase-let ((`(,date-string ,count) row))
-        (when-let ((date (mnemodeck-calendar--date-string-to-date date-string)))
-          (mnemodeck-calendar--hash-inc due-counts date count))))
+        (when-let ((date (decklite-calendar--date-string-to-date date-string)))
+          (decklite-calendar--hash-inc due-counts date count))))
     ;; Overdue cards are shown on today so they remain visible.
     (when (> overdue-count 0)
-      (let ((today-date (mnemodeck-calendar--time->calendar-date day-start)))
-        (mnemodeck-calendar--hash-inc due-counts today-date overdue-count)))
+      (let ((today-date (decklite-calendar--time->calendar-date day-start)))
+        (decklite-calendar--hash-inc due-counts today-date overdue-count)))
     due-counts))
 
-(defun mnemodeck-calendar--refresh-due-counts ()
+(defun decklite-calendar--refresh-due-counts ()
   "Refresh cached due-counts for calendar display."
-  (setq mnemodeck-calendar--due-counts (mnemodeck-calendar--get-due-cards-by-date)))
+  (setq decklite-calendar--due-counts (decklite-calendar--get-due-cards-by-date)))
 
-(defun mnemodeck-calendar--mark-dates-with-due-cards ()
+(defun decklite-calendar--mark-dates-with-due-cards ()
   "Mark calendar dates with due cards using appropriate faces."
   (let* ((displayed-month (and (boundp 'displayed-month) displayed-month))
          (displayed-year (and (boundp 'displayed-year) displayed-year)))
@@ -125,27 +125,27 @@ Dates follow the review day defined by `mnemodeck-day-rollover-hour'."
                    ;; Filter out dates that are not currently displayed.
                    (when (and (<= due-n-month max-n-month)
                               (<= min-n-month due-n-month))
-                     (let ((face (mnemodeck-calendar--get-face-for-count count)))
+                     (let ((face (decklite-calendar--get-face-for-count count)))
                        (calendar-mark-visible-date date face)))))
-               mnemodeck-calendar--due-counts))))
+               decklite-calendar--due-counts))))
 
 ;;;###autoload
-(defun mnemodeck-calendar-mark-due-dates ()
+(defun decklite-calendar-mark-due-dates ()
   "Mark dates with due cards on the calendar."
   (interactive)
-  (mnemodeck-calendar--refresh-due-counts)
+  (decklite-calendar--refresh-due-counts)
   ;; First clear any existing marks
   (calendar-unmark)
   ;; Then mark dates with due cards
-  (mnemodeck-calendar--mark-dates-with-due-cards)
+  (decklite-calendar--mark-dates-with-due-cards)
   (message "Marked dates with due cards"))
 
 ;;;###autoload
-(defun mnemodeck-calendar-show-due-count-at-date ()
+(defun decklite-calendar-show-due-count-at-date ()
   "Show the number of cards due on the selected date."
   (interactive)
   (let* ((date (calendar-cursor-to-date))
-         (count (gethash date mnemodeck-calendar--due-counts 0)))
+         (count (gethash date decklite-calendar--due-counts 0)))
     (if (> count 0)
         (message "%d card%s due on %s"
                  count
@@ -154,22 +154,22 @@ Dates follow the review day defined by `mnemodeck-day-rollover-hour'."
 
 ;; Define a minor mode for the calendar integration
 ;;;###autoload
-(define-minor-mode mnemodeck-calendar-mode
-  "Toggle MnemoDeck calendar integration.
+(define-minor-mode decklite-calendar-mode
+  "Toggle DeckLite calendar integration.
 When enabled, dates with due cards are highlighted in the calendar."
   :global t
-  :lighter " MnemoDeckCal"
-  :group 'mnemodeck-calendar
-  (if mnemodeck-calendar-mode
+  :lighter " DeckLiteCal"
+  :group 'decklite-calendar
+  (if decklite-calendar-mode
       (progn
-        (add-hook 'calendar-mode-hook 'mnemodeck-calendar--refresh-due-counts)
-        (add-hook 'calendar-today-visible-hook 'mnemodeck-calendar-mark-due-dates)
-        (add-hook 'calendar-today-invisible-hook 'mnemodeck-calendar-mark-due-dates)
-        (add-hook 'calendar-move-hook 'mnemodeck-calendar-show-due-count-at-date))
-    (remove-hook 'calendar-mode-hook 'mnemodeck-calendar--refresh-due-counts)
-    (remove-hook 'calendar-today-visible-hook 'mnemodeck-calendar-mark-due-dates)
-    (remove-hook 'calendar-today-invisible-hook 'mnemodeck-calendar-mark-due-dates)
-    (remove-hook 'calendar-move-hook 'mnemodeck-calendar-show-due-count-at-date)))
+        (add-hook 'calendar-mode-hook 'decklite-calendar--refresh-due-counts)
+        (add-hook 'calendar-today-visible-hook 'decklite-calendar-mark-due-dates)
+        (add-hook 'calendar-today-invisible-hook 'decklite-calendar-mark-due-dates)
+        (add-hook 'calendar-move-hook 'decklite-calendar-show-due-count-at-date))
+    (remove-hook 'calendar-mode-hook 'decklite-calendar--refresh-due-counts)
+    (remove-hook 'calendar-today-visible-hook 'decklite-calendar-mark-due-dates)
+    (remove-hook 'calendar-today-invisible-hook 'decklite-calendar-mark-due-dates)
+    (remove-hook 'calendar-move-hook 'decklite-calendar-show-due-count-at-date)))
 
-(provide 'mnemodeck-calendar)
-;;; mnemodeck-calendar.el ends here
+(provide 'decklite-calendar)
+;;; decklite-calendar.el ends here

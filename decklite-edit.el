@@ -1,4 +1,4 @@
-;;; mnemodeck-edit.el --- Edit mode for MnemoDeck -*- lexical-binding: t; -*-
+;;; decklite-edit.el --- Edit mode for DeckLite -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026
 
@@ -13,149 +13,149 @@
 (require 'seq)
 (require 'tabulated-list)
 
-(require 'mnemodeck-schedular)
-(require 'mnemodeck-db)
-(require 'mnemodeck-deck)
+(require 'decklite-schedular)
+(require 'decklite-db)
+(require 'decklite-deck)
 
-(defgroup mnemodeck-edit nil
-  "Edit mode for MnemoDeck."
-  :group 'mnemodeck)
+(defgroup decklite-edit nil
+  "Edit mode for DeckLite."
+  :group 'decklite)
 
 ;; Faces
 
-(defface mnemodeck-edit-word-face
+(defface decklite-edit-word-face
   `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
        :weight bold))
   "Face for displaying the word in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-word-archived-face
+(defface decklite-edit-word-archived-face
   `((t :foreground ,(face-attribute 'ansi-color-cyan :foreground)
        :weight bold))
   "Face for displaying archived words in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-hint-face
+(defface decklite-edit-hint-face
   `((t :inherit shadow))
   "Face for displaying the hint in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-added-face
+(defface decklite-edit-added-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)))
   "Face for displaying added timestamps in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-last-review-face
+(defface decklite-edit-last-review-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-cyan :foreground)))
   "Face for displaying last review timestamps in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-due-face
+(defface decklite-edit-due-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-green :foreground)))
   "Face for displaying due timestamps in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-state-face
+(defface decklite-edit-state-face
   `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)))
   "Face for displaying state values in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-stability-face
+(defface decklite-edit-stability-face
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
   "Face for displaying stability values in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-difficulty-face
+(defface decklite-edit-difficulty-face
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
   "Face for displaying difficulty values in edit lists."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defface mnemodeck-edit-mark-face
+(defface decklite-edit-mark-face
   '((((background dark)) (:background "DarkGoldenrod4"))
     (t (:background "LightYellow1")))
   "Face for marked rows in the edit table."
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
 ;; Hooks
 
-(defcustom mnemodeck-edit-start-hook nil
-  "Hook run when mnemodeck edit session starts."
+(defcustom decklite-edit-start-hook nil
+  "Hook run when decklite edit session starts."
   :type 'hook
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
-(defcustom mnemodeck-edit-quit-hook nil
-  "Hook run when mnemodeck edit session quits."
+(defcustom decklite-edit-quit-hook nil
+  "Hook run when decklite edit session quits."
   :type 'hook
-  :group 'mnemodeck-edit)
+  :group 'decklite-edit)
 
 ;; Internal
 
-(defvar mnemodeck-edit-buffer-name "*MnemoDeck Edit*"
+(defvar decklite-edit-buffer-name "*DeckLite Edit*"
   "Name of the buffer used for card editing.")
 
-(defvar mnemodeck-edit--marked (make-hash-table :test 'equal)
+(defvar decklite-edit--marked (make-hash-table :test 'equal)
   "Hash table of marked words in the edit view.")
 
-(defvar mnemodeck-edit--mark-overlays (make-hash-table :test 'equal)
+(defvar decklite-edit--mark-overlays (make-hash-table :test 'equal)
   "Hash table of word -> overlay for marked rows.")
 
-(defvar mnemodeck-edit--filter 'all
+(defvar decklite-edit--filter 'all
   "Current filter for the edit table.
 One of: all, review, learning, archived.")
 
-(defconst mnemodeck-edit--columns
+(defconst decklite-edit--columns
   '("Word" "Hint" "Added" "Last Review" "Due" "State" "Stability" "Difficulty")
   "Column names for the edit table.")
 
-(defconst mnemodeck-edit--numeric-columns
+(defconst decklite-edit--numeric-columns
   '("Stability" "Difficulty")
   "Columns that should be sorted numerically.")
 
-(defconst mnemodeck-edit--time-sort-columns
+(defconst decklite-edit--time-sort-columns
   '("Added" "Last Review" "Due")
   "Columns that default to descending order when sorting.")
 
-(defconst mnemodeck-edit--column-indices
+(defconst decklite-edit--column-indices
   (let ((index 0)
         (table nil))
-    (dolist (name mnemodeck-edit--columns (nreverse table))
+    (dolist (name decklite-edit--columns (nreverse table))
       (push (cons name index) table)
       (setq index (1+ index))))
   "Alist mapping edit table column names to indices.")
 
 ;; Edit table formatting and sorting
 
-(defun mnemodeck--parse-iso-date (date-string)
+(defun decklite--parse-iso-date (date-string)
   "Parse DATE-STRING as ISO 8601 date to internal time format."
   (when date-string
     (if (fboundp 'parse-iso8601-time-string)
         (parse-iso8601-time-string date-string)
       (encode-time (parse-time-string date-string)))))
 
-(defun mnemodeck-edit--format-timestamp (timestamp)
+(defun decklite-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."
   (if (string-empty-p (or timestamp ""))
       ""
     (format-time-string "%Y-%m-%d %H:%M"
-                        (mnemodeck--parse-iso-date timestamp))))
+                        (decklite--parse-iso-date timestamp))))
 
-(defun mnemodeck-edit--entry-sort-string (entry column)
+(defun decklite-edit--entry-sort-string (entry column)
   "Return sortable string for ENTRY at COLUMN."
   (let* ((cell (aref (cadr entry) column))
-         (value (or (get-text-property 0 'mnemodeck-sort-key cell)
+         (value (or (get-text-property 0 'decklite-sort-key cell)
                     (and (stringp cell) (substring-no-properties cell))
                     "")))
     (if (stringp value) value (format "%s" value))))
 
-(defun mnemodeck-edit--entry-sort-number (entry column)
+(defun decklite-edit--entry-sort-number (entry column)
   "Return sortable number for ENTRY at COLUMN."
   (let* ((cell (aref (cadr entry) column))
-         (value (or (get-text-property 0 'mnemodeck-sort-number cell)
+         (value (or (get-text-property 0 'decklite-sort-number cell)
                     (and (stringp cell) (substring-no-properties cell))
                     "")))
     (if (numberp value) value (string-to-number value))))
 
-(defun mnemodeck-edit--restore-position (line win-line)
+(defun decklite-edit--restore-position (line win-line)
   "Restore edit-buffer position using LINE and WIN-LINE.
 LINE is the 1-based buffer line number to move point to.
 WIN-LINE is the point's screen-line offset from window start, used by
@@ -166,7 +166,7 @@ WIN-LINE is the point's screen-line offset from window start, used by
   (when (and win-line (numberp win-line))
     (recenter win-line)))
 
-(defun mnemodeck-edit--nearest-surviving-word (deleted-words)
+(defun decklite-edit--nearest-surviving-word (deleted-words)
   "Return the nearest table word not listed in DELETED-WORDS.
 If multiple words are equally near point, prefer a following line."
   (let* ((origin-line (line-number-at-pos))
@@ -192,7 +192,7 @@ If multiple words are equally near point, prefer a following line."
         (forward-line 1)))
     best-word))
 
-(defun mnemodeck-edit--line-of-word (word)
+(defun decklite-edit--line-of-word (word)
   "Return line number of WORD in current edit table, or nil if not found."
   (when word
     (save-excursion
@@ -205,18 +205,18 @@ If multiple words are equally near point, prefer a following line."
           (forward-line 1))
         line))))
 
-(defmacro mnemodeck-edit--column-sorter (column)
+(defmacro decklite-edit--column-sorter (column)
   "Return a sorter lambda for COLUMN."
   `(lambda (a b)
-     (let ((index (or (alist-get ,column mnemodeck-edit--column-indices nil nil #'string=)
+     (let ((index (or (alist-get ,column decklite-edit--column-indices nil nil #'string=)
                       (error "Unknown column: %s" ,column))))
-       (if (member ,column mnemodeck-edit--numeric-columns)
-           (< (mnemodeck-edit--entry-sort-number a index)
-              (mnemodeck-edit--entry-sort-number b index))
-         (string< (mnemodeck-edit--entry-sort-string a index)
-                  (mnemodeck-edit--entry-sort-string b index))))))
+       (if (member ,column decklite-edit--numeric-columns)
+           (< (decklite-edit--entry-sort-number a index)
+              (decklite-edit--entry-sort-number b index))
+         (string< (decklite-edit--entry-sort-string a index)
+                  (decklite-edit--entry-sort-string b index))))))
 
-(defmacro mnemodeck-edit--column-sort-command (column)
+(defmacro decklite-edit--column-sort-command (column)
   "Return an interactive command to sort by COLUMN."
   `(lambda ()
      (interactive)
@@ -227,12 +227,12 @@ If multiple words are equally near point, prefer a following line."
             ;; Force DESC to be a strict boolean so sort key cdr is t/nil.
             (descending (if (equal current ,column)
                             (not (cdr tabulated-list-sort-key))
-                          (not (null (member ,column mnemodeck-edit--time-sort-columns))))))
+                          (not (null (member ,column decklite-edit--time-sort-columns))))))
        ;; Update the global sort key and immediately redraw the table.
        (setq tabulated-list-sort-key
              (cons ,column
                    descending))
-       (mnemodeck-edit-refresh)
+       (decklite-edit-refresh)
        ;; Report the selected column and direction for quick feedback.
        (message "Sort: %s (%s)"
                 ,column
@@ -240,10 +240,10 @@ If multiple words are equally near point, prefer a following line."
 
 ;; Lightweight ratings from the edit table
 
-(defun mnemodeck-edit--ensure-not-current (words)
+(defun decklite-edit--ensure-not-current (words)
   "Signal an error if WORDS include the current review word.
 WORDS can be a single word string or a list of words."
-  (let ((current mnemodeck-current-word))
+  (let ((current decklite-current-word))
     (when (and current
                (if (listp words)
                    (seq-find (lambda (word)
@@ -252,7 +252,7 @@ WORDS can be a single word string or a list of words."
                  (string-equal words current)))
       (user-error "Current review word \"%s\" can only be modified in review mode" current))))
 
-(defun mnemodeck-edit-rate-card ()
+(defun decklite-edit-rate-card ()
   "Rate the card at point, regardless of its current state."
   (interactive)
   (let* ((word (or (tabulated-list-get-id)
@@ -267,25 +267,25 @@ WORDS can be a single word string or a list of words."
                          ": "))
          (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
          (label (alist-get grade grade-options "" nil #'=)))
-    (mnemodeck-edit--ensure-not-current word)
-    (when (eq mnemodeck-edit--filter 'archived)
-      (mnemodeck-unarchive-card word))
-    (mnemodeck-rate-card word grade)
-    (mnemodeck-edit-refresh)
-    (mnemodeck-edit--restore-position line win-line)
+    (decklite-edit--ensure-not-current word)
+    (when (eq decklite-edit--filter 'archived)
+      (decklite-unarchive-card word))
+    (decklite-rate-card word grade)
+    (decklite-edit-refresh)
+    (decklite-edit--restore-position line win-line)
     (message "Rated \"%s\" as %s" word label)))
 
 ;; Edit table mode and commands
 
-(defun mnemodeck-edit--entries ()
+(defun decklite-edit--entries ()
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
      (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint) row))
-       (let* ((state (mnemodeck--normalize-fsrs-state state))
-              (word-face (if (eq mnemodeck-edit--filter 'archived)
-                             'mnemodeck-edit-word-archived-face
-                           'mnemodeck-edit-word-face))
+       (let* ((state (decklite--normalize-fsrs-state state))
+              (word-face (if (eq decklite-edit--filter 'archived)
+                             'decklite-edit-word-archived-face
+                           'decklite-edit-word-face))
               (hint (if hint
                         (replace-regexp-in-string "[\r\n]+" " ↵ " hint nil 'literal)
                       ""))
@@ -295,148 +295,148 @@ WORDS can be a single word string or a list of words."
          (list word
                (vector
                 (propertize word 'face word-face)
-                (propertize hint 'face 'mnemodeck-edit-hint-face)
-                (propertize (mnemodeck-edit--format-timestamp added)
-                            'face 'mnemodeck-edit-added-face
-                            'mnemodeck-sort-key added)
-                (propertize (mnemodeck-edit--format-timestamp last-review)
-                            'face 'mnemodeck-edit-last-review-face
-                            'mnemodeck-sort-key last-review)
-                (propertize (mnemodeck-edit--format-timestamp due)
-                            'face 'mnemodeck-edit-due-face
-                            'mnemodeck-sort-key due)
-                (propertize (or (mnemodeck--fsrs-state-string state) "")
-                            'face 'mnemodeck-edit-state-face)
+                (propertize hint 'face 'decklite-edit-hint-face)
+                (propertize (decklite-edit--format-timestamp added)
+                            'face 'decklite-edit-added-face
+                            'decklite-sort-key added)
+                (propertize (decklite-edit--format-timestamp last-review)
+                            'face 'decklite-edit-last-review-face
+                            'decklite-sort-key last-review)
+                (propertize (decklite-edit--format-timestamp due)
+                            'face 'decklite-edit-due-face
+                            'decklite-sort-key due)
+                (propertize (or (decklite--fsrs-state-string state) "")
+                            'face 'decklite-edit-state-face)
                 (propertize (if stability (format "%.3f" stability) "")
-                            'face 'mnemodeck-edit-stability-face
-                            'mnemodeck-sort-number (or stability 0))
+                            'face 'decklite-edit-stability-face
+                            'decklite-sort-number (or stability 0))
                 (propertize (if difficulty (format "%.3f" difficulty) "")
-                            'face 'mnemodeck-edit-difficulty-face
-                            'mnemodeck-sort-number (or difficulty 0)))))))
-   (mnemodeck-db--select-cards mnemodeck-edit--filter tabulated-list-sort-key)))
+                            'face 'decklite-edit-difficulty-face
+                            'decklite-sort-number (or difficulty 0)))))))
+   (decklite-db--select-cards decklite-edit--filter tabulated-list-sort-key)))
 
-(defun mnemodeck-edit-refresh ()
+(defun decklite-edit-refresh ()
   "Refresh the card list buffer."
   (interactive)
-  (setq tabulated-list-entries (delq nil (mnemodeck-edit--entries)))
+  (setq tabulated-list-entries (delq nil (decklite-edit--entries)))
   (tabulated-list-print t)
-  (mnemodeck-edit--apply-marks))
+  (decklite-edit--apply-marks))
 
-(defun mnemodeck-edit--apply-marks ()
+(defun decklite-edit--apply-marks ()
   "Apply marked-row faces to the edit buffer."
-  (mnemodeck-edit--clear-mark-overlays)
+  (decklite-edit--clear-mark-overlays)
   (save-excursion
     (goto-char (point-min))
     (forward-line 1)
     (while (not (eobp))
       (let ((word (tabulated-list-get-id)))
-        (when (and word (gethash word mnemodeck-edit--marked))
-          (mnemodeck-edit--add-mark-overlay word)))
+        (when (and word (gethash word decklite-edit--marked))
+          (decklite-edit--add-mark-overlay word)))
       (forward-line 1))))
 
-(defun mnemodeck-edit--marked-words ()
+(defun decklite-edit--marked-words ()
   "Return a list of marked words."
   (let (words)
-    (maphash (lambda (word _value) (push word words)) mnemodeck-edit--marked)
+    (maphash (lambda (word _value) (push word words)) decklite-edit--marked)
     (nreverse words)))
 
-(defun mnemodeck-edit--clear-marks ()
+(defun decklite-edit--clear-marks ()
   "Clear all mark in the edit view."
-  (clrhash mnemodeck-edit--marked))
+  (clrhash decklite-edit--marked))
 
-(defun mnemodeck-edit--clear-mark-overlays ()
+(defun decklite-edit--clear-mark-overlays ()
   "Remove all mark overlays in the edit view."
   (maphash (lambda (_word ov)
              (when (overlayp ov)
                (delete-overlay ov)))
-           mnemodeck-edit--mark-overlays)
-  (clrhash mnemodeck-edit--mark-overlays))
+           decklite-edit--mark-overlays)
+  (clrhash decklite-edit--mark-overlays))
 
-(defun mnemodeck-edit--add-mark-overlay (word)
+(defun decklite-edit--add-mark-overlay (word)
   "Add a mark overlay for WORD on the current line."
   (let ((ov (make-overlay (line-beginning-position) (line-end-position))))
-    (overlay-put ov 'face 'mnemodeck-edit-mark-face)
-    (overlay-put ov 'mnemodeck-edit-mark t)
-    (puthash word ov mnemodeck-edit--mark-overlays)))
+    (overlay-put ov 'face 'decklite-edit-mark-face)
+    (overlay-put ov 'decklite-edit-mark t)
+    (puthash word ov decklite-edit--mark-overlays)))
 
-(defun mnemodeck-edit-mark ()
+(defun decklite-edit-mark ()
   "Mark the card at point and move to the next line."
   (interactive)
   (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
-    (puthash word t mnemodeck-edit--marked)
-    (mnemodeck-edit--add-mark-overlay word)
+    (puthash word t decklite-edit--marked)
+    (decklite-edit--add-mark-overlay word)
     (forward-line 1)))
 
-(defun mnemodeck-edit-unmark ()
+(defun decklite-edit-unmark ()
   "Unmark the card at point and move to the next line."
   (interactive)
   (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
-    (remhash word mnemodeck-edit--marked)
-    (when-let ((ov (gethash word mnemodeck-edit--mark-overlays)))
+    (remhash word decklite-edit--marked)
+    (when-let ((ov (gethash word decklite-edit--mark-overlays)))
       (delete-overlay ov)
-      (remhash word mnemodeck-edit--mark-overlays))
+      (remhash word decklite-edit--mark-overlays))
     (forward-line 1)))
 
-(defun mnemodeck-edit-unmark-all ()
+(defun decklite-edit-unmark-all ()
   "Clear all mark in the edit view."
   (interactive)
-  (mnemodeck-edit--clear-marks)
-  (mnemodeck-edit--clear-mark-overlays)
+  (decklite-edit--clear-marks)
+  (decklite-edit--clear-mark-overlays)
   (message "Cleared all marks"))
 
-(defun mnemodeck-edit-filter-review ()
+(defun decklite-edit-filter-review ()
   "Show only review cards in the edit table."
   (interactive)
-  (setq mnemodeck-edit--filter 'review)
-  (mnemodeck-edit-refresh)
+  (setq decklite-edit--filter 'review)
+  (decklite-edit-refresh)
   (message "Filter: review"))
 
-(defun mnemodeck-edit-filter-learning ()
+(defun decklite-edit-filter-learning ()
   "Show only learning cards in the edit table."
   (interactive)
-  (setq mnemodeck-edit--filter 'learning)
-  (mnemodeck-edit-refresh)
+  (setq decklite-edit--filter 'learning)
+  (decklite-edit-refresh)
   (message "Filter: learning"))
 
-(defun mnemodeck-edit-filter-toggle-archive ()
+(defun decklite-edit-filter-toggle-archive ()
   "Toggle between archived cards and all cards in the edit table."
   (interactive)
-  (setq mnemodeck-edit--filter
+  (setq decklite-edit--filter
         (cond
-         ((eq mnemodeck-edit--filter 'archived) 'all)
-         ((eq mnemodeck-edit--filter 'all) 'archived)
+         ((eq decklite-edit--filter 'archived) 'all)
+         ((eq decklite-edit--filter 'all) 'archived)
          (t 'all)))
-  (mnemodeck-edit-refresh)
-  (message "Filter: %s" mnemodeck-edit--filter))
+  (decklite-edit-refresh)
+  (message "Filter: %s" decklite-edit--filter))
 
-(defun mnemodeck-edit--edit-card-at-point (edit-word edit-hint)
+(defun decklite-edit--edit-card-at-point (edit-word edit-hint)
   "Edit the card at point using EDIT-WORD and EDIT-HINT flags."
   (let ((word (tabulated-list-get-id))
         (line (line-number-at-pos))
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (mnemodeck-edit--ensure-not-current word)
-    (setq word (mnemodeck-prompt-edit-card-fields word edit-word edit-hint))
-    (mnemodeck-edit-refresh)
-    (mnemodeck-edit--restore-position line win-line)
+    (decklite-edit--ensure-not-current word)
+    (setq word (decklite-prompt-edit-card-fields word edit-word edit-hint))
+    (decklite-edit-refresh)
+    (decklite-edit--restore-position line win-line)
     (message "Updated \"%s\"" word)))
 
-(defun mnemodeck-edit-word ()
+(defun decklite-edit-word ()
   "Edit the word at point."
   (interactive)
-  (mnemodeck-edit--edit-card-at-point t nil))
+  (decklite-edit--edit-card-at-point t nil))
 
-(defun mnemodeck-edit-hint ()
+(defun decklite-edit-hint ()
   "Edit the hint at point."
   (interactive)
-  (mnemodeck-edit--edit-card-at-point nil t))
+  (decklite-edit--edit-card-at-point nil t))
 
-(defun mnemodeck-edit-delete-card ()
+(defun decklite-edit-delete-card ()
   "Delete the card at point from the deck."
   (interactive)
   (let ((word (tabulated-list-get-id))
@@ -444,32 +444,32 @@ WORDS can be a single word string or a list of words."
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (mnemodeck-edit--ensure-not-current word)
+    (decklite-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Delete \"%s\" from the deck? " word))
-      (mnemodeck-delete-card word)
-      (mnemodeck-edit-refresh)
-      (mnemodeck-edit--restore-position line win-line)
+      (decklite-delete-card word)
+      (decklite-edit-refresh)
+      (decklite-edit--restore-position line win-line)
       (message "Deleted \"%s\"" word))))
 
-(defun mnemodeck-edit-delete ()
+(defun decklite-edit-delete ()
   "Delete marked cards, or the card at point."
   (interactive)
-  (let ((marked (mnemodeck-edit--marked-words)))
+  (let ((marked (decklite-edit--marked-words)))
     (if marked
         (let* ((win-line (count-screen-lines (window-start) (point)))
-               (target-word (mnemodeck-edit--nearest-surviving-word marked)))
-          (mnemodeck-edit--ensure-not-current marked)
+               (target-word (decklite-edit--nearest-surviving-word marked)))
+          (decklite-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "Delete %d marked cards? " (length marked)))
             (dolist (word marked)
-              (mnemodeck-delete-card word))
-            (mnemodeck-edit--clear-marks)
-            (mnemodeck-edit-refresh)
-            (when-let ((target-line (mnemodeck-edit--line-of-word target-word)))
-              (mnemodeck-edit--restore-position target-line win-line))
+              (decklite-delete-card word))
+            (decklite-edit--clear-marks)
+            (decklite-edit-refresh)
+            (when-let ((target-line (decklite-edit--line-of-word target-word)))
+              (decklite-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
-      (mnemodeck-edit-delete-card))))
+      (decklite-edit-delete-card))))
 
-(defun mnemodeck-edit-archive-card ()
+(defun decklite-edit-archive-card ()
   "Archive the card at point."
   (interactive)
   (let ((word (tabulated-list-get-id))
@@ -477,14 +477,14 @@ WORDS can be a single word string or a list of words."
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (mnemodeck-edit--ensure-not-current word)
+    (decklite-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Archive \"%s\" from review? " word))
-      (mnemodeck-archive-card word)
-      (mnemodeck-edit-refresh)
-      (mnemodeck-edit--restore-position line win-line)
+      (decklite-archive-card word)
+      (decklite-edit-refresh)
+      (decklite-edit--restore-position line win-line)
       (message "Archived \"%s\"" word))))
 
-(defun mnemodeck-edit-unarchive-card ()
+(defun decklite-edit-unarchive-card ()
   "Unarchive the card at point."
   (interactive)
   (let ((word (tabulated-list-get-id))
@@ -492,100 +492,100 @@ WORDS can be a single word string or a list of words."
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (mnemodeck-edit--ensure-not-current word)
-    (mnemodeck-unarchive-card word)
-    (mnemodeck-edit-refresh)
-    (mnemodeck-edit--restore-position line win-line)
+    (decklite-edit--ensure-not-current word)
+    (decklite-unarchive-card word)
+    (decklite-edit-refresh)
+    (decklite-edit--restore-position line win-line)
     (message "Unarchived \"%s\"" word)))
 
-(defun mnemodeck-edit-archive ()
+(defun decklite-edit-archive ()
   "Archive or unarchive marked cards, or the card at point."
   (interactive)
-  (let ((marked (mnemodeck-edit--marked-words)))
+  (let ((marked (decklite-edit--marked-words)))
     (if marked
-        (let* ((unarchive-p (eq mnemodeck-edit--filter 'archived))
+        (let* ((unarchive-p (eq decklite-edit--filter 'archived))
                (verb (if unarchive-p "Unarchive" "Archive"))
                (done-verb (if unarchive-p "Unarchived" "Archived"))
-               (action (if unarchive-p #'mnemodeck-unarchive-card #'mnemodeck-archive-card))
+               (action (if unarchive-p #'decklite-unarchive-card #'decklite-archive-card))
                (win-line (count-screen-lines (window-start) (point)))
-               (target-word (mnemodeck-edit--nearest-surviving-word marked)))
-          (mnemodeck-edit--ensure-not-current marked)
+               (target-word (decklite-edit--nearest-surviving-word marked)))
+          (decklite-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "%s %d marked cards? " verb (length marked)))
             (dolist (word marked)
               (funcall action word))
-            (mnemodeck-edit--clear-marks)
-            (mnemodeck-edit-refresh)
-            (when-let ((target-line (mnemodeck-edit--line-of-word target-word)))
-              (mnemodeck-edit--restore-position target-line win-line))
+            (decklite-edit--clear-marks)
+            (decklite-edit-refresh)
+            (when-let ((target-line (decklite-edit--line-of-word target-word)))
+              (decklite-edit--restore-position target-line win-line))
             (message "%s %d cards" done-verb (length marked))))
-      (if (eq mnemodeck-edit--filter 'archived)
-          (mnemodeck-edit-unarchive-card)
-        (mnemodeck-edit-archive-card)))))
+      (if (eq decklite-edit--filter 'archived)
+          (decklite-edit-unarchive-card)
+        (decklite-edit-archive-card)))))
 
 ;; Edit mode setup
 
 ;;;###autoload
-(defun mnemodeck-edit ()
+(defun decklite-edit ()
   "Open the card list for editing."
   (interactive)
-  (run-hooks 'mnemodeck-edit-start-hook)
-  (let ((buffer (get-buffer-create mnemodeck-edit-buffer-name)))
+  (run-hooks 'decklite-edit-start-hook)
+  (let ((buffer (get-buffer-create decklite-edit-buffer-name)))
     (with-current-buffer buffer
-      (mnemodeck-edit-mode)
-      (mnemodeck-edit-refresh))
+      (decklite-edit-mode)
+      (decklite-edit-refresh))
     (switch-to-buffer buffer)))
 
-(defun mnemodeck-edit-quit ()
+(defun decklite-edit-quit ()
   "Quit the edit buffer."
   (interactive)
-  (run-hooks 'mnemodeck-edit-quit-hook)
+  (run-hooks 'decklite-edit-quit-hook)
   (quit-window)
-  (mnemodeck-db--disconnect-if-idle))
+  (decklite-db--disconnect-if-idle))
 
 ;; Backup
-(add-hook 'mnemodeck-edit-start-hook #'mnemodeck-db-backup)
-(add-hook 'mnemodeck-edit-quit-hook #'mnemodeck-db-backup)
+(add-hook 'decklite-edit-start-hook #'decklite-db-backup)
+(add-hook 'decklite-edit-quit-hook #'decklite-db-backup)
 
-(defvar mnemodeck-edit-mode-map
+(defvar decklite-edit-mode-map
   (define-keymap
     :parent tabulated-list-mode-map
-    "e" #'mnemodeck-edit-word
-    "t" #'mnemodeck-edit-hint
-    "D" #'mnemodeck-edit-delete
-    "/ r" #'mnemodeck-edit-filter-review
-    "/ l" #'mnemodeck-edit-filter-learning
-    "/ a" #'mnemodeck-edit-filter-toggle-archive
-    "; w" (mnemodeck-edit--column-sort-command "Word")
-    "; a" (mnemodeck-edit--column-sort-command "Added")
-    "; l" (mnemodeck-edit--column-sort-command "Last Review")
-    "; d" (mnemodeck-edit--column-sort-command "Due")
-    "; s" (mnemodeck-edit--column-sort-command "Stability")
-    "; f" (mnemodeck-edit--column-sort-command "Difficulty")
-    "R" #'mnemodeck-edit-rate-card
-    "A" #'mnemodeck-edit-archive
-    "m" #'mnemodeck-edit-mark
-    "u" #'mnemodeck-edit-unmark
-    "U" #'mnemodeck-edit-unmark-all
-    "<remap> <tabulated-list-sort>" #'mnemodeck-edit-refresh
-    "g" #'mnemodeck-edit-refresh
-    "+" #'mnemodeck-add-card
-    "q" #'mnemodeck-edit-quit)
-  "Keymap for `mnemodeck-edit-mode'.")
+    "e" #'decklite-edit-word
+    "t" #'decklite-edit-hint
+    "D" #'decklite-edit-delete
+    "/ r" #'decklite-edit-filter-review
+    "/ l" #'decklite-edit-filter-learning
+    "/ a" #'decklite-edit-filter-toggle-archive
+    "; w" (decklite-edit--column-sort-command "Word")
+    "; a" (decklite-edit--column-sort-command "Added")
+    "; l" (decklite-edit--column-sort-command "Last Review")
+    "; d" (decklite-edit--column-sort-command "Due")
+    "; s" (decklite-edit--column-sort-command "Stability")
+    "; f" (decklite-edit--column-sort-command "Difficulty")
+    "R" #'decklite-edit-rate-card
+    "A" #'decklite-edit-archive
+    "m" #'decklite-edit-mark
+    "u" #'decklite-edit-unmark
+    "U" #'decklite-edit-unmark-all
+    "<remap> <tabulated-list-sort>" #'decklite-edit-refresh
+    "g" #'decklite-edit-refresh
+    "+" #'decklite-add-card
+    "q" #'decklite-edit-quit)
+  "Keymap for `decklite-edit-mode'.")
 
-(define-derived-mode mnemodeck-edit-mode tabulated-list-mode "MnemoDeck-Edit"
-  "Major mode for listing and editing MnemoDeck cards."
+(define-derived-mode decklite-edit-mode tabulated-list-mode "DeckLite-Edit"
+  "Major mode for listing and editing DeckLite cards."
   (setq tabulated-list-format
         (vector
-         (list "Word" 24 (mnemodeck-edit--column-sorter "Word"))
+         (list "Word" 24 (decklite-edit--column-sorter "Word"))
          (list "Hint" 40 t)
-         (list "Added" 20 (mnemodeck-edit--column-sorter "Added"))
-         (list "Last Review" 20 (mnemodeck-edit--column-sorter "Last Review"))
-         (list "Due" 20 (mnemodeck-edit--column-sorter "Due"))
+         (list "Added" 20 (decklite-edit--column-sorter "Added"))
+         (list "Last Review" 20 (decklite-edit--column-sorter "Last Review"))
+         (list "Due" 20 (decklite-edit--column-sorter "Due"))
          (list "State" 10 t)
-         (list "Stability" 10 (mnemodeck-edit--column-sorter "Stability"))
-         (list "Difficulty" 10 (mnemodeck-edit--column-sorter "Difficulty"))))
+         (list "Stability" 10 (decklite-edit--column-sorter "Stability"))
+         (list "Difficulty" 10 (decklite-edit--column-sorter "Difficulty"))))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header))
 
-(provide 'mnemodeck-edit)
-;;; mnemodeck-edit.el ends here
+(provide 'decklite-edit)
+;;; decklite-edit.el ends here

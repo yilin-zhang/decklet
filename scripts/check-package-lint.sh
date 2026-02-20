@@ -39,16 +39,16 @@ emacs --batch \
             (package-initialize)
             (unless (assq 'fsrs package-archive-contents)
               (package-refresh-contents))
-            ;; Lint as a multi-file package with mnemodeck.el as canonical main file.
-            (setq package-lint-main-file \"mnemodeck.el\"))" \
+            ;; Lint as a multi-file package with decklite.el as canonical main file.
+            (setq package-lint-main-file \"decklite.el\"))" \
   -f package-lint-batch-and-exit \
-  mnemodeck.el \
-  mnemodeck-core.el \
-  mnemodeck-schedular.el \
-  mnemodeck-db.el \
-  mnemodeck-deck.el \
-  mnemodeck-edit.el \
-  mnemodeck-review.el \
-  mnemodeck-dictionary.el \
-  mnemodeck-calendar.el \
-  mnemodeck-import.el
+  decklite.el \
+  decklite-core.el \
+  decklite-schedular.el \
+  decklite-db.el \
+  decklite-deck.el \
+  decklite-edit.el \
+  decklite-review.el \
+  decklite-dictionary.el \
+  decklite-calendar.el \
+  decklite-import.el

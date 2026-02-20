@@ -1,11 +1,11 @@
-;;; mnemodeck.el --- Spaced repetition system for language learning -*- lexical-binding: t; -*-
+;;; decklite.el --- Spaced repetition system for language learning -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026
 
 ;; Author: Yilin Zhang
 ;; Keywords: tools
 ;; Version: 0.1.0
-;; URL: https://github.com/yilin-zhang/mnemodeck
+;; URL: https://github.com/yilin-zhang/decklite
 ;; Package-Requires: ((emacs "30.1") (fsrs "6.0"))
 
 ;; This file is not part of GNU Emacs.
@@ -25,21 +25,21 @@
 
 ;;; Commentary:
 
-;; MnemoDeck is a spaced repetition tool for language learners to build
+;; DeckLite is a spaced repetition tool for language learners to build
 ;; vocabulary without much card-construction overhead.  It builds on top of FSRS
 ;; scheduling, and gives you enough control to shape the workflow inside Emacs.
 
 ;;; Code:
 
-(require 'mnemodeck-core)
-(require 'mnemodeck-schedular)
-(require 'mnemodeck-db)
-(require 'mnemodeck-deck)
-(require 'mnemodeck-edit)
-(require 'mnemodeck-review)
-(require 'mnemodeck-dictionary)
-(require 'mnemodeck-calendar)
-(require 'mnemodeck-import)
+(require 'decklite-core)
+(require 'decklite-schedular)
+(require 'decklite-db)
+(require 'decklite-deck)
+(require 'decklite-edit)
+(require 'decklite-review)
+(require 'decklite-dictionary)
+(require 'decklite-calendar)
+(require 'decklite-import)
 
-(provide 'mnemodeck)
-;;; mnemodeck.el ends here
+(provide 'decklite)
+;;; decklite.el ends here
