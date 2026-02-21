@@ -6,6 +6,6 @@ cd "$REPO_ROOT"
 
 emacs --batch --eval "(progn
   (require 'checkdoc)
-  (unless (checkdoc-file \"decklite.el\")
+  (unless (checkdoc-file \"decklet.el\")
     (princ \"checkdoc failed\\n\")
     (kill-emacs 1)))"

@@ -6,10 +6,10 @@ cd "$REPO_ROOT"
 FSRS_DIR="$(./scripts/check-deps.sh)"
 
 echo "[1/5] Check parentheses"
-emacs --batch --eval '(with-temp-buffer (insert-file-contents "decklite.el") (check-parens))'
+emacs --batch --eval '(with-temp-buffer (insert-file-contents "decklet.el") (check-parens))'
 
 echo "[2/5] Byte compile"
-emacs --batch -L "$FSRS_DIR" -L . -f batch-byte-compile decklite.el
+emacs --batch -L "$FSRS_DIR" -L . -f batch-byte-compile decklet.el
 
 echo "[3/5] Remove generated .elc"
 find . -name '*.elc' -delete

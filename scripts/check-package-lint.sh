@@ -39,16 +39,16 @@ emacs --batch \
             (package-initialize)
             (unless (assq 'fsrs package-archive-contents)
               (package-refresh-contents))
-            ;; Lint as a multi-file package with decklite.el as canonical main file.
-            (setq package-lint-main-file \"decklite.el\"))" \
+            ;; Lint as a multi-file package with decklet.el as canonical main file.
+            (setq package-lint-main-file \"decklet.el\"))" \
   -f package-lint-batch-and-exit \
-  decklite.el \
-  decklite-core.el \
-  decklite-schedular.el \
-  decklite-db.el \
-  decklite-deck.el \
-  decklite-edit.el \
-  decklite-review.el \
-  decklite-dictionary.el \
-  decklite-calendar.el \
-  decklite-import.el
+  decklet.el \
+  decklet-core.el \
+  decklet-schedular.el \
+  decklet-db.el \
+  decklet-deck.el \
+  decklet-edit.el \
+  decklet-review.el \
+  decklet-dictionary.el \
+  decklet-calendar.el \
+  decklet-import.el

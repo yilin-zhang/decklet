@@ -1,4 +1,4 @@
-;;; decklite-edit.el --- Edit mode for DeckLite -*- lexical-binding: t; -*-
+;;; decklet-edit.el --- Edit mode for Decklet -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026
 
@@ -13,149 +13,149 @@
 (require 'seq)
 (require 'tabulated-list)
 
-(require 'decklite-schedular)
-(require 'decklite-db)
-(require 'decklite-deck)
+(require 'decklet-schedular)
+(require 'decklet-db)
+(require 'decklet-deck)
 
-(defgroup decklite-edit nil
-  "Edit mode for DeckLite."
-  :group 'decklite)
+(defgroup decklet-edit nil
+  "Edit mode for Decklet."
+  :group 'decklet)
 
 ;; Faces
 
-(defface decklite-edit-word-face
+(defface decklet-edit-word-face
   `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
        :weight bold))
   "Face for displaying the word in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-word-archived-face
+(defface decklet-edit-word-archived-face
   `((t :foreground ,(face-attribute 'ansi-color-cyan :foreground)
        :weight bold))
   "Face for displaying archived words in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-hint-face
+(defface decklet-edit-hint-face
   `((t :inherit shadow))
   "Face for displaying the hint in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-added-face
+(defface decklet-edit-added-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)))
   "Face for displaying added timestamps in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-last-review-face
+(defface decklet-edit-last-review-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-cyan :foreground)))
   "Face for displaying last review timestamps in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-due-face
+(defface decklet-edit-due-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-green :foreground)))
   "Face for displaying due timestamps in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-state-face
+(defface decklet-edit-state-face
   `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)))
   "Face for displaying state values in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-stability-face
+(defface decklet-edit-stability-face
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
   "Face for displaying stability values in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-difficulty-face
+(defface decklet-edit-difficulty-face
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
   "Face for displaying difficulty values in edit lists."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defface decklite-edit-mark-face
+(defface decklet-edit-mark-face
   '((((background dark)) (:background "DarkGoldenrod4"))
     (t (:background "LightYellow1")))
   "Face for marked rows in the edit table."
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
 ;; Hooks
 
-(defcustom decklite-edit-start-hook nil
-  "Hook run when decklite edit session starts."
+(defcustom decklet-edit-start-hook nil
+  "Hook run when decklet edit session starts."
   :type 'hook
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
-(defcustom decklite-edit-quit-hook nil
-  "Hook run when decklite edit session quits."
+(defcustom decklet-edit-quit-hook nil
+  "Hook run when decklet edit session quits."
   :type 'hook
-  :group 'decklite-edit)
+  :group 'decklet-edit)
 
 ;; Internal
 
-(defvar decklite-edit-buffer-name "*DeckLite Edit*"
+(defvar decklet-edit-buffer-name "*Decklet Edit*"
   "Name of the buffer used for card editing.")
 
-(defvar decklite-edit--marked (make-hash-table :test 'equal)
+(defvar decklet-edit--marked (make-hash-table :test 'equal)
   "Hash table of marked words in the edit view.")
 
-(defvar decklite-edit--mark-overlays (make-hash-table :test 'equal)
+(defvar decklet-edit--mark-overlays (make-hash-table :test 'equal)
   "Hash table of word -> overlay for marked rows.")
 
-(defvar decklite-edit--filter 'all
+(defvar decklet-edit--filter 'all
   "Current filter for the edit table.
 One of: all, review, learning, archived.")
 
-(defconst decklite-edit--columns
+(defconst decklet-edit--columns
   '("Word" "Hint" "Added" "Last Review" "Due" "State" "Stability" "Difficulty")
   "Column names for the edit table.")
 
-(defconst decklite-edit--numeric-columns
+(defconst decklet-edit--numeric-columns
   '("Stability" "Difficulty")
   "Columns that should be sorted numerically.")
 
-(defconst decklite-edit--time-sort-columns
+(defconst decklet-edit--time-sort-columns
   '("Added" "Last Review" "Due")
   "Columns that default to descending order when sorting.")
 
-(defconst decklite-edit--column-indices
+(defconst decklet-edit--column-indices
   (let ((index 0)
         (table nil))
-    (dolist (name decklite-edit--columns (nreverse table))
+    (dolist (name decklet-edit--columns (nreverse table))
       (push (cons name index) table)
       (setq index (1+ index))))
   "Alist mapping edit table column names to indices.")
 
 ;; Edit table formatting and sorting
 
-(defun decklite--parse-iso-date (date-string)
+(defun decklet--parse-iso-date (date-string)
   "Parse DATE-STRING as ISO 8601 date to internal time format."
   (when date-string
     (if (fboundp 'parse-iso8601-time-string)
         (parse-iso8601-time-string date-string)
       (encode-time (parse-time-string date-string)))))
 
-(defun decklite-edit--format-timestamp (timestamp)
+(defun decklet-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."
   (if (string-empty-p (or timestamp ""))
       ""
     (format-time-string "%Y-%m-%d %H:%M"
-                        (decklite--parse-iso-date timestamp))))
+                        (decklet--parse-iso-date timestamp))))
 
-(defun decklite-edit--entry-sort-string (entry column)
+(defun decklet-edit--entry-sort-string (entry column)
   "Return sortable string for ENTRY at COLUMN."
   (let* ((cell (aref (cadr entry) column))
-         (value (or (get-text-property 0 'decklite-sort-key cell)
+         (value (or (get-text-property 0 'decklet-sort-key cell)
                     (and (stringp cell) (substring-no-properties cell))
                     "")))
     (if (stringp value) value (format "%s" value))))
 
-(defun decklite-edit--entry-sort-number (entry column)
+(defun decklet-edit--entry-sort-number (entry column)
   "Return sortable number for ENTRY at COLUMN."
   (let* ((cell (aref (cadr entry) column))
-         (value (or (get-text-property 0 'decklite-sort-number cell)
+         (value (or (get-text-property 0 'decklet-sort-number cell)
                     (and (stringp cell) (substring-no-properties cell))
                     "")))
     (if (numberp value) value (string-to-number value))))
 
-(defun decklite-edit--restore-position (line win-line)
+(defun decklet-edit--restore-position (line win-line)
   "Restore edit-buffer position using LINE and WIN-LINE.
 LINE is the 1-based buffer line number to move point to.
 WIN-LINE is the point's screen-line offset from window start, used by
@@ -166,7 +166,7 @@ WIN-LINE is the point's screen-line offset from window start, used by
   (when (and win-line (numberp win-line))
     (recenter win-line)))
 
-(defun decklite-edit--nearest-surviving-word (deleted-words)
+(defun decklet-edit--nearest-surviving-word (deleted-words)
   "Return the nearest table word not listed in DELETED-WORDS.
 If multiple words are equally near point, prefer a following line."
   (let* ((origin-line (line-number-at-pos))
@@ -192,7 +192,7 @@ If multiple words are equally near point, prefer a following line."
         (forward-line 1)))
     best-word))
 
-(defun decklite-edit--line-of-word (word)
+(defun decklet-edit--line-of-word (word)
   "Return line number of WORD in current edit table, or nil if not found."
   (when word
     (save-excursion
@@ -205,18 +205,18 @@ If multiple words are equally near point, prefer a following line."
           (forward-line 1))
         line))))
 
-(defmacro decklite-edit--column-sorter (column)
+(defmacro decklet-edit--column-sorter (column)
   "Return a sorter lambda for COLUMN."
   `(lambda (a b)
-     (let ((index (or (alist-get ,column decklite-edit--column-indices nil nil #'string=)
+     (let ((index (or (alist-get ,column decklet-edit--column-indices nil nil #'string=)
                       (error "Unknown column: %s" ,column))))
-       (if (member ,column decklite-edit--numeric-columns)
-           (< (decklite-edit--entry-sort-number a index)
-              (decklite-edit--entry-sort-number b index))
-         (string< (decklite-edit--entry-sort-string a index)
-                  (decklite-edit--entry-sort-string b index))))))
+       (if (member ,column decklet-edit--numeric-columns)
+           (< (decklet-edit--entry-sort-number a index)
+              (decklet-edit--entry-sort-number b index))
+         (string< (decklet-edit--entry-sort-string a index)
+                  (decklet-edit--entry-sort-string b index))))))
 
-(defmacro decklite-edit--column-sort-command (column)
+(defmacro decklet-edit--column-sort-command (column)
   "Return an interactive command to sort by COLUMN."
   `(lambda ()
      (interactive)
@@ -227,12 +227,12 @@ If multiple words are equally near point, prefer a following line."
             ;; Force DESC to be a strict boolean so sort key cdr is t/nil.
             (descending (if (equal current ,column)
                             (not (cdr tabulated-list-sort-key))
-                          (not (null (member ,column decklite-edit--time-sort-columns))))))
+                          (not (null (member ,column decklet-edit--time-sort-columns))))))
        ;; Update the global sort key and immediately redraw the table.
        (setq tabulated-list-sort-key
              (cons ,column
                    descending))
-       (decklite-edit-refresh)
+       (decklet-edit-refresh)
        ;; Report the selected column and direction for quick feedback.
        (message "Sort: %s (%s)"
                 ,column
@@ -240,10 +240,10 @@ If multiple words are equally near point, prefer a following line."
 
 ;; Lightweight ratings from the edit table
 
-(defun decklite-edit--ensure-not-current (words)
+(defun decklet-edit--ensure-not-current (words)
   "Signal an error if WORDS include the current review word.
 WORDS can be a single word string or a list of words."
-  (let ((current decklite-current-word))
+  (let ((current decklet-current-word))
     (when (and current
                (if (listp words)
                    (seq-find (lambda (word)
@@ -252,7 +252,7 @@ WORDS can be a single word string or a list of words."
                  (string-equal words current)))
       (user-error "Current review word \"%s\" can only be modified in review mode" current))))
 
-(defun decklite-edit-rate-card ()
+(defun decklet-edit-rate-card ()
   "Rate the card at point, regardless of its current state."
   (interactive)
   (let* ((word (or (tabulated-list-get-id)
@@ -267,25 +267,25 @@ WORDS can be a single word string or a list of words."
                          ": "))
          (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
          (label (alist-get grade grade-options "" nil #'=)))
-    (decklite-edit--ensure-not-current word)
-    (when (eq decklite-edit--filter 'archived)
-      (decklite-unarchive-card word))
-    (decklite-rate-card word grade)
-    (decklite-edit-refresh)
-    (decklite-edit--restore-position line win-line)
+    (decklet-edit--ensure-not-current word)
+    (when (eq decklet-edit--filter 'archived)
+      (decklet-unarchive-card word))
+    (decklet-rate-card word grade)
+    (decklet-edit-refresh)
+    (decklet-edit--restore-position line win-line)
     (message "Rated \"%s\" as %s" word label)))
 
 ;; Edit table mode and commands
 
-(defun decklite-edit--entries ()
+(defun decklet-edit--entries ()
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
      (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint) row))
-       (let* ((state (decklite--normalize-fsrs-state state))
-              (word-face (if (eq decklite-edit--filter 'archived)
-                             'decklite-edit-word-archived-face
-                           'decklite-edit-word-face))
+       (let* ((state (decklet--normalize-fsrs-state state))
+              (word-face (if (eq decklet-edit--filter 'archived)
+                             'decklet-edit-word-archived-face
+                           'decklet-edit-word-face))
               (hint (if hint
                         (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
                       ""))
@@ -295,148 +295,148 @@ WORDS can be a single word string or a list of words."
          (list word
                (vector
                 (propertize word 'face word-face)
-                (propertize hint 'face 'decklite-edit-hint-face)
-                (propertize (decklite-edit--format-timestamp added)
-                            'face 'decklite-edit-added-face
-                            'decklite-sort-key added)
-                (propertize (decklite-edit--format-timestamp last-review)
-                            'face 'decklite-edit-last-review-face
-                            'decklite-sort-key last-review)
-                (propertize (decklite-edit--format-timestamp due)
-                            'face 'decklite-edit-due-face
-                            'decklite-sort-key due)
-                (propertize (or (decklite--fsrs-state-string state) "")
-                            'face 'decklite-edit-state-face)
+                (propertize hint 'face 'decklet-edit-hint-face)
+                (propertize (decklet-edit--format-timestamp added)
+                            'face 'decklet-edit-added-face
+                            'decklet-sort-key added)
+                (propertize (decklet-edit--format-timestamp last-review)
+                            'face 'decklet-edit-last-review-face
+                            'decklet-sort-key last-review)
+                (propertize (decklet-edit--format-timestamp due)
+                            'face 'decklet-edit-due-face
+                            'decklet-sort-key due)
+                (propertize (or (decklet--fsrs-state-string state) "")
+                            'face 'decklet-edit-state-face)
                 (propertize (if stability (format "%.3f" stability) "")
-                            'face 'decklite-edit-stability-face
-                            'decklite-sort-number (or stability 0))
+                            'face 'decklet-edit-stability-face
+                            'decklet-sort-number (or stability 0))
                 (propertize (if difficulty (format "%.3f" difficulty) "")
-                            'face 'decklite-edit-difficulty-face
-                            'decklite-sort-number (or difficulty 0)))))))
-   (decklite-db--select-cards decklite-edit--filter tabulated-list-sort-key)))
+                            'face 'decklet-edit-difficulty-face
+                            'decklet-sort-number (or difficulty 0)))))))
+   (decklet-db--select-cards decklet-edit--filter tabulated-list-sort-key)))
 
-(defun decklite-edit-refresh ()
+(defun decklet-edit-refresh ()
   "Refresh the card list buffer."
   (interactive)
-  (setq tabulated-list-entries (delq nil (decklite-edit--entries)))
+  (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
   (tabulated-list-print t)
-  (decklite-edit--apply-marks))
+  (decklet-edit--apply-marks))
 
-(defun decklite-edit--apply-marks ()
+(defun decklet-edit--apply-marks ()
   "Apply marked-row faces to the edit buffer."
-  (decklite-edit--clear-mark-overlays)
+  (decklet-edit--clear-mark-overlays)
   (save-excursion
     (goto-char (point-min))
     (forward-line 1)
     (while (not (eobp))
       (let ((word (tabulated-list-get-id)))
-        (when (and word (gethash word decklite-edit--marked))
-          (decklite-edit--add-mark-overlay word)))
+        (when (and word (gethash word decklet-edit--marked))
+          (decklet-edit--add-mark-overlay word)))
       (forward-line 1))))
 
-(defun decklite-edit--marked-words ()
+(defun decklet-edit--marked-words ()
   "Return a list of marked words."
   (let (words)
-    (maphash (lambda (word _value) (push word words)) decklite-edit--marked)
+    (maphash (lambda (word _value) (push word words)) decklet-edit--marked)
     (nreverse words)))
 
-(defun decklite-edit--clear-marks ()
+(defun decklet-edit--clear-marks ()
   "Clear all mark in the edit view."
-  (clrhash decklite-edit--marked))
+  (clrhash decklet-edit--marked))
 
-(defun decklite-edit--clear-mark-overlays ()
+(defun decklet-edit--clear-mark-overlays ()
   "Remove all mark overlays in the edit view."
   (maphash (lambda (_word ov)
              (when (overlayp ov)
                (delete-overlay ov)))
-           decklite-edit--mark-overlays)
-  (clrhash decklite-edit--mark-overlays))
+           decklet-edit--mark-overlays)
+  (clrhash decklet-edit--mark-overlays))
 
-(defun decklite-edit--add-mark-overlay (word)
+(defun decklet-edit--add-mark-overlay (word)
   "Add a mark overlay for WORD on the current line."
   (let ((ov (make-overlay (line-beginning-position) (line-end-position))))
-    (overlay-put ov 'face 'decklite-edit-mark-face)
-    (overlay-put ov 'decklite-edit-mark t)
-    (puthash word ov decklite-edit--mark-overlays)))
+    (overlay-put ov 'face 'decklet-edit-mark-face)
+    (overlay-put ov 'decklet-edit-mark t)
+    (puthash word ov decklet-edit--mark-overlays)))
 
-(defun decklite-edit-mark ()
+(defun decklet-edit-mark ()
   "Mark the card at point and move to the next line."
   (interactive)
   (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
-    (puthash word t decklite-edit--marked)
-    (decklite-edit--add-mark-overlay word)
+    (puthash word t decklet-edit--marked)
+    (decklet-edit--add-mark-overlay word)
     (forward-line 1)))
 
-(defun decklite-edit-unmark ()
+(defun decklet-edit-unmark ()
   "Unmark the card at point and move to the next line."
   (interactive)
   (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
-    (remhash word decklite-edit--marked)
-    (when-let ((ov (gethash word decklite-edit--mark-overlays)))
+    (remhash word decklet-edit--marked)
+    (when-let ((ov (gethash word decklet-edit--mark-overlays)))
       (delete-overlay ov)
-      (remhash word decklite-edit--mark-overlays))
+      (remhash word decklet-edit--mark-overlays))
     (forward-line 1)))
 
-(defun decklite-edit-unmark-all ()
+(defun decklet-edit-unmark-all ()
   "Clear all mark in the edit view."
   (interactive)
-  (decklite-edit--clear-marks)
-  (decklite-edit--clear-mark-overlays)
+  (decklet-edit--clear-marks)
+  (decklet-edit--clear-mark-overlays)
   (message "Cleared all marks"))
 
-(defun decklite-edit-filter-review ()
+(defun decklet-edit-filter-review ()
   "Show only review cards in the edit table."
   (interactive)
-  (setq decklite-edit--filter 'review)
-  (decklite-edit-refresh)
+  (setq decklet-edit--filter 'review)
+  (decklet-edit-refresh)
   (message "Filter: review"))
 
-(defun decklite-edit-filter-learning ()
+(defun decklet-edit-filter-learning ()
   "Show only learning cards in the edit table."
   (interactive)
-  (setq decklite-edit--filter 'learning)
-  (decklite-edit-refresh)
+  (setq decklet-edit--filter 'learning)
+  (decklet-edit-refresh)
   (message "Filter: learning"))
 
-(defun decklite-edit-filter-toggle-archive ()
+(defun decklet-edit-filter-toggle-archive ()
   "Toggle between archived cards and all cards in the edit table."
   (interactive)
-  (setq decklite-edit--filter
+  (setq decklet-edit--filter
         (cond
-         ((eq decklite-edit--filter 'archived) 'all)
-         ((eq decklite-edit--filter 'all) 'archived)
+         ((eq decklet-edit--filter 'archived) 'all)
+         ((eq decklet-edit--filter 'all) 'archived)
          (t 'all)))
-  (decklite-edit-refresh)
-  (message "Filter: %s" decklite-edit--filter))
+  (decklet-edit-refresh)
+  (message "Filter: %s" decklet-edit--filter))
 
-(defun decklite-edit--edit-card-at-point (edit-word edit-hint)
+(defun decklet-edit--edit-card-at-point (edit-word edit-hint)
   "Edit the card at point using EDIT-WORD and EDIT-HINT flags."
   (let ((word (tabulated-list-get-id))
         (line (line-number-at-pos))
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (decklite-edit--ensure-not-current word)
-    (setq word (decklite-prompt-edit-card-fields word edit-word edit-hint))
-    (decklite-edit-refresh)
-    (decklite-edit--restore-position line win-line)
+    (decklet-edit--ensure-not-current word)
+    (setq word (decklet-prompt-edit-card-fields word edit-word edit-hint))
+    (decklet-edit-refresh)
+    (decklet-edit--restore-position line win-line)
     (message "Updated \"%s\"" word)))
 
-(defun decklite-edit-word ()
+(defun decklet-edit-word ()
   "Edit the word at point."
   (interactive)
-  (decklite-edit--edit-card-at-point t nil))
+  (decklet-edit--edit-card-at-point t nil))
 
-(defun decklite-edit-hint ()
+(defun decklet-edit-hint ()
   "Edit the hint at point."
   (interactive)
-  (decklite-edit--edit-card-at-point nil t))
+  (decklet-edit--edit-card-at-point nil t))
 
-(defun decklite-edit-delete-card ()
+(defun decklet-edit-delete-card ()
   "Delete the card at point from the deck."
   (interactive)
   (let ((word (tabulated-list-get-id))
@@ -444,32 +444,32 @@ WORDS can be a single word string or a list of words."
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (decklite-edit--ensure-not-current word)
+    (decklet-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Delete \"%s\" from the deck? " word))
-      (decklite-delete-card word)
-      (decklite-edit-refresh)
-      (decklite-edit--restore-position line win-line)
+      (decklet-delete-card word)
+      (decklet-edit-refresh)
+      (decklet-edit--restore-position line win-line)
       (message "Deleted \"%s\"" word))))
 
-(defun decklite-edit-delete ()
+(defun decklet-edit-delete ()
   "Delete marked cards, or the card at point."
   (interactive)
-  (let ((marked (decklite-edit--marked-words)))
+  (let ((marked (decklet-edit--marked-words)))
     (if marked
         (let* ((win-line (count-screen-lines (window-start) (point)))
-               (target-word (decklite-edit--nearest-surviving-word marked)))
-          (decklite-edit--ensure-not-current marked)
+               (target-word (decklet-edit--nearest-surviving-word marked)))
+          (decklet-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "Delete %d marked cards? " (length marked)))
             (dolist (word marked)
-              (decklite-delete-card word))
-            (decklite-edit--clear-marks)
-            (decklite-edit-refresh)
-            (when-let ((target-line (decklite-edit--line-of-word target-word)))
-              (decklite-edit--restore-position target-line win-line))
+              (decklet-delete-card word))
+            (decklet-edit--clear-marks)
+            (decklet-edit-refresh)
+            (when-let ((target-line (decklet-edit--line-of-word target-word)))
+              (decklet-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
-      (decklite-edit-delete-card))))
+      (decklet-edit-delete-card))))
 
-(defun decklite-edit-archive-card ()
+(defun decklet-edit-archive-card ()
   "Archive the card at point."
   (interactive)
   (let ((word (tabulated-list-get-id))
@@ -477,14 +477,14 @@ WORDS can be a single word string or a list of words."
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (decklite-edit--ensure-not-current word)
+    (decklet-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Archive \"%s\" from review? " word))
-      (decklite-archive-card word)
-      (decklite-edit-refresh)
-      (decklite-edit--restore-position line win-line)
+      (decklet-archive-card word)
+      (decklet-edit-refresh)
+      (decklet-edit--restore-position line win-line)
       (message "Archived \"%s\"" word))))
 
-(defun decklite-edit-unarchive-card ()
+(defun decklet-edit-unarchive-card ()
   "Unarchive the card at point."
   (interactive)
   (let ((word (tabulated-list-get-id))
@@ -492,100 +492,100 @@ WORDS can be a single word string or a list of words."
         (win-line (count-screen-lines (window-start) (point))))
     (unless word
       (user-error "No card on this line"))
-    (decklite-edit--ensure-not-current word)
-    (decklite-unarchive-card word)
-    (decklite-edit-refresh)
-    (decklite-edit--restore-position line win-line)
+    (decklet-edit--ensure-not-current word)
+    (decklet-unarchive-card word)
+    (decklet-edit-refresh)
+    (decklet-edit--restore-position line win-line)
     (message "Unarchived \"%s\"" word)))
 
-(defun decklite-edit-archive ()
+(defun decklet-edit-archive ()
   "Archive or unarchive marked cards, or the card at point."
   (interactive)
-  (let ((marked (decklite-edit--marked-words)))
+  (let ((marked (decklet-edit--marked-words)))
     (if marked
-        (let* ((unarchive-p (eq decklite-edit--filter 'archived))
+        (let* ((unarchive-p (eq decklet-edit--filter 'archived))
                (verb (if unarchive-p "Unarchive" "Archive"))
                (done-verb (if unarchive-p "Unarchived" "Archived"))
-               (action (if unarchive-p #'decklite-unarchive-card #'decklite-archive-card))
+               (action (if unarchive-p #'decklet-unarchive-card #'decklet-archive-card))
                (win-line (count-screen-lines (window-start) (point)))
-               (target-word (decklite-edit--nearest-surviving-word marked)))
-          (decklite-edit--ensure-not-current marked)
+               (target-word (decklet-edit--nearest-surviving-word marked)))
+          (decklet-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "%s %d marked cards? " verb (length marked)))
             (dolist (word marked)
               (funcall action word))
-            (decklite-edit--clear-marks)
-            (decklite-edit-refresh)
-            (when-let ((target-line (decklite-edit--line-of-word target-word)))
-              (decklite-edit--restore-position target-line win-line))
+            (decklet-edit--clear-marks)
+            (decklet-edit-refresh)
+            (when-let ((target-line (decklet-edit--line-of-word target-word)))
+              (decklet-edit--restore-position target-line win-line))
             (message "%s %d cards" done-verb (length marked))))
-      (if (eq decklite-edit--filter 'archived)
-          (decklite-edit-unarchive-card)
-        (decklite-edit-archive-card)))))
+      (if (eq decklet-edit--filter 'archived)
+          (decklet-edit-unarchive-card)
+        (decklet-edit-archive-card)))))
 
 ;; Edit mode setup
 
 ;;;###autoload
-(defun decklite-edit ()
+(defun decklet-edit ()
   "Open the card list for editing."
   (interactive)
-  (run-hooks 'decklite-edit-start-hook)
-  (let ((buffer (get-buffer-create decklite-edit-buffer-name)))
+  (run-hooks 'decklet-edit-start-hook)
+  (let ((buffer (get-buffer-create decklet-edit-buffer-name)))
     (with-current-buffer buffer
-      (decklite-edit-mode)
-      (decklite-edit-refresh))
+      (decklet-edit-mode)
+      (decklet-edit-refresh))
     (switch-to-buffer buffer)))
 
-(defun decklite-edit-quit ()
+(defun decklet-edit-quit ()
   "Quit the edit buffer."
   (interactive)
-  (run-hooks 'decklite-edit-quit-hook)
+  (run-hooks 'decklet-edit-quit-hook)
   (quit-window)
-  (decklite-db--disconnect-if-idle))
+  (decklet-db--disconnect-if-idle))
 
 ;; Backup
-(add-hook 'decklite-edit-start-hook #'decklite-db-backup)
-(add-hook 'decklite-edit-quit-hook #'decklite-db-backup)
+(add-hook 'decklet-edit-start-hook #'decklet-db-backup)
+(add-hook 'decklet-edit-quit-hook #'decklet-db-backup)
 
-(defvar decklite-edit-mode-map
+(defvar decklet-edit-mode-map
   (define-keymap
     :parent tabulated-list-mode-map
-    "e" #'decklite-edit-word
-    "t" #'decklite-edit-hint
-    "D" #'decklite-edit-delete
-    "/ r" #'decklite-edit-filter-review
-    "/ l" #'decklite-edit-filter-learning
-    "/ a" #'decklite-edit-filter-toggle-archive
-    "; w" (decklite-edit--column-sort-command "Word")
-    "; a" (decklite-edit--column-sort-command "Added")
-    "; l" (decklite-edit--column-sort-command "Last Review")
-    "; d" (decklite-edit--column-sort-command "Due")
-    "; s" (decklite-edit--column-sort-command "Stability")
-    "; f" (decklite-edit--column-sort-command "Difficulty")
-    "R" #'decklite-edit-rate-card
-    "A" #'decklite-edit-archive
-    "m" #'decklite-edit-mark
-    "u" #'decklite-edit-unmark
-    "U" #'decklite-edit-unmark-all
-    "<remap> <tabulated-list-sort>" #'decklite-edit-refresh
-    "g" #'decklite-edit-refresh
-    "+" #'decklite-add-card
-    "q" #'decklite-edit-quit)
-  "Keymap for `decklite-edit-mode'.")
+    "e" #'decklet-edit-word
+    "t" #'decklet-edit-hint
+    "D" #'decklet-edit-delete
+    "/ r" #'decklet-edit-filter-review
+    "/ l" #'decklet-edit-filter-learning
+    "/ a" #'decklet-edit-filter-toggle-archive
+    "; w" (decklet-edit--column-sort-command "Word")
+    "; a" (decklet-edit--column-sort-command "Added")
+    "; l" (decklet-edit--column-sort-command "Last Review")
+    "; d" (decklet-edit--column-sort-command "Due")
+    "; s" (decklet-edit--column-sort-command "Stability")
+    "; f" (decklet-edit--column-sort-command "Difficulty")
+    "R" #'decklet-edit-rate-card
+    "A" #'decklet-edit-archive
+    "m" #'decklet-edit-mark
+    "u" #'decklet-edit-unmark
+    "U" #'decklet-edit-unmark-all
+    "<remap> <tabulated-list-sort>" #'decklet-edit-refresh
+    "g" #'decklet-edit-refresh
+    "+" #'decklet-add-card
+    "q" #'decklet-edit-quit)
+  "Keymap for `decklet-edit-mode'.")
 
-(define-derived-mode decklite-edit-mode tabulated-list-mode "DeckLite-Edit"
-  "Major mode for listing and editing DeckLite cards."
+(define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
+  "Major mode for listing and editing Decklet cards."
   (setq tabulated-list-format
         (vector
-         (list "Word" 24 (decklite-edit--column-sorter "Word"))
+         (list "Word" 24 (decklet-edit--column-sorter "Word"))
          (list "Hint" 40 t)
-         (list "Added" 20 (decklite-edit--column-sorter "Added"))
-         (list "Last Review" 20 (decklite-edit--column-sorter "Last Review"))
-         (list "Due" 20 (decklite-edit--column-sorter "Due"))
+         (list "Added" 20 (decklet-edit--column-sorter "Added"))
+         (list "Last Review" 20 (decklet-edit--column-sorter "Last Review"))
+         (list "Due" 20 (decklet-edit--column-sorter "Due"))
          (list "State" 10 t)
-         (list "Stability" 10 (decklite-edit--column-sorter "Stability"))
-         (list "Difficulty" 10 (decklite-edit--column-sorter "Difficulty"))))
+         (list "Stability" 10 (decklet-edit--column-sorter "Stability"))
+         (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty"))))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header))
 
-(provide 'decklite-edit)
-;;; decklite-edit.el ends here
+(provide 'decklet-edit)
+;;; decklet-edit.el ends here
