@@ -208,8 +208,7 @@ If multiple words are equally near point, prefer a following line."
 (defmacro decklet-edit--column-sorter (column)
   "Return a sorter lambda for COLUMN."
   `(lambda (a b)
-     (let ((index (or (alist-get ,column decklet-edit--column-indices nil nil #'string=)
-                      (error "Unknown column: %s" ,column))))
+     (let ((index (alist-get ,column decklet-edit--column-indices nil nil #'string=)))
        (if (member ,column decklet-edit--numeric-columns)
            (< (decklet-edit--entry-sort-number a index)
               (decklet-edit--entry-sort-number b index))
