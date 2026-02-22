@@ -359,20 +359,53 @@ WORDS can be a single word string or a list of words."
 
 (defun decklet-edit--add-mark-overlay (word)
   "Add a mark overlay for WORD on the current line."
+  (when-let ((existing (gethash word decklet-edit--mark-overlays)))
+    (when (overlayp existing)
+      (delete-overlay existing)))
   (let ((ov (make-overlay (line-beginning-position) (line-end-position))))
     (overlay-put ov 'face 'decklet-edit-mark-face)
     (overlay-put ov 'decklet-edit-mark t)
     (puthash word ov decklet-edit--mark-overlays)))
 
+(defun decklet-edit--mark-region (beg end)
+  "Mark all cards between BEG and END lines in the current edit table."
+  (let* ((start (min beg end))
+         (finish (max beg end))
+         ;; If region end is exactly at BOL of the next line, exclude it.
+         (finish (if (and (> finish start)
+                          (save-excursion
+                            (goto-char finish)
+                            (bolp)))
+                     (1- finish)
+                   finish)))
+    (save-excursion
+      (goto-char start)
+      (beginning-of-line)
+      (while (<= (line-beginning-position) finish)
+        (when-let ((word (tabulated-list-get-id)))
+          (puthash word t decklet-edit--marked)
+          (decklet-edit--add-mark-overlay word))
+        (forward-line 1)))))
+
 (defun decklet-edit-mark ()
-  "Mark the card at point and move to the next line."
+  "Mark card(s) at point.
+If a region is active, mark all selected rows and move to the line after the
+selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
-  (let ((word (tabulated-list-get-id)))
-    (unless word
-      (user-error "No card on this line"))
-    (puthash word t decklet-edit--marked)
-    (decklet-edit--add-mark-overlay word)
-    (forward-line 1)))
+  (if (use-region-p)
+      (let ((beg (region-beginning))
+            (end (region-end)))
+        (decklet-edit--mark-region beg end)
+        (deactivate-mark)
+        (goto-char (max beg end))
+        (beginning-of-line)
+        (forward-line 1))
+    (let ((word (tabulated-list-get-id)))
+      (unless word
+        (user-error "No card on this line"))
+      (puthash word t decklet-edit--marked)
+      (decklet-edit--add-mark-overlay word)
+      (forward-line 1))))
 
 (defun decklet-edit-unmark ()
   "Unmark the card at point and move to the next line."
