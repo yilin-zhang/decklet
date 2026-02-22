@@ -125,6 +125,12 @@ One of: all, review, learning, archived.")
 
 ;; Edit table formatting and sorting
 
+(defun decklet-edit--clean-up ()
+  "Clear edit session state."
+  (setq decklet-edit--marked (make-hash-table :test 'equal))
+  (setq decklet-edit--mark-overlays (make-hash-table :test 'equal))
+  (setq decklet-edit--filter 'all))
+
 (defun decklet--parse-iso-date (date-string)
   "Parse DATE-STRING as ISO 8601 date to internal time format."
   (when date-string
@@ -537,8 +543,10 @@ WORDS can be a single word string or a list of words."
 (defun decklet-edit-quit ()
   "Quit the edit buffer."
   (interactive)
+  (decklet-edit--clean-up)
+  (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
+    (kill-buffer buffer))
   (run-hooks 'decklet-edit-quit-hook)
-  (quit-window)
   (decklet-db--disconnect-if-idle))
 
 ;; Backup
