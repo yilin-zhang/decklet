@@ -611,28 +611,29 @@ file under `decklet-directory'."
                            (file-name-nondirectory default)))))
   (unless (file-exists-p decklet-db-file)
     (user-error "No database file found; nothing to export"))
-
-  (let* ((rows (sqlite-select
-                (decklet-db--ensure)
-                "SELECT word, added_date, last_review, due, archived_at, state,
+  (unwind-protect
+      (let* ((rows (sqlite-select
+                    (decklet-db--ensure)
+                    "SELECT word, added_date, last_review, due, archived_at, state,
                         step, stability, difficulty, hint
                  FROM cards
                  ORDER BY added_date ASC, word ASC;"))
-         (fields '(word added_date last_review due archived_at state
-                        step stability difficulty hint))
-         (payload (mapcar (lambda (row)
-                            (cl-mapcar #'cons fields row))
-                          rows))
-         (json-encoding-pretty-print t)
-         (json-encoding-default-indentation "  "))
+             (fields '(word added_date last_review due archived_at state
+                            step stability difficulty hint))
+             (payload (mapcar (lambda (row)
+                                (cl-mapcar #'cons fields row))
+                              rows))
+             (json-encoding-pretty-print t)
+             (json-encoding-default-indentation "  "))
 
-    (make-directory (file-name-directory file) t)
-    (let ((coding-system-for-write 'utf-8-unix))
-      (with-temp-file file
-        (insert (json-encode payload))))
+        (make-directory (file-name-directory file) t)
+        (let ((coding-system-for-write 'utf-8-unix))
+          (with-temp-file file
+            (insert (json-encode payload))))
 
-    (when (called-interactively-p 'any)
-      (message "Exported %d cards to %s" (length payload) file))))
+        (when (called-interactively-p 'any)
+          (message "Exported %d cards to %s" (length payload) file)))
+    (decklet-db--disconnect-if-idle)))
 
 ;;;###autoload
 (defun decklet-db-import-json (&optional file)
@@ -644,14 +645,16 @@ When called interactively, prompt for FILE under `decklet-directory'."
                            (file-name-directory default)
                            nil t
                            (file-name-nondirectory default)))))
-  (let* ((file (or file (expand-file-name "decklet-import.json" decklet-directory)))
-         (result (decklet-db--import-json-file file)))
-    (when (called-interactively-p 'any)
-      (message "Import finished: %d added, %d overwritten, %d skipped"
-               (plist-get result :added)
-               (plist-get result :overwritten)
-               (plist-get result :skipped)))
-    result))
+  (unwind-protect
+      (let* ((file (or file (expand-file-name "decklet-import.json" decklet-directory)))
+             (result (decklet-db--import-json-file file)))
+        (when (called-interactively-p 'any)
+          (message "Import finished: %d added, %d overwritten, %d skipped"
+                   (plist-get result :added)
+                   (plist-get result :overwritten)
+                   (plist-get result :skipped)))
+        result)
+    (decklet-db--disconnect-if-idle)))
 
 ;; Backups
 
@@ -847,6 +850,11 @@ When non-nil, it is called with no arguments inside
       (when (yes-or-no-p (format "Restore %s to %s? "
                                  (file-name-nondirectory backup-file)
                                  decklet-db-file))
+        ;; Require explicit disconnection before restore.
+        ;; Replacing the DB file is only unsafe when a live SQLite connection
+        ;; still holds the file handle.
+        (when decklet-db--conn
+          (user-error "Please quit review/edit sessions (or otherwise disconnect DB) before restore"))
         (copy-file backup-file decklet-db-file t t t)
         (message "Restored database from %s" (file-name-nondirectory backup-file))))))
 
