@@ -207,6 +207,8 @@ in-Emacs dictionary (`define`), and pronunciation audio playback (`speak`).
   the config, these websites are called `lookup providers`.)
   - `l` opens your browser and goes to your default dictionary/search website.
   - `L` lets you choose a dictionary/search website, then opens it.
+  - `M-x decklet-switch-default-provider` lets you quickly switch the default
+    provider used by `l`.
 - `define` (`f`): shows a definition popup inside Emacs. By default, this uses
   DictionaryAPI (best for English). For other languages, you will likely want to
   plug in your own define function.
@@ -455,15 +457,6 @@ Example: restore the previous built-in provider set.
         ("Cambridge" . "https://dictionary.cambridge.org/dictionary/english/%s")
         ("Wiktionary" . "https://en.wiktionary.org/wiki/%s")))
 (setq decklet-lookup-default-provider "Google")
-```
-
-Example: add a preferred provider.
-
-```emacs-lisp
-;; Add "Youdao" for English-to-Chinese translation
-(add-to-list 'decklet-lookup-providers '("Youdao" . "https://www.youdao.com/result?word=%s&lang=en"))
-;; Use "Youdao" as default provider that will be triggered by `decklet-lookup'
-(setq decklet-lookup-default-provider "Youdao")
 ```
 
 For in-Emacs popup definitions and pronunciation audio, customize these two

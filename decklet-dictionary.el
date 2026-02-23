@@ -116,6 +116,20 @@ When WORD or PROVIDER is nil, prompt for them."
                                          nil t))))
       (decklet-lookup word provider))))
 
+;;;###autoload
+(defun decklet-switch-default-provider ()
+  "Prompt and set `decklet-lookup-default-provider'."
+  (interactive)
+  (if (null decklet-lookup-providers)
+      (message "No lookup providers configured. Set `decklet-lookup-providers' first.")
+    (let ((provider (completing-read "Default lookup provider: "
+                                     (mapcar #'car decklet-lookup-providers)
+                                     nil t
+                                     nil nil
+                                     decklet-lookup-default-provider)))
+      (setq decklet-lookup-default-provider provider)
+      (message "Default lookup provider set to `%s'." provider))))
+
 ;; Dictionary API helpers
 
 (define-derived-mode decklet-dictionary-mode special-mode "Decklet-Dictionary"
