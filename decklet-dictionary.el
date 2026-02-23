@@ -29,20 +29,15 @@
   :type 'file
   :group 'decklet-dictionary)
 
-(defcustom decklet-lookup-providers
-  '(("Google" . "https://www.google.com/search?q=define:%s")
-    ("Merriam-Webster" . "https://www.merriam-webster.com/dictionary/%s")
-    ("Oxford Learner's" . "https://www.oxfordlearnersdictionaries.com/definition/english/%s")
-    ("Cambridge" . "https://dictionary.cambridge.org/dictionary/english/%s")
-    ("Wiktionary" . "https://en.wiktionary.org/wiki/%s"))
+(defcustom decklet-lookup-providers nil
   "Alist of word lookup providers.
 Each entry is (NAME . URL), where URL expects a single %s for the word."
   :type '(alist :key-type string :value-type string)
   :group 'decklet-dictionary)
 
-(defcustom decklet-lookup-default-provider "Google"
+(defcustom decklet-lookup-default-provider nil
   "Default provider name used for word lookups."
-  :type 'string
+  :type '(choice (const :tag "Unset" nil) string)
   :group 'decklet-dictionary)
 
 (defcustom decklet-dictionary-define-function
@@ -92,25 +87,34 @@ Caching is handled by `decklet-speak'."
 PROVIDER should be a key in `decklet-lookup-providers`.
 When PROVIDER is nil, use `decklet-lookup-default-provider`."
   (interactive (list nil nil))
-  (let* ((word (decklet--resolve-word word "Lookup word: "))
-         (provider (or provider decklet-lookup-default-provider))
-         (url-template (cdr (assoc provider decklet-lookup-providers))))
-    (unless url-template
-      (user-error "Unknown provider: %s" provider))
-    (browse-url (format url-template (url-hexify-string word)))
-    (run-hooks 'decklet-lookup-hook)))
+  (if (null decklet-lookup-providers)
+      (message "No lookup providers configured. Set `decklet-lookup-providers' first.")
+    (let* ((word (decklet--resolve-word word "Lookup word: "))
+           (provider (or provider decklet-lookup-default-provider))
+           (url-template (and provider
+                              (cdr (assoc provider decklet-lookup-providers)))))
+      (cond
+       ((null provider)
+        (message "No default lookup provider set. Configure `decklet-lookup-default-provider' or use `decklet-lookup-with-provider'."))
+       ((null url-template)
+        (message "Unknown lookup provider `%s'." provider))
+       (t
+        (browse-url (format url-template (url-hexify-string word)))
+        (run-hooks 'decklet-lookup-hook))))))
 
 ;;;###autoload
 (defun decklet-lookup-with-provider (word &optional provider)
   "Lookup WORD using a selected PROVIDER.
 When WORD or PROVIDER is nil, prompt for them."
   (interactive (list nil nil))
-  (let ((word (decklet--resolve-word word "Lookup word: "))
-        (provider (or provider
-                      (completing-read "Lookup provider: "
-                                       (mapcar #'car decklet-lookup-providers)
-                                       nil t))))
-    (decklet-lookup word provider)))
+  (if (null decklet-lookup-providers)
+      (message "No lookup providers configured. Set `decklet-lookup-providers' first.")
+    (let ((word (decklet--resolve-word word "Lookup word: "))
+          (provider (or provider
+                        (completing-read "Lookup provider: "
+                                         (mapcar #'car decklet-lookup-providers)
+                                         nil t))))
+      (decklet-lookup word provider))))
 
 ;; Dictionary API helpers
 

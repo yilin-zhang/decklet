@@ -109,6 +109,15 @@ candor       /ˈkændər/             2025-04-05 11:07 2025-04-19 21:45  2025-05
   ;; If you would like to turn the calendar into a review load heatmap:
   (calendar-load . decklet-calendar-mode)
   :custom
+  ;; `decklet-lookup-providers` defaults to nil.
+  ;; For English learners, these are some useful choices.
+  (decklet-lookup-providers
+   '(("Google" . "https://www.google.com/search?q=define:%s")
+     ("Merriam-Webster" . "https://www.merriam-webster.com/dictionary/%s")
+     ("Oxford Learner's" . "https://www.oxfordlearnersdictionaries.com/definition/english/%s")
+     ("Cambridge" . "https://dictionary.cambridge.org/dictionary/english/%s")
+     ("Wiktionary" . "https://en.wiktionary.org/wiki/%s")))
+  (decklet-lookup-default-provider "Google")
   ;; Default is nil (disabled). When set to a number, review mode shows
   ;; a daily-goal progress bar.
   (decklet-review-daily-goal 100))
@@ -428,9 +437,25 @@ count toward today.
 
 You can customize browser-based lookup by configuring providers.
 
+`decklet-lookup-providers` and `decklet-lookup-default-provider` are `nil` by
+default. If you press `l`/`L` before setting providers, Decklet will show a
+message asking you to configure them.
+
 - `decklet-lookup-providers`: list of `(NAME . URL)` providers. `URL` must
   include one `%s` placeholder.
 - `decklet-lookup-default-provider`: provider name used by `decklet-lookup`.
+
+Example: restore the previous built-in provider set.
+
+```emacs-lisp
+(setq decklet-lookup-providers
+      '(("Google" . "https://www.google.com/search?q=define:%s")
+        ("Merriam-Webster" . "https://www.merriam-webster.com/dictionary/%s")
+        ("Oxford Learner's" . "https://www.oxfordlearnersdictionaries.com/definition/english/%s")
+        ("Cambridge" . "https://dictionary.cambridge.org/dictionary/english/%s")
+        ("Wiktionary" . "https://en.wiktionary.org/wiki/%s")))
+(setq decklet-lookup-default-provider "Google")
+```
 
 Example: add a preferred provider.
 
