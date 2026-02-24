@@ -84,8 +84,8 @@ Caching is handled by `decklet-speak'."
 ;;;###autoload
 (defun decklet-lookup (word &optional provider)
   "Lookup WORD in the browser using PROVIDER.
-PROVIDER should be a key in `decklet-lookup-providers`.
-When PROVIDER is nil, use `decklet-lookup-default-provider`."
+PROVIDER should be a key in `decklet-lookup-providers'.
+When PROVIDER is nil, use `decklet-lookup-default-provider'."
   (interactive (list nil nil))
   (if (null decklet-lookup-providers)
       (message "No lookup providers configured. Set `decklet-lookup-providers' first.")

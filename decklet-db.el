@@ -690,8 +690,8 @@ When nil, this threshold is disabled."
     '((vertico-sort-override-function . identity)))
   "Function returning temporary completion bindings for backup restore.
 When non-nil, it is called with no arguments inside
-`decklet-db-restore` and should return an alist of
-\(SYMBOL . VALUE) pairs to bind dynamically around `completing-read`."
+`decklet-db-restore' and should return an alist of
+\(SYMBOL . VALUE) pairs to bind dynamically around `completing-read'."
   :type 'function
   :group 'decklet-db)
 
