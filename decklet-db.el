@@ -206,7 +206,7 @@ ORDER can be `:asc' or `:desc'."
     (when (string-equal old-word new-word)
       (cl-return-from decklet-db--update-word old-word))
     (when (decklet-db--select-card new-word)
-      (error "Word \"%s\" already exists in the deck" new-word))
+      (user-error "Word \"%s\" already exists in the deck" new-word))
     (sqlite-execute conn "UPDATE cards SET word = ? WHERE word = ?;"
                     (list new-word old-word))
     new-word))
@@ -733,11 +733,10 @@ When non-nil, it is called with no arguments inside
                                    (lambda (a b)
                                      (time-less-p (file-attribute-modification-time (file-attributes a))
                                                   (file-attribute-modification-time (file-attributes b))))))
-               (old-files (seq-filter (lambda (file)
+               (to-delete (seq-filter (lambda (file)
                                         (time-less-p (file-attribute-modification-time (file-attributes file))
                                                      cutoff-time))
-                                      files-by-age))
-               (to-delete old-files))
+                                      files-by-age)))
           ;; If max exceeded, delete oldest files regardless of age.
           (when max-exceeded
             (let ((excess-count (- count decklet-backup-prune-max-count)))
