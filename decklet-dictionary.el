@@ -8,7 +8,6 @@
 
 ;;; Code:
 
-(require 'ansi-color)
 (require 'seq)
 (require 'subr-x)
 (require 'url)
@@ -67,8 +66,7 @@ Caching is handled by `decklet-speak'."
   :group 'decklet-dictionary)
 
 (defface decklet-dictionary-word-face
-  `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
-       :weight bold))
+  '((t :inherit decklet-word-face))
   "Face for displaying the word in dictionary buffer."
   :group 'decklet-dictionary)
 

@@ -13,6 +13,7 @@
 (require 'seq)
 (require 'tabulated-list)
 
+(require 'decklet-core)
 (require 'decklet-schedular)
 (require 'decklet-db)
 (require 'decklet-deck)
@@ -24,8 +25,7 @@
 ;; Faces
 
 (defface decklet-edit-word-face
-  `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
-       :weight bold))
+  '((t :inherit decklet-word-face))
   "Face for displaying the word in edit lists."
   :group 'decklet-edit)
 
@@ -286,16 +286,21 @@ WORDS can be a single word string or a list of words."
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
-     (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint) row))
-       (let* ((state (decklet--normalize-fsrs-state state))
-              (word-face (if (eq decklet-edit--filter 'archived)
-                             'decklet-edit-word-archived-face
-                           'decklet-edit-word-face))
-              (hint (if hint
-                        (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
-                      ""))
-              (added (or added ""))
-              (last-review (or last-review ""))
+      (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint) row))
+        (let* ((state (decklet--normalize-fsrs-state state))
+               (word-face (if (eq decklet-edit--filter 'archived)
+                              'decklet-edit-word-archived-face
+                            'decklet-edit-word-face))
+               (state-face (cond
+                            ((string-empty-p (or last-review "")) 'decklet-state-new-face)
+                            ((memq state '(:learning :relearning)) 'decklet-state-learning-face)
+                            ((eq state :review) 'decklet-state-review-face)
+                            (t 'decklet-edit-state-face)))
+               (hint (if hint
+                         (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
+                       ""))
+               (added (or added ""))
+               (last-review (or last-review ""))
               (due (or due "")))
          (list word
                (vector
@@ -311,7 +316,7 @@ WORDS can be a single word string or a list of words."
                             'face 'decklet-edit-due-face
                             'decklet-sort-key due)
                 (propertize (or (decklet--fsrs-state-string state) "")
-                            'face 'decklet-edit-state-face)
+                            'face state-face)
                 (propertize (if stability (format "%.3f" stability) "")
                             'face 'decklet-edit-stability-face
                             'decklet-sort-number (or stability 0))

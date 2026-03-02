@@ -8,6 +8,8 @@
 
 ;;; Code:
 
+(require 'ansi-color)
+
 (defgroup decklet nil
   "A spaced repetition system using the FSRS algorithm."
   :group 'applications)
@@ -16,6 +18,32 @@
   (expand-file-name "decklet/" user-emacs-directory)
   "Base directory for all Decklet data files."
   :type 'directory
+  :group 'decklet)
+
+;; Shared faces
+
+(defface decklet-word-face
+  `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
+       :weight bold))
+  "Shared face for displaying words."
+  :group 'decklet)
+
+(defface decklet-state-new-face
+  `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)
+       :weight bold))
+  "Shared face for new-card state indicators."
+  :group 'decklet)
+
+(defface decklet-state-learning-face
+  `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)
+       :weight bold))
+  "Shared face for learning-card state indicators."
+  :group 'decklet)
+
+(defface decklet-state-review-face
+  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
+       :weight bold))
+  "Shared face for review-card state indicators."
   :group 'decklet)
 
 (provide 'decklet-core)

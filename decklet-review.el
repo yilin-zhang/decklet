@@ -12,6 +12,7 @@
 (require 'cl-lib)
 (require 'seq)
 
+(require 'decklet-core)
 (require 'decklet-db)
 (require 'decklet-deck)
 
@@ -83,69 +84,77 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 ;; Faces
 
 (defface decklet-review-word-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'ansi-color-red :foreground)
-     :weight bold
+  '((((type graphic))
+     :inherit decklet-word-face
      :height 1.5)
     (((type tty))
-     :inherit default
-     :foreground ,(face-attribute 'ansi-color-red :foreground)
-     :weight bold
+     :inherit decklet-word-face
      :height 1.0))
   "Face for displaying the current word."
   :group 'decklet-review)
 
-(defface decklet-review-status-new-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'ansi-color-magenta :foreground)
-     :weight bold
+(defface decklet-review-state-new-face
+  '((((type graphic))
+     :inherit decklet-state-new-face
      :height 1.2)
     (((type tty))
-     :inherit default
-     :foreground ,(face-attribute 'ansi-color-magenta :foreground)
-     :weight bold
+     :inherit decklet-state-new-face
      :height 1.0))
   "Face for displaying the `NEW WORD' status."
   :group 'decklet-review)
 
-(defface decklet-review-status-review-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'ansi-color-yellow :foreground)
-     :weight bold
+(defface decklet-review-state-learning-face
+  '((((type graphic))
+     :inherit decklet-state-learning-face
      :height 1.2)
     (((type tty))
-     :inherit default
-     :foreground ,(face-attribute 'ansi-color-yellow :foreground)
-     :weight bold
+     :inherit decklet-state-learning-face
+     :height 1.0))
+  "Face for displaying the `LEARNING' status."
+  :group 'decklet-review)
+
+(defface decklet-review-state-review-face
+  '((((type graphic))
+     :inherit decklet-state-review-face
+     :height 1.2)
+    (((type tty))
+     :inherit decklet-state-review-face
      :height 1.0))
   "Face for displaying the `REVIEWING' status."
   :group 'decklet-review)
 
 (defface decklet-review-counter-new-face
-  `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)
-       :weight bold :underline t))
+  '((t :inherit decklet-state-new-face
+       :underline t))
   "Face for displaying the number of new words."
   :group 'decklet-review)
 
+(defface decklet-review-counter-reviewed-face
+  '((t :inherit default
+       :weight bold
+       :underline t))
+  "Face for displaying reviewed numbers."
+  :group 'decklet-review)
+
 (defface decklet-review-counter-review-face
-  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
-       :weight bold :underline t))
-  "Face for displaying the number of due words."
+  '((t :inherit decklet-state-review-face
+       :underline t))
+  "Face for displaying review-due numbers."
   :group 'decklet-review)
 
 (defface decklet-review-counter-due-face
-  `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)
-       :weight bold :underline t))
-  "Face for displaying the number of reviewed words today."
+  '((t :inherit decklet-state-learning-face
+       :underline t))
+  "Face for displaying learning-due numbers."
   :group 'decklet-review)
 
-(defface decklet-review-status-goal-face
+(defface decklet-review-state-goal-face
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
        :weight bold))
   "Face for displaying the `DAILY GOAL REACHED' status."
   :group 'decklet-review)
 
-(defface decklet-review-status-progress-face
+(defface decklet-review-state-progress-face
   `((t :inherit default))
   "Face for displaying the daily goal progress bar."
   :group 'decklet-review)
@@ -485,11 +494,11 @@ When LENGTH is non-nil, use it as the separator width."
    (let ((meta (decklet--load-card-meta decklet-current-word)))
      (cond
       ((decklet-card-meta-is-new meta)
-       (propertize "NEW WORD" 'face 'decklet-review-status-new-face))
+       (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
       ((memq (decklet-card-meta-state meta) '(:learning :relearning))
-       (propertize "LEARNING" 'face 'decklet-review-status-review-face))
+       (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
       (t
-       (propertize "REVIEWING" 'face 'decklet-review-status-review-face))))))
+       (propertize "REVIEWING" 'face 'decklet-review-state-review-face))))))
 
 (defun decklet-review-component-counters ()
   "Return the counter block for the instructions."
@@ -499,8 +508,9 @@ When LENGTH is non-nil, use it as the separator width."
          (n-new (plist-get decklet--counter :new)))
     (decklet-center-text
      (format "%s reviewed / %s review due / %s learning due / %s new"
-             (propertize (number-to-string n-reviewed) 'face 'decklet-review-counter-review-face)
-             (propertize (number-to-string n-due-review) 'face 'decklet-review-counter-due-face)
+             (propertize (number-to-string n-reviewed)
+                         'face 'decklet-review-counter-reviewed-face)
+             (propertize (number-to-string n-due-review) 'face 'decklet-review-counter-review-face)
              (propertize (number-to-string n-due-learning) 'face 'decklet-review-counter-due-face)
              (propertize (number-to-string n-new) 'face 'decklet-review-counter-new-face)))))
 
@@ -508,7 +518,7 @@ When LENGTH is non-nil, use it as the separator width."
   "Insert the daily goal banner in the review buffer."
   (when (and decklet-review-daily-goal (> decklet-review-daily-goal 0))
     (if (decklet-review--daily-goal-reached-p)
-        (decklet-center-text (propertize "DAILY GOAL REACHED" 'face 'decklet-review-status-goal-face))
+        (decklet-center-text (propertize "DAILY GOAL REACHED" 'face 'decklet-review-state-goal-face))
       (let* ((n-reviewed (plist-get decklet--counter :reviewed))
              (goal-progress (/ (float n-reviewed) decklet-review-daily-goal))
              (steps (max 0 decklet-review-daily-goal-progress-steps))
@@ -518,9 +528,9 @@ When LENGTH is non-nil, use it as the separator width."
                             (make-string n-clicks-completed ?█)
                             (make-string (- steps n-clicks-completed) ?░))))
         (concat
-         (decklet-center-text (propertize percentage 'face 'decklet-review-status-progress-face))
+         (decklet-center-text (propertize percentage 'face 'decklet-review-state-progress-face))
          "\n"
-         (decklet-center-text (propertize progress-bar 'face 'decklet-review-status-progress-face)))))))
+         (decklet-center-text (propertize progress-bar 'face 'decklet-review-state-progress-face)))))))
 
 (defun decklet-review-component-rates ()
   "Return the options block for review ratings and commands.
