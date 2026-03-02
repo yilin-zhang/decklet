@@ -22,6 +22,8 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Edit Mode](#edit-mode)
 - [Get Started](#get-started)
   - [Install](#install)
+    - [Refocus after Lookup](#refocus-after-lookup)
+    - [Hidden Cursor](#hidden-cursor)
   - [Quick Start](#quick-start)
   - [Review Mode](#review-mode-1)
   - [Edit Mode](#edit-mode-1)
@@ -39,11 +41,9 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Add and Refresh](#add-and-refresh)
   - [Rollover Time](#rollover-time)
   - [Dictionary Configuration](#dictionary-configuration)
-  - [Refocus after Lookup](#refocus-after-lookup)
   - [Database](#database)
   - [Hooks](#hooks)
   - [Review UI Components](#review-ui-components)
-  - [Hidden Cursor](#hidden-cursor)
 - [Testing and CI](#testing-and-ci)
 - [Project Scope](#project-scope)
 - [License](#license)
@@ -130,6 +130,105 @@ details.
 If you use modal editing, you may need extra configuration. See [Hidden
 Cursor](#hidden-cursor) for details.
 
+#### Refocus after Lookup
+
+It is recommended to focus back to Emacs after browser lookup with a CLI
+command. This helps you return to the review flow without manually switching
+focus. You can achieve this by adding a hook function to
+`decklet-lookup-hook`, which runs after opening up the browser.
+
+macOS example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "osascript -e 'tell application \"Emacs\" to activate'"))))
+```
+
+Linux (X11) example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "wmctrl -a \"Emacs\""))))
+```
+
+Linux (Wayland, sway) example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "swaymsg '[app_id=\"Emacs\"] focus'"))))
+```
+
+Windows (PowerShell) example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "powershell -Command \"(New-Object -ComObject WScript.Shell).AppActivate('Emacs')\""))))
+```
+
+Make sure the command-line tool used in your command is installed.
+
+#### Hidden Cursor
+
+In `decklet-review-mode`, the cursor is invisible and `hl-line-mode` is
+disabled by default. If you prefer Decklet not to override the default cursor
+and highlight-line behaviors, set `decklet-review-hide-cursor` to nil.
+
+Modal editing plugins typically don't play well with the default cursor hiding
+behavior. You may need an additional setup to make it work.
+
+If you use [Evil](https://github.com/emacs-evil/evil), you might need to turn
+off `evil-local-mode` inside `decklet-review-mode`, otherwise Evil keeps
+refreshing the cursor and the hidden-cursor effect will not hold. I do not
+personally use Evil, so please treat this as a practical workaround rather than
+an official recommendation.
+
+If you use [Meow](https://github.com/meow-edit/meow), the cursor may blink the
+first time the review buffer is shown, until the next buffer refresh. It is
+because its global `window-state-change-functions` hook updates the cursor
+whenever the selected window changes, and its default cursor update logic treats
+a nil cursor as a signal to restore the default box cursor.
+
+You can use this buffer-local override so Meow keeps working elsewhere but stops
+overriding the review buffer's hidden cursor:
+
+```emacs-lisp
+(with-eval-after-load 'meow
+  (add-hook 'decklet-review-mode-hook
+            (lambda ()
+              (setq-local meow-update-cursor-functions-alist
+                          '(((lambda () t) . ignore))))))
+```
+
+Or with `use-package`:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-review-mode . (lambda ()
+                             (setq-local meow-update-cursor-functions-alist
+                                         '(((lambda () t) . ignore))))))
+```
+
 ### Quick Start
 
 1. Add cards:
@@ -214,7 +313,7 @@ in-Emacs dictionary (`define`), and pronunciation audio playback (`speak`).
   plug in your own define function.
 - `speak` (`s`): plays pronunciation audio for the word. By default, audio is
   fetched from DictionaryAPI (best for English). For other languages, you will
-  likely want to plug in your own define function.
+  likely want to plug in your own audio function.
 
 All three are customizable. See [Dictionary
 Configuration](#dictionary-configuration) below for customization.
@@ -484,63 +583,6 @@ Cache clearing:
 By default, Decklet calls `decklet-clear-api-cache` when `decklet-edit-quit`
 or `decklet-review-quit` is called.
 
-### Refocus after Lookup
-
-It is recommended to focus back to Emacs after browser lookup with a CLI
-command. This helps you return to the review flow without manually switching
-focus. You can achieve this by adding a hook function to
-`decklet-lookup-hook`, which runs after opening up the browser.
-
-macOS example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "osascript -e 'tell application \"Emacs\" to activate'"))))
-```
-
-Linux (X11) example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "wmctrl -a \"Emacs\""))))
-```
-
-Linux (Wayland, sway) example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "swaymsg '[app_id=\"Emacs\"] focus'"))))
-```
-
-Windows (PowerShell) example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "powershell -Command \"(New-Object -ComObject WScript.Shell).AppActivate('Emacs')\""))))
-```
-
-Make sure the command-line tool used in your command is installed.
-
 ### Database
 
 Decklet stores all card data in a single SQLite file
@@ -672,48 +714,6 @@ Example: customize text width.
 
 ```emacs-lisp
 (setq decklet-review-fill-column 56)
-```
-
-### Hidden Cursor
-
-In `decklet-review-mode`, the cursor is invisible and `hl-line-mode` is
-disabled by default. If you prefer Decklet not to override the default cursor
-and highlight-line behaviors, set `decklet-review-hide-cursor` to nil.
-
-Modal editing plugins typically don't play well with the default cursor hiding
-behavior. You may need an additional setup to make it work.
-
-If you use [Evil](https://github.com/emacs-evil/evil), you might need to turn
-off `evil-local-mode` inside `decklet-review-mode`, otherwise Evil keeps
-refreshing the cursor and the hidden-cursor effect will not hold. I do not
-personally use Evil, so please treat this as a practical workaround rather than
-an official recommendation.
-
-If you use [Meow](https://github.com/meow-edit/meow), the cursor may blink the
-first time the review buffer is shown, until the next buffer refresh. It is
-because its global `window-state-change-functions` hook updates the cursor
-whenever the selected window changes, and its default cursor update logic treats
-a nil cursor as a signal to restore the default box cursor.
-
-You can use this buffer-local override so Meow keeps working elsewhere but stops
-overriding the review buffer's hidden cursor:
-
-```emacs-lisp
-(with-eval-after-load 'meow
-  (add-hook 'decklet-review-mode-hook
-            (lambda ()
-              (setq-local meow-update-cursor-functions-alist
-                          '(((lambda () t) . ignore))))))
-```
-
-Or with `use-package`:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-review-mode . (lambda ()
-                             (setq-local meow-update-cursor-functions-alist
-                                         '(((lambda () t) . ignore))))))
 ```
 
 ## Testing and CI
