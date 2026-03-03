@@ -257,7 +257,7 @@ ORDER can be `:asc' or `:desc'."
              (added-date (or added-date (fsrs-now)))
              (last-review last-review)
              (due (or due (fsrs-now)))
-             (is-new (null last-review))
+             (is-new (decklet-last-review-empty-p last-review))
              (state (or state (if is-new :learning :review)))
              (step (if is-new (or step 0) step))
              (stability (and (numberp stability) (> stability 0) stability))

@@ -73,11 +73,11 @@ Decklet intentionally stays focused and provides a curated feature set. See
 ### Edit Mode
 
 ```text
-Word         Hint                  Added            Last Review       Due               State      Stability Difficulty
+Word         Hint                  State      Added            Last Review       Due               Stability Difficulty
 ---------------------------------------------------------------------------------------------------------------------
-lucid        /ˈluːsɪd/             2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  review     32.410    3.120
-zephyr       /ˈzefər/              2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  learning   12.220    4.050
-candor       /ˈkændər/             2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  review     28.905    3.480
+lucid        /ˈluːsɪd/             review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
+zephyr       /ˈzefər/              learning   2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  12.220    4.050
+candor       /ˈkændər/             review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
 ```
 
 ## Get Started

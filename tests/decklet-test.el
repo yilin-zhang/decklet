@@ -48,6 +48,25 @@
   (should (equal (decklet-db--normalize-hint "  ") nil))
   (should (string= (decklet-db--normalize-hint "  foo bar  ") "foo bar")))
 
+(ert-deftest decklet-test-card-display-state-derivation ()
+  (should (eq (decklet-card-display-state :learning nil) :new))
+  (should (eq (decklet-card-display-state :learning "") :new))
+  (should (eq (decklet-card-display-state :learning "2025-01-01T00:00:00Z") :learning))
+  (should (eq (decklet-card-display-state :relearning "2025-01-01T00:00:00Z") :relearning))
+  (should (eq (decklet-card-display-state :review "2025-01-01T00:00:00Z") :review))
+  (should (eq (decklet-card-display-state :unknown "2025-01-01T00:00:00Z") :review)))
+
+(ert-deftest decklet-test-card-meta-display-state-derivation ()
+  (should
+   (eq (decklet-card-meta-display-state
+        (decklet-test--make-meta :state :learning :last-review nil))
+       :new))
+  (should
+   (eq (decklet-card-meta-display-state
+        (decklet-test--make-meta :state :learning
+                                 :last-review "2025-01-01T00:00:00Z"))
+       :learning)))
+
 ;; ---------------------------------------------------------------------------
 ;; Basic DB lifecycle
 ;; ---------------------------------------------------------------------------

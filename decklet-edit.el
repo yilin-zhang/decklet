@@ -104,7 +104,7 @@
 One of: all, review, learning, archived.")
 
 (defconst decklet-edit--columns
-  '("Word" "Hint" "Added" "Last Review" "Due" "State" "Stability" "Difficulty")
+  '("Word" "Hint" "State" "Added" "Last Review" "Due" "Stability" "Difficulty")
   "Column names for the edit table.")
 
 (defconst decklet-edit--numeric-columns
@@ -288,24 +288,28 @@ WORDS can be a single word string or a list of words."
    (lambda (row)
       (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint) row))
         (let* ((state (decklet--normalize-fsrs-state state))
-               (word-face (if (eq decklet-edit--filter 'archived)
-                              'decklet-edit-word-archived-face
-                            'decklet-edit-word-face))
-               (state-face (cond
-                            ((string-empty-p (or last-review "")) 'decklet-state-new-face)
-                            ((memq state '(:learning :relearning)) 'decklet-state-learning-face)
-                            ((eq state :review) 'decklet-state-review-face)
-                            (t 'decklet-edit-state-face)))
-               (hint (if hint
-                         (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
-                       ""))
+               (display-state (decklet-card-display-state state last-review))
+                (word-face (if (eq decklet-edit--filter 'archived)
+                               'decklet-edit-word-archived-face
+                             'decklet-edit-word-face))
+                (state-face (pcase display-state
+                              (:new 'decklet-state-new-face)
+                              ((or :learning :relearning) 'decklet-state-learning-face)
+                              (:review 'decklet-state-review-face)
+                              (_ 'decklet-edit-state-face)))
+               (state-text (or (decklet--fsrs-state-string display-state) ""))
+                (hint (if hint
+                          (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
+                        ""))
                (added (or added ""))
                (last-review (or last-review ""))
               (due (or due "")))
          (list word
-               (vector
-                (propertize word 'face word-face)
-                (propertize hint 'face 'decklet-edit-hint-face)
+                (vector
+                 (propertize word 'face word-face)
+                 (propertize hint 'face 'decklet-edit-hint-face)
+                (propertize state-text
+                            'face state-face)
                 (propertize (decklet-edit--format-timestamp added)
                             'face 'decklet-edit-added-face
                             'decklet-sort-key added)
@@ -315,8 +319,6 @@ WORDS can be a single word string or a list of words."
                 (propertize (decklet-edit--format-timestamp due)
                             'face 'decklet-edit-due-face
                             'decklet-sort-key due)
-                (propertize (or (decklet--fsrs-state-string state) "")
-                            'face state-face)
                 (propertize (if stability (format "%.3f" stability) "")
                             'face 'decklet-edit-stability-face
                             'decklet-sort-number (or stability 0))
@@ -623,10 +625,10 @@ selection.  Otherwise, mark the card at point and move to the next line."
         (vector
          (list "Word" 24 (decklet-edit--column-sorter "Word"))
          (list "Hint" 40 t)
+         (list "State" 10 t)
          (list "Added" 20 (decklet-edit--column-sorter "Added"))
          (list "Last Review" 20 (decklet-edit--column-sorter "Last Review"))
          (list "Due" 20 (decklet-edit--column-sorter "Due"))
-         (list "State" 10 t)
          (list "Stability" 10 (decklet-edit--column-sorter "Stability"))
          (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty"))))
   (setq tabulated-list-padding 2)

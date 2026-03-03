@@ -492,13 +492,13 @@ When LENGTH is non-nil, use it as the separator width."
   "Return the centered title line for the review header."
   (decklet-center-text
    (let ((meta (decklet--load-card-meta decklet-current-word)))
-     (cond
-      ((decklet-card-meta-is-new meta)
-       (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
-      ((memq (decklet-card-meta-state meta) '(:learning :relearning))
-       (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
-      (t
-       (propertize "REVIEWING" 'face 'decklet-review-state-review-face))))))
+     (pcase (decklet-card-meta-display-state meta)
+       (:new
+        (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
+       ((or :learning :relearning)
+        (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
+       (_
+        (propertize "REVIEWING" 'face 'decklet-review-state-review-face))))))
 
 (defun decklet-review-component-counters ()
   "Return the counter block for the instructions."

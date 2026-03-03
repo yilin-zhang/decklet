@@ -81,9 +81,31 @@ Set to nil to disable relearning steps."
   (difficulty nil)
   (hint nil))
 
+(defun decklet-last-review-empty-p (last-review)
+  "Return non-nil when LAST-REVIEW means never reviewed.
+LAST-REVIEW is considered empty when it is nil or an empty string."
+  (string-empty-p (or last-review "")))
+
 (defun decklet-card-meta-is-new (meta)
   "Check if the card described by META is new (never reviewed)."
-  (null (decklet-card-meta-last-review meta)))
+  (eq (decklet-card-meta-display-state meta) :new))
+
+(defun decklet-card-display-state (state last-review)
+  "Return display state derived from STATE and LAST-REVIEW.
+The result is one of `:new', `:learning', `:relearning', or `:review'."
+  (if (decklet-last-review-empty-p last-review)
+      :new
+    (pcase (decklet--normalize-fsrs-state state)
+      (:learning :learning)
+      (:relearning :relearning)
+      (:review :review)
+      (_ :review))))
+
+(defun decklet-card-meta-display-state (meta)
+  "Return display state keyword for card META.
+The result is one of `:new', `:learning', `:relearning', or `:review'."
+  (decklet-card-display-state (decklet-card-meta-state meta)
+                              (decklet-card-meta-last-review meta)))
 
 (defun decklet--clamp (value min-val max-val)
   "Clamp VALUE to be between MIN-VAL and MAX-VAL."
