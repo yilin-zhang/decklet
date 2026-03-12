@@ -34,7 +34,6 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Edit Mode Workflow](#edit-mode-workflow)
   - [Calendar Mode](#calendar-mode)
   - [Import from e-reader](#import-from-e-reader)
-    - [Import Buffer Syntax](#import-buffer-syntax)
   - [Data Location](#data-location)
 - [Customization](#customization)
   - [Review Order](#review-order)
@@ -402,8 +401,6 @@ To avoid conflict with your current settings, it's an opt-in feature. See
 Decklet import buffers support both plain word lines and hint lines. During
 confirmation (`C-c C-c`), Decklet parses the buffer into cards and hints.
 
-#### Import Buffer Syntax
-
 In batch/import buffers, each non-empty non-`#` line starts a new word block.
 Lines starting with `#` are treated as hint lines and attached to the most
 recent word.
@@ -424,8 +421,6 @@ zephyr
 # A warm *zephyr* drifted through the room.
 # /ˈzefər/
 ```
-
-#### Import Words
 
 If you use Kindle Vocabulary Builder:
 
