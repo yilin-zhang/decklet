@@ -22,6 +22,13 @@
   :type 'string
   :group 'decklet-import)
 
+(defcustom decklet-import-kindle-usage t
+  "When non-nil, import Kindle usage examples as hints.
+Usage lines are inserted into batch import buffers as lines starting with
+`#', one line per usage example."
+  :type 'boolean
+  :group 'decklet-import)
+
 (defvar decklet-import-kindle-buffer-name "*Decklet Import Kindle*"
   "Buffer name for Kindle vocab import.")
 
@@ -41,14 +48,56 @@ CONTEXT is used as the error message prefix when command execution fails."
       (error "%s: %s" context (string-trim (buffer-string))))
     (buffer-string)))
 
-(defun decklet-import-kindle--read-words (db-file)
-  "Return a list of unique words from Kindle DB-FILE."
-  ;; Use stems instead of words in their original forms.
-  (split-string (decklet-import--sqlite-call
-                 db-file
-                 "SELECT stem FROM WORDS ORDER BY rowid;"
-                 "Failed to query database")
-                "\n" t))
+(defun decklet-import-kindle--highlight-usage-word (usage word)
+  "Wrap each occurrence of WORD in USAGE with asterisks.
+Matching uses word boundaries.  If WORD is all lowercase, matching is
+case-insensitive; otherwise matching is exact case-sensitive."
+  (let ((case-fold-search (let ((case-fold-search nil))
+                            (not (string-match-p "[[:upper:]]" word))))
+        (pattern (format "\\b%s\\b" (regexp-quote word))))
+    (replace-regexp-in-string pattern "*\\&*" usage t nil)))
+
+(defun decklet-import-kindle--read-rows (db-file)
+  "Return Kindle rows as (STEM WORD USAGE) lists from DB-FILE.
+Each row comes from a LEFT JOIN between WORDS and LOOKUPS."
+  (let* ((sql
+         (concat
+           "SELECT "
+           "ifnull(WORDS.stem, '') || char(31) || "
+           "ifnull(WORDS.word, '') || char(31) || "
+           "replace(ifnull(LOOKUPS.usage, ''), char(10), ' ') "
+           "FROM WORDS "
+            "LEFT JOIN LOOKUPS ON LOOKUPS.word_key = WORDS.id "
+            "ORDER BY WORDS.rowid, LOOKUPS.rowid;"))
+         (raw (decklet-import--sqlite-call db-file sql "Failed to query database")))
+    (mapcar (lambda (line)
+              (let ((parts (split-string line "\\(?:\x1f\\|\\^_\\)" nil)))
+                (list (string-trim (nth 0 parts))
+                      (string-trim (nth 1 parts))
+                      (string-trim (string-join (nthcdr 2 parts) "")))))
+            (split-string raw "\n" t))))
+
+(defun decklet-import-kindle--rows->batch-lines (rows)
+  "Build batch buffer lines from Kindle ROWS.
+ROWS should be a list of (STEM WORD USAGE)."
+  ;; Keep order stable: first seen stem decides block position.
+  (let (groups)
+    (dolist (row rows)
+      (pcase-let* ((`(,stem ,word ,usage) row)
+                   (hint (and decklet-import-kindle-usage
+                              (decklet-import-kindle--highlight-usage-word usage word)))
+                   (cell (assoc stem groups)))
+        (unless cell
+          (setq cell (cons stem nil)
+                groups (append groups (list cell))))
+        (when (and hint (not (member hint (cdr cell))))
+          (setcdr cell (append (cdr cell) (list hint))))))
+    (let (lines)
+      (dolist (cell groups)
+        (push (car cell) lines)
+        (dolist (hint (cdr cell))
+          (push (concat "# " hint) lines)))
+      (nreverse lines))))
 
 (defun decklet-import-kindle--maybe-clear-db (db-file)
   "Prompt to clear DB-FILE after a successful import."
@@ -96,10 +145,12 @@ CONTEXT is used as the error message prefix when command execution fails."
   (unless (file-exists-p db-file)
     (error "Database file does not exist: %s" db-file))
   (decklet-import--ensure-sqlite)
-  (let* ((words (decklet-import-kindle--read-words db-file))
-         (message-prefix (format "Extracted %d unique words." (length words))))
+  (let* ((lines (decklet-import-kindle--rows->batch-lines
+                 (decklet-import-kindle--read-rows db-file)))
+         (word-count (seq-count (lambda (line) (not (string-prefix-p "#" line))) lines))
+         (message-prefix (format "Extracted %d unique words." word-count)))
     (decklet-add-card-batch
-     words
+     lines
      :buffer-name decklet-import-kindle-buffer-name
      :title "Decklet Kindle Vocab Import"
      :message-prefix message-prefix

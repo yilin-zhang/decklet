@@ -47,8 +47,15 @@ Receives a list of added words.")
     "C-c C-k" #'decklet-add-card-batch-cancel)
   "Keymap for `decklet-add-card-batch-mode'.")
 
+(defvar decklet-add-card-batch-font-lock-keywords
+  '(("^#.*$" . font-lock-comment-face))
+  "Font-lock rules for `decklet-add-card-batch-mode'.")
+
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
-  "Major mode for editing batch word entries.")
+  "Major mode for editing batch word entries.
+Lines starting with `#' are highlighted as comment-style hint lines."
+  (setq-local font-lock-defaults '(decklet-add-card-batch-font-lock-keywords))
+  (font-lock-refresh-defaults))
 
 (defun decklet--refresh-counter ()
   "Refresh counters from database state."
@@ -243,18 +250,61 @@ After adding a card, prompts if you want to add another."
     (format "Updated the hint of \"%s\". " target)))
 
 (defun decklet--batch-collect-words ()
-  "Return a list of non-empty words from the current buffer."
-  (split-string (buffer-string) "\n" t "[[:space:]]+"))
+  "Return a list of words parsed from the current batch buffer."
+  (mapcar (lambda (card) (plist-get card :word))
+          (decklet--batch-collect-cards)))
+
+(defun decklet--batch-clean-lines ()
+  "Return non-empty trimmed lines from the current buffer.
+Lines that are empty or contain only whitespace are removed."
+  (seq-filter
+   (lambda (line) (not (string-empty-p line)))
+   (mapcar #'string-trim
+           (split-string (buffer-string) "\n" nil))))
+
+(defun decklet--batch-collect-cards ()
+  "Parse current batch buffer and return card plists.
+Each returned plist contains `:word' and optional `:hint'.  Any line
+starting with `#' is treated as a hint line for the most recent word.
+Hint lines are joined with newlines."
+  (let ((lines (decklet--batch-clean-lines))
+        (cards nil)
+        (current-word nil)
+        (current-hints nil))
+    (dolist (line lines)
+      (if (string-prefix-p "#" line)
+          (progn
+            (unless current-word
+              (user-error "Hint line must follow a word line: %s" line))
+            (push (string-trim (substring line 1)) current-hints))
+        (when current-word
+          (push (list :word current-word
+                      :hint (when current-hints
+                              (string-join (nreverse current-hints) "\n")))
+                cards))
+        (setq current-word line
+              current-hints nil)))
+    (when current-word
+      (push (list :word current-word
+                  :hint (when current-hints
+                          (string-join (nreverse current-hints) "\n")))
+            cards))
+    (nreverse cards)))
 
 (defun decklet-add-card-batch-confirm ()
   "Confirm batch import for the current buffer."
   (interactive)
-  (let ((words (decklet--batch-collect-words)))
-    (dolist (word words)
-      (decklet-add-card word))
-    (message "Imported %d words" (length words))
+  (let ((cards (decklet--batch-collect-cards)))
+    (dolist (card cards)
+      (let ((word (plist-get card :word))
+            (hint (plist-get card :hint)))
+        (decklet-add-card word)
+        (when hint
+          (decklet-update-card-hint word hint))))
+    (message "Imported %d words" (length cards))
     (when (functionp decklet-add-card-batch--on-confirm)
-      (funcall decklet-add-card-batch--on-confirm words)))
+      (funcall decklet-add-card-batch--on-confirm
+               (mapcar (lambda (card) (plist-get card :word)) cards))))
   (kill-buffer (current-buffer)))
 
 (defun decklet-add-card-batch-cancel ()

@@ -34,6 +34,7 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Edit Mode Workflow](#edit-mode-workflow)
   - [Calendar Mode](#calendar-mode)
   - [Import from e-reader](#import-from-e-reader)
+    - [Import Buffer Syntax](#import-buffer-syntax)
   - [Data Location](#data-location)
 - [Customization](#customization)
   - [Review Order](#review-order)
@@ -398,6 +399,34 @@ To avoid conflict with your current settings, it's an opt-in feature. See
 
 ### Import from e-reader
 
+Decklet import buffers support both plain word lines and hint lines. During
+confirmation (`C-c C-c`), Decklet parses the buffer into cards and hints.
+
+#### Import Buffer Syntax
+
+In batch/import buffers, each non-empty non-`#` line starts a new word block.
+Lines starting with `#` are treated as hint lines and attached to the most
+recent word.
+
+Rules:
+
+- Empty lines and whitespace-only lines are ignored.
+- One word line can have multiple `#` hint lines.
+- Hint lines are joined with newlines.
+
+Example:
+
+```text
+lucid
+# She gave a *lucid* explanation of the model.
+# /ˈluːsɪd/
+zephyr
+# A warm *zephyr* drifted through the room.
+# /ˈzefər/
+```
+
+#### Import Words
+
 If you use Kindle Vocabulary Builder:
 
 1. Copy `vocab.db` from your Kindle device to your computer.
@@ -407,6 +436,9 @@ If you use Kindle Vocabulary Builder:
 4. When prompted, optionally clear the Kindle `vocab.db` to avoid re-importing
    the same words next time.
 5. Copy the updated `vocab.db` back to your Kindle if you chose to clear it.
+
+By default, Decklet also imports Kindle usage sentences as hint lines. If you
+want to disable that behavior, set `decklet-import-kindle-usage` to nil.
 
 If you use Kobo:
 
