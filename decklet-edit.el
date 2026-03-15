@@ -615,7 +615,6 @@ selection.  Otherwise, mark the card at point and move to the next line."
     "U" #'decklet-edit-unmark-all
     "<remap> <tabulated-list-sort>" #'decklet-edit-refresh
     "g" #'decklet-edit-refresh
-    "+" #'decklet-add-card
     "q" #'decklet-edit-quit)
   "Keymap for `decklet-edit-mode'.")
 
