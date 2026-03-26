@@ -116,10 +116,8 @@ a minibuffer prompt is needed."
 
 (defun decklet--require-card-hint (word)
   "Get the hint for WORD's card."
-  (let ((meta (decklet--load-card-meta word)))
-    (unless meta
-      (user-error "No card found for \"%s\"" word))
-    (decklet-card-meta-hint meta)))
+  (decklet--require-card word)
+  (decklet-db--select-card-hint word))
 
 (defun decklet--current-card-hint ()
   "Return the hint for the current review word, if any."
@@ -175,7 +173,7 @@ a minibuffer prompt is needed."
   "Edit WORD fields based on EDIT-WORD and EDIT-HINT flags.
 Return the updated word."
   (let ((row (decklet--require-card word)))
-    (pcase-let ((`(,_word ,_added ,_last ,_due ,_state ,_step ,_stability ,_difficulty ,hint) row))
+    (pcase-let ((`(,_word ,_added ,_last ,_due ,_state ,_step ,_stability ,_difficulty ,hint ,_back) row))
       (when edit-word
         (let ((new-word (read-string (format "Word (%s): " word) word)))
           (unless (string-equal new-word word)
@@ -342,6 +340,95 @@ and :message-prefix."
                (concat (plist-get options :message-prefix) " "))
              (substitute-command-keys "\\[decklet-add-card-batch-confirm]")
              (substitute-command-keys "\\[decklet-add-card-batch-cancel]"))))
+
+;; Card back popup
+
+(defcustom decklet-card-back-buffer-major-mode 'text-mode
+  "Major mode used for the card back popup buffer."
+  :type 'function
+  :group 'decklet)
+
+(defvar-local decklet-card-back--word nil
+  "Word associated with the current card back buffer.")
+
+(defvar-local decklet-card-back--on-save nil
+  "Callback invoked after saving the card back.
+It is called with no arguments.")
+
+(defun decklet-card-back--buffer-name (word)
+  "Return the buffer name for the card back of WORD."
+  (format "*Decklet Card Back: %s*" word))
+
+(defun decklet-card-back--kill-buffers ()
+  "Kill all Decklet card back popup buffers."
+  (dolist (buffer (buffer-list))
+    (when (string-prefix-p "*Decklet Card Back:" (buffer-name buffer))
+      (kill-buffer buffer))))
+
+(add-hook 'decklet-db-pre-disconnect-hook #'decklet-card-back--kill-buffers)
+
+(defun decklet-card-back-save ()
+  "Save the card back content, close its window, and kill the buffer.
+Signals a user error when the buffer is read-only."
+  (interactive)
+  (when buffer-read-only
+    (user-error "Buffer is read-only; press E to edit"))
+  (let ((word decklet-card-back--word)
+        (on-save decklet-card-back--on-save))
+    (unless word
+      (user-error "No word associated with this buffer"))
+    (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+      (decklet-db--update-back word content)
+      (quit-window t)
+      (when (functionp on-save)
+        (funcall on-save)))))
+
+(defun decklet-card-back-cancel ()
+  "Discard edits, close the card back window, and kill the buffer."
+  (interactive)
+  (quit-window t))
+
+(defun decklet-card-back--make-editable ()
+  "Switch the current card back buffer from read-only to editable."
+  (interactive)
+  (setq buffer-read-only nil)
+  (message "Card back is now editable. C-c C-c to save, C-c C-k to cancel."))
+
+(defun decklet-card-back--open (word read-only-p &optional on-save)
+  "Open the card back popup buffer for WORD.
+When READ-ONLY-P is non-nil the buffer is read-only; otherwise it is editable.
+ON-SAVE, when provided, is called with no arguments after a successful save."
+  (let* ((back (decklet-db--select-card-back word))
+         (buf-name (decklet-card-back--buffer-name word))
+         (buffer (get-buffer-create buf-name)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (funcall decklet-card-back-buffer-major-mode)
+        (setq-local decklet-card-back--word word)
+        (setq-local decklet-card-back--on-save on-save)
+        (when back
+          (insert back))
+        (goto-char (point-min))
+        (setq buffer-read-only read-only-p))
+      (local-set-key (kbd "C-c C-c") #'decklet-card-back-save)
+      (local-set-key (kbd "C-c C-k") #'decklet-card-back-cancel)
+      (local-set-key (kbd "E") #'decklet-card-back--make-editable))
+    (pop-to-buffer buffer)))
+
+(defun decklet-show-card-back (word &optional on-save)
+  "Show the card back for WORD in a read-only popup buffer.
+ON-SAVE is called after the user edits and saves via E then C-c C-c."
+  (interactive (list (decklet--resolve-word nil "Word: ")))
+  (decklet--require-card word)
+  (decklet-card-back--open word t on-save))
+
+(defun decklet-edit-card-back (word &optional on-save)
+  "Open the card back for WORD in an editable popup buffer.
+ON-SAVE is called after saving."
+  (interactive (list (decklet--resolve-word nil "Word: ")))
+  (decklet--require-card word)
+  (decklet-card-back--open word nil on-save))
 
 (provide 'decklet-deck)
 ;;; decklet-deck.el ends here

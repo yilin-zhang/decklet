@@ -43,10 +43,10 @@
   (should-error (decklet-db--normalize-word "  "))
   (should-error (decklet-db--normalize-word "")))
 
-(ert-deftest decklet-test-normalize-hint ()
-  (should (equal (decklet-db--normalize-hint nil) nil))
-  (should (equal (decklet-db--normalize-hint "  ") nil))
-  (should (string= (decklet-db--normalize-hint "  foo bar  ") "foo bar")))
+(ert-deftest decklet-test-normalize-optional-text ()
+  (should (equal (decklet-db--normalize-optional-text nil) nil))
+  (should (equal (decklet-db--normalize-optional-text "  ") nil))
+  (should (string= (decklet-db--normalize-optional-text "  foo bar  ") "foo bar")))
 
 (ert-deftest decklet-test-batch-collect-cards-supports-hint-lines ()
   (with-temp-buffer
@@ -154,8 +154,7 @@
                   :added-date (decklet-test--ts now)
                   :last-review (decklet-test--ts now)
                   :due (decklet-test--ts now)
-                  :state :review
-                  :hint "sample")))
+                  :state :review)))
       (decklet-db--upsert-card "lucid" meta)
       (let ((row (decklet-db--select-card "lucid")))
         (should row)
@@ -364,8 +363,7 @@
                        :added-date "20250101T000000Z"
                        :last-review "20250101T000000Z"
                        :due "20250102T000000Z"
-                       :state :review
-                       :hint "old"))
+                       :state :review))
            (rows '(((word . "alpha")
                     (added_date . "20250110T000000Z")
                     (last_review . "20250110T000000Z")
@@ -378,6 +376,7 @@
                     (hint . "new"))))
            (json-encoding-pretty-print t))
       (decklet-db--upsert-card "alpha" base-meta)
+      (decklet-db--update-hint "alpha" "old")
       (with-temp-file file
         (insert (json-encode rows)))
       ;; Conflict => skip
@@ -1023,6 +1022,209 @@
              (in-range-count (apply #'+ (mapcar #'cadr rows))))
         (should (= overdue 1))
         (should (= in-range-count 1))))))
+
+;; ---------------------------------------------------------------------------
+;; Card back — DB layer
+;; ---------------------------------------------------------------------------
+;; Covers decklet-db--update-back, decklet-db--select-card-back, and that
+;; the `back` field round-trips through upsert/row->card-meta.
+
+(ert-deftest decklet-test-card-back-update-and-select ()
+  "update-back stores content and select-card-back retrieves it."
+  (decklet-test--with-temp-db
+    (let ((meta (decklet-test--make-meta
+                 :added-date "20250101T000000Z"
+                 :due "20250101T000000Z"
+                 :state :new)))
+      (decklet-db--upsert-card "lucid" meta)
+      (should (null (decklet-db--select-card-back "lucid")))
+      (decklet-db--update-back "lucid" "clear and bright")
+      (should (string= "clear and bright"
+                       (decklet-db--select-card-back "lucid"))))))
+
+(ert-deftest decklet-test-card-back-select-nil-when-absent ()
+  "select-card-back returns nil for a card with no back."
+  (decklet-test--with-temp-db
+    (decklet-db--upsert-card "fog"
+                             (decklet-test--make-meta
+                              :added-date "20250101T000000Z"
+                              :due "20250101T000000Z"
+                              :state :new))
+    (should (null (decklet-db--select-card-back "fog")))))
+
+(ert-deftest decklet-test-card-back-blank-normalizes-to-nil ()
+  "Storing a blank back normalizes it to nil."
+  (decklet-test--with-temp-db
+    (decklet-db--upsert-card "mist"
+                             (decklet-test--make-meta
+                              :added-date "20250101T000000Z"
+                              :due "20250101T000000Z"
+                              :state :new))
+    (decklet-db--update-back "mist" "   ")
+    (should (null (decklet-db--select-card-back "mist")))))
+
+(ert-deftest decklet-test-card-back-upsert-does-not-touch-back ()
+  "upsert-card leaves back untouched; back must be set via update-back."
+  (decklet-test--with-temp-db
+    (let ((meta (decklet-test--make-meta
+                 :added-date "20250101T000000Z"
+                 :due "20250101T000000Z"
+                 :state :new)))
+      (decklet-db--upsert-card "vivid" meta)
+      ;; Back is nil after initial upsert.
+      (should (null (decklet-db--select-card-back "vivid")))
+      ;; Set back directly.
+      (decklet-db--update-back "vivid" "example sentence")
+      ;; Scheduling update does not clear it.
+      (decklet-db--upsert-card
+       "vivid"
+       (decklet-test--make-meta
+        :added-date "20250101T000000Z"
+        :last-review "20250102T000000Z"
+        :due "20250110T000000Z"
+        :state :review))
+      (should (string= "example sentence"
+                       (decklet-db--select-card-back "vivid"))))))
+
+
+;; ---------------------------------------------------------------------------
+;; Card back — JSON import/export
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-card-back-json-import-reads-back-field ()
+  "JSON import populates the `back` field from the record."
+  (decklet-test--with-temp-db
+    (let* ((file (expand-file-name "import-back.json" tmp-dir))
+           (rows '(((word . "crisp")
+                    (added_date . "20250101T010101Z")
+                    (last_review . nil)
+                    (due . "20250101T010101Z")
+                    (archived_at . nil)
+                    (state . "new")
+                    (step . 0)
+                    (stability . nil)
+                    (difficulty . nil)
+                    (hint . nil)
+                    (back . "fresh and clear"))))
+           (json-encoding-pretty-print t))
+      (with-temp-file file
+        (insert (json-encode rows)))
+      (decklet-db-import-json file)
+      (should (string= "fresh and clear"
+                       (decklet-db--select-card-back "crisp"))))))
+
+(ert-deftest decklet-test-card-back-json-import-nil-back ()
+  "JSON import with null back leaves back as nil."
+  (decklet-test--with-temp-db
+    (let* ((file (expand-file-name "import-no-back.json" tmp-dir))
+           (rows '(((word . "dim")
+                    (added_date . "20250101T010101Z")
+                    (last_review . nil)
+                    (due . "20250101T010101Z")
+                    (archived_at . nil)
+                    (state . "new")
+                    (step . 0)
+                    (stability . nil)
+                    (difficulty . nil)
+                    (hint . nil)
+                    (back . nil))))
+           (json-encoding-pretty-print t))
+      (with-temp-file file
+        (insert (json-encode rows)))
+      (decklet-db-import-json file)
+      (should (null (decklet-db--select-card-back "dim"))))))
+
+;; ---------------------------------------------------------------------------
+;; Card back — buffer utilities
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-card-back-buffer-name-format ()
+  "Buffer name follows *Decklet Card Back: WORD* convention."
+  (should (string= "*Decklet Card Back: hello*"
+                   (decklet-card-back--buffer-name "hello"))))
+
+(ert-deftest decklet-test-card-back-kill-buffers-only-kills-matching ()
+  "kill-buffers kills card-back buffers and leaves unrelated ones alone."
+  (let* ((back-buf (get-buffer-create "*Decklet Card Back: x*"))
+         (other-buf (get-buffer-create "*SomeOtherBuffer*")))
+    (unwind-protect
+        (progn
+          (decklet-card-back--kill-buffers)
+          (should-not (buffer-live-p back-buf))
+          (should (buffer-live-p other-buf)))
+      (when (buffer-live-p other-buf)
+        (kill-buffer other-buf)))))
+
+(ert-deftest decklet-test-card-back-open-creates-buffer-with-content ()
+  "decklet-card-back--open populates buffer with stored back content."
+  (decklet-test--with-temp-db
+    (decklet-db--upsert-card "bright"
+                             (decklet-test--make-meta
+                              :added-date "20250101T000000Z"
+                              :due "20250101T000000Z"
+                              :state :new))
+    (decklet-db--update-back "bright" "shining example")
+    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
+      (decklet-card-back--open "bright" t))
+    (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
+      (unwind-protect
+          (progn
+            (should (buffer-live-p buf))
+            (with-current-buffer buf
+              (should (string= "shining example"
+                               (buffer-substring-no-properties
+                                (point-min) (point-max))))
+              (should buffer-read-only)))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest decklet-test-card-back-open-editable-not-read-only ()
+  "decklet-card-back--open with read-only-p nil creates editable buffer."
+  (decklet-test--with-temp-db
+    (decklet-db--upsert-card "glow"
+                             (decklet-test--make-meta
+                              :added-date "20250101T000000Z"
+                              :due "20250101T000000Z"
+                              :state :new))
+    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
+      (decklet-card-back--open "glow" nil))
+    (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
+      (unwind-protect
+          (with-current-buffer buf
+            (should-not buffer-read-only))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
+
+(ert-deftest decklet-test-card-back-save-errors-when-read-only ()
+  "decklet-card-back-save signals user-error when buffer is read-only."
+  (with-temp-buffer
+    (setq buffer-read-only t)
+    (should-error (decklet-card-back-save) :type 'user-error)))
+
+(ert-deftest decklet-test-card-back-save-updates-db-and-calls-on-save ()
+  "decklet-card-back-save writes back to DB and invokes on-save callback."
+  (decklet-test--with-temp-db
+    (decklet-db--upsert-card "radiant"
+                             (decklet-test--make-meta
+                              :added-date "20250101T000000Z"
+                              :due "20250101T000000Z"
+                              :state :new))
+    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil))
+              ((symbol-function 'quit-window) (lambda (&rest _) nil)))
+      (decklet-card-back--open "radiant" nil))
+    (let ((buf (get-buffer (decklet-card-back--buffer-name "radiant")))
+          (on-save-called nil))
+      (unwind-protect
+          (with-current-buffer buf
+            (setq-local decklet-card-back--on-save (lambda () (setq on-save-called t)))
+            (erase-buffer)
+            (insert "a vivid glow")
+            (decklet-card-back-save)
+            (should (string= "a vivid glow"
+                             (decklet-db--select-card-back "radiant")))
+            (should on-save-called))
+        (when (buffer-live-p buf)
+          (kill-buffer buf))))))
 
 (provide 'decklet-test)
 ;;; decklet-test.el ends here

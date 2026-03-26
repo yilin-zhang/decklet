@@ -104,7 +104,7 @@
 One of: all, review, learning, archived.")
 
 (defconst decklet-edit--columns
-  '("Word" "Hint" "State" "Added" "Last Review" "Due" "Stability" "Difficulty")
+  '("Word" "Hint" "Back" "State" "Added" "Last Review" "Due" "Stability" "Difficulty")
   "Column names for the edit table.")
 
 (defconst decklet-edit--numeric-columns
@@ -286,7 +286,7 @@ WORDS can be a single word string or a list of words."
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
-      (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint) row))
+      (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint ,back) row))
         (let* ((state (decklet--normalize-fsrs-state state))
                (display-state (decklet-card-display-state state last-review))
                 (word-face (if (eq decklet-edit--filter 'archived)
@@ -308,6 +308,7 @@ WORDS can be a single word string or a list of words."
                 (vector
                  (propertize word 'face word-face)
                  (propertize hint 'face 'decklet-edit-hint-face)
+                 (if back (propertize "*" 'face 'decklet-card-back-indicator-face) "")
                 (propertize state-text
                             'face state-face)
                 (propertize (decklet-edit--format-timestamp added)
@@ -481,6 +482,20 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (decklet-edit--edit-card-at-point nil t))
 
+(defun decklet-edit-show-card-back ()
+  "Show the card back for the card at point in a read-only popup."
+  (interactive)
+  (let ((word (or (tabulated-list-get-id)
+                  (user-error "No card on this line"))))
+    (decklet-card-back--open word t (lambda () (decklet-edit-refresh)))))
+
+(defun decklet-edit-edit-card-back ()
+  "Open the card back for the card at point in an editable popup."
+  (interactive)
+  (let ((word (or (tabulated-list-get-id)
+                  (user-error "No card on this line"))))
+    (decklet-card-back--open word nil (lambda () (decklet-edit-refresh)))))
+
 (defun decklet-edit-delete-card ()
   "Delete the card at point from the deck."
   (interactive)
@@ -598,6 +613,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
     :parent tabulated-list-mode-map
     "e" #'decklet-edit-word
     "t" #'decklet-edit-hint
+    "b" #'decklet-edit-show-card-back
+    "B" #'decklet-edit-edit-card-back
     "D" #'decklet-edit-delete
     "/ r" #'decklet-edit-filter-review
     "/ l" #'decklet-edit-filter-learning
@@ -624,6 +641,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
         (vector
          (list "Word" 24 (decklet-edit--column-sorter "Word"))
          (list "Hint" 40 t)
+         (list "Back" 5 nil)
          (list "State" 10 t)
          (list "Added" 20 (decklet-edit--column-sorter "Added"))
          (list "Last Review" 20 (decklet-edit--column-sorter "Last Review"))

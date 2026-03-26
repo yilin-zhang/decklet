@@ -66,7 +66,9 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 
 (defcustom decklet-review-floating-components
   '(decklet-review-component-linebreak
-    decklet-review-component-hint)
+    decklet-review-component-hint
+    decklet-review-component-linebreak
+    decklet-review-component-card-back-indicator)
   "Components rendered after the fixed block and excluded from centering."
   :type '(repeat function)
   :group 'decklet-review)
@@ -222,7 +224,9 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
     "g" #'decklet-review-refresh
     "D" #'decklet-review-delete-card
     "e" #'decklet-review-edit-word
-    "t" #'decklet-review-edit-hint)
+    "t" #'decklet-review-edit-hint
+    "b" #'decklet-review-show-card-back
+    "B" #'decklet-review-edit-card-back)
   "Keymap for `decklet-review-mode'.")
 
 ;; Format helpers
@@ -577,6 +581,13 @@ Interval labels are included when
         (let ((hint-placeholder (propertize "[HINT]" 'face 'decklet-review-hint-placeholder-face)))
           (decklet-center-text hint-placeholder))))))
 
+(defun decklet-review-component-card-back-indicator ()
+  "Return a centered [BACK] indicator when the current card has a back."
+  (when (and decklet-current-word
+             (decklet-db--select-card-back decklet-current-word))
+    (decklet-center-text
+     (propertize "[BACK]" 'face 'decklet-card-back-indicator-face))))
+
 (defun decklet-review--hide-cursor ()
   "Hide the cursor and hl-line in the review buffer window."
   (when (eq major-mode 'decklet-review-mode)
@@ -715,6 +726,20 @@ When current list is empty, re-check for due cards and continue if any exist."
       (setq decklet-current-word nil)
       (when (eq major-mode 'decklet-review-mode)
         (decklet-review-next-card)))))
+
+(defun decklet-review-show-card-back ()
+  "Show the card back for the current word in a read-only popup."
+  (interactive)
+  (let ((word (decklet--require-current-word "show card back for")))
+    (decklet-card-back--open word t
+                             (lambda () (decklet-review--render-buffer t)))))
+
+(defun decklet-review-edit-card-back ()
+  "Open the card back for the current word in an editable popup."
+  (interactive)
+  (let ((word (decklet--require-current-word "edit card back for")))
+    (decklet-card-back--open word nil
+                             (lambda () (decklet-review--render-buffer t)))))
 
 ;; Review mode setup
 

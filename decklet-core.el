@@ -46,5 +46,11 @@
   "Shared face for review-card state indicators."
   :group 'decklet)
 
+(defface decklet-card-back-indicator-face
+  `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)
+       :weight bold))
+  "Face for the card back indicator."
+  :group 'decklet)
+
 (provide 'decklet-core)
 ;;; decklet-core.el ends here

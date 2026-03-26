@@ -49,6 +49,11 @@ ORDER can be `:asc' or `:desc'."
 (defvar decklet-db--conn nil
   "SQLite connection for Decklet.")
 
+(defvar decklet-db-pre-disconnect-hook nil
+  "Hook run immediately before the SQLite connection is closed.
+Use this to clean up any resources that depend on an open DB connection,
+such as card-back popup buffers.")
+
 (defconst decklet-db--edit-sort-columns
   '(("Word" . "word")
     ("Hint" . "hint")
@@ -66,22 +71,23 @@ ORDER can be `:asc' or `:desc'."
         (error "Word cannot be empty")
       trimmed)))
 
-(defun decklet-db--normalize-hint (hint)
-  "Trim HINT and return nil if empty."
-  (when hint
-    (let ((trimmed (string-trim hint)))
+(defun decklet-db--normalize-optional-text (text)
+  "Trim TEXT and return nil if blank."
+  (when text
+    (let ((trimmed (string-trim text)))
       (unless (string-empty-p trimmed)
         trimmed))))
 
 (defun decklet-db--normalize-row (row)
-  "Normalize ROW values for word and hint fields."
+  "Normalize ROW values for word, hint, and back fields."
   (when row
-    (pcase-let ((`(,word ,added ,last-review ,due ,state ,step ,stability ,difficulty ,hint) row))
+    (pcase-let ((`(,word ,added ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back) row))
       (let ((normalized-word (decklet-db--normalize-word word))
-            (normalized-hint (decklet-db--normalize-hint hint)))
+            (normalized-hint (decklet-db--normalize-optional-text hint))
+            (normalized-back (decklet-db--normalize-optional-text back)))
         (list normalized-word
               added last-review due state step stability difficulty
-              normalized-hint)))))
+              normalized-hint normalized-back)))))
 
 (defun decklet-db--ensure-db-dir ()
   "Ensure the database directory exists."
@@ -107,7 +113,8 @@ ORDER can be `:asc' or `:desc'."
                        step INTEGER,
                        stability REAL,
                        difficulty REAL,
-                       hint TEXT
+                       hint TEXT,
+                       back TEXT
                      );")
     (sqlite-execute decklet-db--conn
                     "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
@@ -116,6 +123,7 @@ ORDER can be `:asc' or `:desc'."
 (defun decklet-db--disconnect ()
   "Close the SQLite connection used by Decklet."
   (when decklet-db--conn
+    (run-hooks 'decklet-db-pre-disconnect-hook)
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 
@@ -139,20 +147,20 @@ ORDER can be `:asc' or `:desc'."
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
      (car (sqlite-select conn
-                         "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint
+                         "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back
                           FROM cards WHERE word = ?;"
                          (list word))))))
 
 (defun decklet-db--upsert-card (word card-meta)
-  "Insert or update WORD with CARD-META in the database."
+  "Insert or update WORD with CARD-META in the database.
+Only scheduling fields are written; content fields (hint, back) are
+left unchanged on conflict."
   (let* ((word (decklet-db--normalize-word word))
-         (hint (decklet-db--normalize-hint (decklet-card-meta-hint card-meta)))
          (conn (decklet-db--ensure)))
-    (setf (decklet-card-meta-hint card-meta) hint) ; update to the normalized hint
     (sqlite-execute
      conn
-     "INSERT INTO cards (word, added_date, last_review, due, state, step, stability, difficulty, hint)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     "INSERT INTO cards (word, added_date, last_review, due, state, step, stability, difficulty)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(word) DO UPDATE SET
         added_date = excluded.added_date,
         last_review = excluded.last_review,
@@ -160,8 +168,7 @@ ORDER can be `:asc' or `:desc'."
         state = excluded.state,
         step = excluded.step,
         stability = excluded.stability,
-        difficulty = excluded.difficulty,
-        hint = excluded.hint;"
+        difficulty = excluded.difficulty;"
      (list word
            (decklet-card-meta-added-date card-meta)
            (decklet-card-meta-last-review card-meta)
@@ -169,17 +176,35 @@ ORDER can be `:asc' or `:desc'."
            (decklet--fsrs-state-string (decklet-card-meta-state card-meta))
            (decklet-card-meta-step card-meta)
            (decklet-card-meta-stability card-meta)
-           (decklet-card-meta-difficulty card-meta)
-           hint))))
+           (decklet-card-meta-difficulty card-meta)))))
 
 (defun decklet-db--update-hint (word hint)
   "Update WORD's hint with HINT in the database, return normalized hint."
   (let* ((word (decklet-db--normalize-word word))
-         (hint (decklet-db--normalize-hint hint))
+         (hint (decklet-db--normalize-optional-text hint))
          (conn (decklet-db--ensure)))
     (sqlite-execute conn "UPDATE cards SET hint = ? WHERE word = ?;"
                     (list hint word))
     hint))
+
+(defun decklet-db--update-back (word back)
+  "Update WORD's back with BACK in the database, return normalized back."
+  (let* ((word (decklet-db--normalize-word word))
+         (back (decklet-db--normalize-optional-text back))
+         (conn (decklet-db--ensure)))
+    (sqlite-execute conn "UPDATE cards SET back = ? WHERE word = ?;"
+                    (list back word))
+    back))
+
+(defun decklet-db--select-card-hint (word)
+  "Return the hint for WORD's card, or nil."
+  (when-let ((row (decklet-db--select-card word)))
+    (nth 8 row)))
+
+(defun decklet-db--select-card-back (word)
+  "Return the back content for WORD's card, or nil."
+  (when-let ((row (decklet-db--select-card word)))
+    (nth 9 row)))
 
 (defun decklet-db--delete-card (word)
   "Delete WORD from the database."
@@ -241,7 +266,7 @@ ORDER can be `:asc' or `:desc'."
        #'decklet-db--normalize-row
        (sqlite-select conn
                       (concat
-                       "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint
+                       "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back
                         FROM cards"
                        where
                        (decklet-db--edit-order-sql sort-key)
@@ -251,7 +276,7 @@ ORDER can be `:asc' or `:desc'."
 (defun decklet-db--row->card-meta (row)
   "Convert ROW into a `decklet-card-meta' instance."
   (when row
-    (pcase-let ((`(,_word ,added-date ,last-review ,due ,state ,step ,stability ,difficulty ,hint) row))
+    (pcase-let ((`(,_word ,added-date ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back) row))
       (let* ((scheduler (decklet--get-fsrs-scheduler))
              (state (decklet--normalize-fsrs-state state))
              (added-date (or added-date (fsrs-now)))
@@ -275,8 +300,7 @@ ORDER can be `:asc' or `:desc'."
          :state state
          :step step
          :stability stability
-         :difficulty difficulty
-         :hint hint)))))
+         :difficulty difficulty)))))
 
 (defun decklet-db--review-normalize-targets (targets)
   "Normalize TARGETS into a list of review types."
@@ -521,11 +545,13 @@ Return a plist with keys:
                 :state state
                 :step step
                 :stability (decklet-db--json-alist-get record 'stability)
-                :difficulty (decklet-db--json-alist-get record 'difficulty)
-                :hint (decklet-db--normalize-hint
-                       (decklet-db--json-alist-get record 'hint))))
+                :difficulty (decklet-db--json-alist-get record 'difficulty)))
+         (hint (decklet-db--normalize-optional-text
+                (decklet-db--json-alist-get record 'hint)))
+         (back (decklet-db--normalize-optional-text
+                (decklet-db--json-alist-get record 'back)))
          (archived-at (decklet-db--json-alist-get record 'archived_at)))
-    (list word meta archived-at)))
+    (list word meta archived-at hint back)))
 
 (defun decklet-db--import-read-conflict-choice (word)
   "Prompt conflict action for WORD.
@@ -554,9 +580,11 @@ confirms an \"all\" behavior."
              (message "Canceled \"overwrite all\"; choose for current word."))))))
     (cons resolved global-choice)))
 
-(defun decklet-db--apply-import-card (word meta archived-at)
-  "Upsert WORD with META, then apply ARCHIVED-AT flag."
+(defun decklet-db--apply-import-card (word meta archived-at hint back)
+  "Upsert WORD with META, write HINT and BACK, then apply ARCHIVED-AT flag."
   (decklet-db--upsert-card word meta)
+  (when hint (decklet-db--update-hint word hint))
+  (when back (decklet-db--update-back word back))
   (if archived-at
       (decklet-db--archive-card word archived-at)
     (decklet-db--unarchive-card word)))
@@ -579,7 +607,7 @@ Return a plist with :added, :overwritten, and :skipped."
         (unless (listp records)
           (error "Import JSON must be an array of card objects"))
         (dolist (record records)
-          (pcase-let ((`(,word ,meta ,archived-at)
+          (pcase-let ((`(,word ,meta ,archived-at ,hint ,back)
                        (decklet-db--import-record->card record)))
             (if (decklet-db--select-card word)
                 (let ((action (or global-conflict-action
@@ -590,11 +618,11 @@ Return a plist with :added, :overwritten, and :skipped."
                     (:skip
                      (cl-incf skipped))
                     (:overwrite
-                     (decklet-db--apply-import-card word meta archived-at)
+                     (decklet-db--apply-import-card word meta archived-at hint back)
                      (cl-incf overwritten))
                     (_
                      (error "Unknown import action: %S" action))))
-              (decklet-db--apply-import-card word meta archived-at)
+              (decklet-db--apply-import-card word meta archived-at hint back)
               (cl-incf added))))))
     (list :added added :overwritten overwritten :skipped skipped)))
 
@@ -615,11 +643,11 @@ file under `decklet-directory'."
       (let* ((rows (sqlite-select
                     (decklet-db--ensure)
                     "SELECT word, added_date, last_review, due, archived_at, state,
-                        step, stability, difficulty, hint
+                        step, stability, difficulty, hint, back
                  FROM cards
                  ORDER BY added_date ASC, word ASC;"))
              (fields '(word added_date last_review due archived_at state
-                            step stability difficulty hint))
+                            step stability difficulty hint back))
              (payload (mapcar (lambda (row)
                                 (cl-mapcar #'cons fields row))
                               rows))

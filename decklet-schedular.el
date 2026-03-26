@@ -71,15 +71,14 @@ Set to nil to disable relearning steps."
   "Counter for reviewed, due-review, due-learning, and new cards.")
 
 (cl-defstruct (decklet-card-meta)
-  ;; Card metadata keyed by word string.
+  ;; Scheduling metadata only.  Content fields (hint, back) live in the DB.
   (added-date (fsrs-now))
   (last-review nil)
   (due (fsrs-now))
   (state :learning)
   (step 0)
   (stability nil)
-  (difficulty nil)
-  (hint nil))
+  (difficulty nil))
 
 (defun decklet-last-review-empty-p (last-review)
   "Return non-nil when LAST-REVIEW means never reviewed.

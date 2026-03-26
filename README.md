@@ -4,10 +4,12 @@ Decklet is for language learners who want to quickly capture and review words
 without heavy card setup.
 
 It is built differently from many SRS tools:
-- There is no need to design a full card back. Instead, Decklet provides a
-  flexible lookup approach by leveraging external apps or services. You can jump
-  out to web resources for pronunciation, usage, etymology, images, etc., or
-  connect to a third-party API for on-the-fly retrieval.
+- The primary workflow does not require designing a card back. Instead, Decklet
+  provides a flexible lookup approach by leveraging external apps or services.
+  You can jump out to web resources for pronunciation, usage, etymology, images,
+  etc., or connect to a third-party API for on-the-fly retrieval. For cases
+  where a personal note is more useful than an external lookup, cards also
+  support an optional card back.
 - Decklet is built on Emacs, so it is easy to shape to your own workflow. For
   example, you can customize lookup providers and the define behavior, and fully
   utilize the built-in hooks for further tweaks.
@@ -30,6 +32,7 @@ Decklet intentionally stays focused and provides a curated feature set. See
 - [Features](#features)
   - [Dictionary](#dictionary)
   - [Hints](#hints)
+  - [Card Back](#card-back)
   - [Daily Goal](#daily-goal)
   - [Edit Mode Workflow](#edit-mode-workflow)
   - [Calendar Mode](#calendar-mode)
@@ -41,6 +44,7 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Add and Refresh](#add-and-refresh)
   - [Rollover Time](#rollover-time)
   - [Dictionary Configuration](#dictionary-configuration)
+  - [Card Back Buffer](#card-back-buffer)
   - [Database](#database)
   - [Hooks](#hooks)
   - [Review UI Components](#review-ui-components)
@@ -68,16 +72,18 @@ Decklet intentionally stays focused and provides a curated feature set. See
 ---------------------------------------------------------------
 
                           /ˈluːsɪd/
+
+                           [BACK]
 ```
 
 ### Edit Mode
 
 ```text
-Word         Hint                  State      Added            Last Review       Due               Stability Difficulty
----------------------------------------------------------------------------------------------------------------------
-lucid        /ˈluːsɪd/             review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
-zephyr       /ˈzefər/              learning   2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  12.220    4.050
-candor       /ˈkændər/             review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
+Word         Hint                  Back  State      Added            Last Review       Due               Stability Difficulty
+----------------------------------------------------------------------------------------------------------------------------
+lucid        /ˈluːsɪd/             *     review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
+zephyr       /ˈzefər/                    learning   2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  12.220    4.050
+candor       /ˈkændər/             *     review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
 ```
 
 ## Get Started
@@ -252,6 +258,8 @@ cards just like most flashcard apps.
 | `g` | Refresh review buffer               |
 | `e` | Edit current word                   |
 | `t` | Edit current hint                   |
+| `b` | Show card back (read-only)          |
+| `B` | Edit card back                      |
 | `D` | Delete current card                 |
 | `q` | Quit review                         |
 | `l` | Look up word with default provider  |
@@ -277,6 +285,8 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `D`   | Delete current or marked cards            |
 | `e`   | Edit word at point                        |
 | `t`   | Edit hint at point                        |
+| `b`   | Show card back (read-only)                |
+| `B`   | Edit card back                            |
 | `+`   | Quick add card                            |
 | `/ r` | Filter review cards                       |
 | `/ l` | Filter learning cards                     |
@@ -340,6 +350,31 @@ to nil to disable it.
 
 A friendly note: In minibuffer hint input, you can use `M-j` to insert a newline
 for multi-line hints.
+
+### Card Back
+
+Card back is an optional free-form note attached to a card. Unlike hints, which
+are shown inline during review after a short delay, the card back is kept out of
+the review flow and accessed on demand with `b`. This makes it a good place for
+longer or richer notes — etymology, example sentences, mnemonics, grammar
+patterns, or anything you want to record but do not want shown automatically
+during every review.
+
+In review mode, if a card has a back, a `[BACK]` indicator appears below the
+hint area as a reminder that extra content is available.
+
+In edit mode, the `Back` column shows `*` for cards that have a back.
+
+Key bindings (available in both review and edit modes):
+
+- `b`: open the card back in a read-only popup. Press `E` inside the popup to
+  switch to editing, then `C-c C-c` to save or `C-c C-k` to cancel.
+- `B`: open the card back directly in an editable popup. `C-c C-c` saves,
+  `C-c C-k` cancels.
+
+The card back buffer uses `text-mode` by default. You can configure the major
+mode with `decklet-card-back-buffer-major-mode`. See
+[Card Back Buffer](#card-back-buffer) for details.
 
 ### Daily Goal
 
@@ -610,6 +645,16 @@ Cache clearing:
 By default, Decklet calls `decklet-clear-api-cache` when `decklet-edit-quit`
 or `decklet-review-quit` is called.
 
+### Card Back Buffer
+
+`decklet-card-back-buffer-major-mode` controls the major mode used for the card
+back popup buffer. It defaults to `text-mode`.
+
+```emacs-lisp
+;; Use Markdown mode for card backs (requires markdown-mode to be installed).
+(setq decklet-card-back-buffer-major-mode 'markdown-mode)
+```
+
 ### Database
 
 Decklet stores all card data in a single SQLite file
@@ -658,7 +703,8 @@ JSON item format:
     "step": 0,
     "stability": 32.41,
     "difficulty": 3.12,
-    "hint": "/ˈluːsɪd/"
+    "hint": "/ˈluːsɪd/",
+    "back": "From Latin *lucidus* (light, bright). Think: a lucid dream is one where the light of awareness shines through."
   }
 ]
 ```
@@ -703,12 +749,13 @@ Review mode UI is assembled from component functions.
 - `decklet-review-fixed-components`: components in the main centered block
   (title, counters, options, word, separators, etc.).
 - `decklet-review-floating-components`: components appended below the fixed
-  block (default is the hint area).
+  block (default: hint area followed by the card back indicator).
 
 In short:
 - Fixed components are what you always want in the main review layout.
 - Floating components are extra parts that may appear later (for example after
-  hint delay).
+  hint delay). The built-in `decklet-review-component-card-back-indicator`
+  shows `[BACK]` when the current card has a card back.
 
 `decklet-review-fill-column` controls the max text width used by review UI
 rendering. If your window is very wide or very narrow, adjusting this can make
@@ -778,8 +825,9 @@ CI runs the same command (`./scripts/check-all.sh`) in GitHub Actions.
 Decklet is not trying to become an Emacs version of Anki. Its scope is
 intentionally focused on:
 
-- improving the workflow of quick card capture and review without a full card
-  back
+- improving the workflow of quick card capture and review, with lookup as the
+  primary way to explore word meaning, and an optional card back for personal
+  notes
 - providing extension points for advanced needs (hooks, functions, etc.), while
   leaving less common features to user extensions
 
