@@ -775,10 +775,12 @@ When non-nil, it is called with no arguments inside
                                         (time-less-p (file-attribute-modification-time (file-attributes file))
                                                      cutoff-time))
                                       files-by-age)))
-          ;; If max exceeded, delete oldest files regardless of age.
+          ;; If max exceeded, also mark the oldest excess files for deletion.
+          ;; A file qualifies if it is expired by age OR pushed out by max-count.
           (when max-exceeded
-            (let ((excess-count (- count decklet-backup-prune-max-count)))
-              (setq to-delete (seq-take files-by-age excess-count))))
+            (let* ((excess-count (- count decklet-backup-prune-max-count))
+                   (excess-files (seq-take files-by-age excess-count)))
+              (setq to-delete (seq-union to-delete excess-files))))
           ;; Ask user (optional) and delete.
           (when (and to-delete
                      (or (not decklet-backup-prune-confirm)
@@ -831,11 +833,9 @@ When non-nil, it is called with no arguments inside
 
 (defun decklet-db--backup-choice-label (file)
   "Return a display label for backup FILE."
-  (format "%s (%s)"
-          (file-name-base file)
-          (format-time-string "%Y-%m-%d %H:%M:%S"
-                              (file-attribute-modification-time
-                               (file-attributes file)))))
+  (format-time-string "%Y-%m-%d %H:%M:%S"
+                      (file-attribute-modification-time
+                       (file-attributes file))))
 
 (defun decklet-db--read-backup-choice (choices default)
   "Read backup choice from CHOICES with DEFAULT using completion."
@@ -881,14 +881,14 @@ When non-nil, it is called with no arguments inside
            (backup-file (cdr (assoc selection choices))))
       (unless backup-file
         (user-error "No backup selected"))
+      ;; Require explicit disconnection before restore.
+      ;; Replacing the DB file is only unsafe when a live SQLite connection
+      ;; still holds the file handle.
+      (when decklet-db--conn
+        (user-error "Please quit review/edit sessions (or otherwise disconnect DB) before restore"))
       (when (yes-or-no-p (format "Restore %s to %s? "
                                  (file-name-nondirectory backup-file)
                                  decklet-db-file))
-        ;; Require explicit disconnection before restore.
-        ;; Replacing the DB file is only unsafe when a live SQLite connection
-        ;; still holds the file handle.
-        (when decklet-db--conn
-          (user-error "Please quit review/edit sessions (or otherwise disconnect DB) before restore"))
         (copy-file backup-file decklet-db-file t t t)
         (message "Restored database from %s" (file-name-nondirectory backup-file))))))
 
