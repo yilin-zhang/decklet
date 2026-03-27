@@ -5,17 +5,15 @@ without heavy card setup.
 
 It is built differently from many SRS tools:
 - The primary workflow does not require designing a card back. Instead, Decklet
-  provides a flexible lookup approach by leveraging external apps or services.
+  provides a flexible lookup approach by opening external apps or services.
   You can jump out to web resources for pronunciation, usage, etymology, images,
-  etc., or connect to a third-party API for on-the-fly retrieval. For cases
+  etc., or connect to a third-party API for live definitions. For cases
   where a personal note is more useful than an external lookup, cards also
   support an optional card back.
 - Decklet is built on Emacs, so it is easy to shape to your own workflow. For
-  example, you can customize lookup providers and the define behavior, and fully
+  example, you can customize lookup providers and the lookup behavior, and fully
   utilize the built-in hooks for further tweaks.
 
-Decklet intentionally stays focused and provides a curated feature set. See
-[Project Scope](#project-scope) for details.
 
 ## Table of Contents
 
@@ -24,11 +22,12 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Edit Mode](#edit-mode)
 - [Get Started](#get-started)
   - [Install](#install)
-    - [Refocus after Lookup](#refocus-after-lookup)
-    - [Hidden Cursor](#hidden-cursor)
   - [Quick Start](#quick-start)
   - [Review Mode](#review-mode-1)
   - [Edit Mode](#edit-mode-1)
+- [Additional Setup](#additional-setup)
+  - [Refocus after Lookup](#refocus-after-lookup)
+  - [Hidden Cursor](#hidden-cursor)
 - [Features](#features)
   - [Dictionary](#dictionary)
   - [Hints](#hints)
@@ -43,13 +42,10 @@ Decklet intentionally stays focused and provides a curated feature set. See
   - [Interval Labels](#interval-labels)
   - [Add and Refresh](#add-and-refresh)
   - [Rollover Time](#rollover-time)
-  - [Dictionary Configuration](#dictionary-configuration)
-  - [Card Back Buffer](#card-back-buffer)
   - [Database](#database)
   - [Hooks](#hooks)
   - [Review UI Components](#review-ui-components)
 - [Testing and CI](#testing-and-ci)
-- [Project Scope](#project-scope)
 - [License](#license)
 
 ## UI Preview
@@ -129,112 +125,6 @@ candor       /ˈkændər/             *     review     2025-04-05 11:07 2025-04-
   (decklet-review-daily-goal 100))
 ```
 
-Lookup refocus is optional but highly recommended. It can be configured via
-`decklet-lookup-hook`. See [Refocus after Lookup](#refocus-after-lookup) for
-details.
-
-If you use modal editing, you may need extra configuration. See [Hidden
-Cursor](#hidden-cursor) for details.
-
-#### Refocus after Lookup
-
-It is recommended to focus back to Emacs after browser lookup with a CLI
-command. This helps you return to the review flow without manually switching
-focus. You can achieve this by adding a hook function to
-`decklet-lookup-hook`, which runs after opening up the browser.
-
-macOS example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "osascript -e 'tell application \"Emacs\" to activate'"))))
-```
-
-Linux (X11) example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "wmctrl -a \"Emacs\""))))
-```
-
-Linux (Wayland, sway) example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "swaymsg '[app_id=\"Emacs\"] focus'"))))
-```
-
-Windows (PowerShell) example:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "powershell -Command \"(New-Object -ComObject WScript.Shell).AppActivate('Emacs')\""))))
-```
-
-Make sure the command-line tool used in your command is installed.
-
-#### Hidden Cursor
-
-In `decklet-review-mode`, the cursor is invisible and `hl-line-mode` is
-disabled by default. If you prefer Decklet not to override the default cursor
-and highlight-line behaviors, set `decklet-review-hide-cursor` to nil.
-
-Modal editing plugins typically don't play well with the default cursor hiding
-behavior. You may need an additional setup to make it work.
-
-If you use [Evil](https://github.com/emacs-evil/evil), you might need to turn
-off `evil-local-mode` inside `decklet-review-mode`, otherwise Evil keeps
-refreshing the cursor and the hidden-cursor effect will not hold. I do not
-personally use Evil, so please treat this as a practical workaround rather than
-an official recommendation.
-
-If you use [Meow](https://github.com/meow-edit/meow), the cursor may blink the
-first time the review buffer is shown, until the next buffer refresh. It is
-because its global `window-state-change-functions` hook updates the cursor
-whenever the selected window changes, and its default cursor update logic treats
-a nil cursor as a signal to restore the default box cursor.
-
-You can use this buffer-local override so Meow keeps working elsewhere but stops
-overriding the review buffer's hidden cursor:
-
-```emacs-lisp
-(with-eval-after-load 'meow
-  (add-hook 'decklet-review-mode-hook
-            (lambda ()
-              (setq-local meow-update-cursor-functions-alist
-                          '(((lambda () t) . ignore))))))
-```
-
-Or with `use-package`:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-review-mode . (lambda ()
-                             (setq-local meow-update-cursor-functions-alist
-                                         '(((lambda () t) . ignore))))))
-```
-
 ### Quick Start
 
 1. Add cards:
@@ -302,11 +192,109 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `f`   | Show definition popup                     |
 | `s`   | Play pronunciation audio                  |
 
+## Additional Setup
+
+### Refocus after Lookup
+
+It is recommended to focus back to Emacs after browser lookup with a CLI
+command. This helps you return to the review flow without manually switching
+focus. You can achieve this by adding a hook function to
+`decklet-lookup-hook`, which runs after opening up the browser.
+
+macOS example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "osascript -e 'tell application \"Emacs\" to activate'"))))
+```
+
+Linux (X11) example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "wmctrl -a \"Emacs\""))))
+```
+
+Linux (Wayland, sway) example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "swaymsg '[app_id=\"Emacs\"] focus'"))))
+```
+
+Windows (PowerShell) example:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process-shell-command
+        "decklet-refocus" nil
+        "powershell -Command \"(New-Object -ComObject WScript.Shell).AppActivate('Emacs')\""))))
+```
+
+### Hidden Cursor
+
+In `decklet-review-mode`, the cursor is invisible and `hl-line-mode` is
+disabled by default. If you prefer Decklet not to override the default cursor
+and highlight-line behaviors, set `decklet-review-hide-cursor` to nil.
+
+Modal editing plugins typically don't play well with the default cursor hiding
+behavior. You may need an additional setup to make it work.
+
+If you use [Evil](https://github.com/emacs-evil/evil), you may need to turn off
+`evil-local-mode` inside `decklet-review-mode`, otherwise Evil keeps refreshing
+the cursor and the hidden-cursor effect will not hold. This is a practical
+workaround rather than an officially tested configuration.
+
+If you use [Meow](https://github.com/meow-edit/meow), the cursor may blink the
+first time the review buffer is shown, until the next buffer refresh. It is
+because its global `window-state-change-functions` hook updates the cursor
+whenever the selected window changes, and its default cursor update logic treats
+a nil cursor as a signal to restore the default box cursor.
+
+You can use this buffer-local override so Meow keeps working elsewhere but stops
+overriding the review buffer's hidden cursor:
+
+```emacs-lisp
+(with-eval-after-load 'meow
+  (add-hook 'decklet-review-mode-hook
+            (lambda ()
+              (setq-local meow-update-cursor-functions-alist
+                          '(((lambda () t) . ignore))))))
+```
+
+Or with `use-package`:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-review-mode . (lambda ()
+                             (setq-local meow-update-cursor-functions-alist
+                                         '(((lambda () t) . ignore))))))
+```
+
 ## Features
 
 ### Dictionary
 
-In Decklet, dictionary lookup is equivalent to flipping the card.
+In Decklet, dictionary lookup takes the place of flipping the card.
 
 There are three built-in lookup approaches: browser-based lookup (`lookup`),
 in-Emacs dictionary (`define`), and pronunciation audio playback (`speak`).
@@ -325,8 +313,54 @@ in-Emacs dictionary (`define`), and pronunciation audio playback (`speak`).
   fetched from DictionaryAPI (best for English). For other languages, you will
   likely want to plug in your own audio function.
 
-All three are customizable. See [Dictionary
-Configuration](#dictionary-configuration) below for customization.
+#### Configuration
+
+You can customize browser-based lookup by configuring providers.
+
+`decklet-lookup-providers` and `decklet-lookup-default-provider` are `nil` by
+default. If you press `l`/`L` before setting providers, Decklet will show a
+message asking you to configure them.
+
+- `decklet-lookup-providers`: list of `(NAME . URL)` providers. `URL` must
+  include one `%s` placeholder.
+- `decklet-lookup-default-provider`: provider name used by `decklet-lookup`.
+
+Example: restore the previous built-in provider set.
+
+```emacs-lisp
+(setq decklet-lookup-providers
+      '(("Google" . "https://www.google.com/search?q=define:%s")
+        ("Merriam-Webster" . "https://www.merriam-webster.com/dictionary/%s")
+        ("Oxford Learner's" . "https://www.oxfordlearnersdictionaries.com/definition/english/%s")
+        ("Cambridge" . "https://dictionary.cambridge.org/dictionary/english/%s")
+        ("Wiktionary" . "https://en.wiktionary.org/wiki/%s")))
+(setq decklet-lookup-default-provider "Google")
+```
+
+For in-Emacs popup definitions and pronunciation audio, customize these two
+functions:
+
+- `decklet-dictionary-define-function`: Returns a string that will be
+  displayed in the popup buffer.
+- `decklet-dictionary-audio-function`: Return a local audio file path to be
+  played.
+
+```emacs-lisp
+(setq decklet-dictionary-define-function
+      (lambda (word)
+        (format "Custom definition for: %s" word)))
+(setq decklet-dictionary-audio-function
+      (lambda (word)
+        "/path/to/word.mp3"))
+```
+
+Cache clearing:
+
+- Use `M-x decklet-clear-api-cache` to clear the in-memory dictionary caches.
+- Use `M-x decklet-clear-audio-cache` to clear the on-disk audio caches.
+
+By default, Decklet calls `decklet-clear-api-cache` when `decklet-edit-quit`
+or `decklet-review-quit` is called.
 
 ### Hints
 
@@ -348,8 +382,8 @@ to nil to disable it.
 - During add flow, after adding a new word, you can press `t` at the follow-up
   prompt.
 
-A friendly note: In minibuffer hint input, you can use `M-j` to insert a newline
-for multi-line hints.
+Note: In minibuffer hint input, you can use `M-j` to insert a newline for
+multi-line hints.
 
 ### Card Back
 
@@ -372,9 +406,13 @@ Key bindings (available in both review and edit modes):
 - `B`: open the card back directly in an editable popup. `C-c C-c` saves,
   `C-c C-k` cancels.
 
-The card back buffer uses `text-mode` by default. You can configure the major
-mode with `decklet-card-back-buffer-major-mode`. See
-[Card Back Buffer](#card-back-buffer) for details.
+The card back buffer uses `org-mode` by default. You can change the major mode
+with `decklet-card-back-buffer-major-mode`:
+
+```emacs-lisp
+;; Use Markdown mode for card backs (requires markdown-mode to be installed).
+(setq decklet-card-back-buffer-major-mode 'markdown-mode)
+```
 
 ### Daily Goal
 
@@ -394,11 +432,10 @@ See [Hooks](#hooks) below.
 
 ### Edit Mode Workflow
 
-Edit mode is useful when you want selective learning instead of only following
-the default due queue.
+Edit mode is useful when you want to work outside the normal due queue.
 
 Decklet does not dictate how you should use edit mode, but here are a few
-workflow ideas based on my daily usage:
+workflow ideas:
 
 1. Re-check "well-known" words: Use filters/sorting to find cards that look
    mature, then quickly verify whether you still recognize them. If not, rate
@@ -492,8 +529,7 @@ imported words is irreversible, so proceed at your own risk.
 
 If you want to change `decklet-directory` and all the paths derived from it,
 you should set this variable before the package is loaded. If you use
-`use-package`, you can either place it under `:init`, or more preferred, under
-`:custom`.
+`use-package`, you can either place it under `:init`, or preferably under `:custom`.
 
 ```emacs-lisp
 (use-package decklet
@@ -596,65 +632,6 @@ count toward today.
 (setq decklet-day-rollover-hour 2)
 ```
 
-### Dictionary Configuration
-
-You can customize browser-based lookup by configuring providers.
-
-`decklet-lookup-providers` and `decklet-lookup-default-provider` are `nil` by
-default. If you press `l`/`L` before setting providers, Decklet will show a
-message asking you to configure them.
-
-- `decklet-lookup-providers`: list of `(NAME . URL)` providers. `URL` must
-  include one `%s` placeholder.
-- `decklet-lookup-default-provider`: provider name used by `decklet-lookup`.
-
-Example: restore the previous built-in provider set.
-
-```emacs-lisp
-(setq decklet-lookup-providers
-      '(("Google" . "https://www.google.com/search?q=define:%s")
-        ("Merriam-Webster" . "https://www.merriam-webster.com/dictionary/%s")
-        ("Oxford Learner's" . "https://www.oxfordlearnersdictionaries.com/definition/english/%s")
-        ("Cambridge" . "https://dictionary.cambridge.org/dictionary/english/%s")
-        ("Wiktionary" . "https://en.wiktionary.org/wiki/%s")))
-(setq decklet-lookup-default-provider "Google")
-```
-
-For in-Emacs popup definitions and pronunciation audio, customize these two
-functions:
-
-- `decklet-dictionary-define-function`: Returns a string that will be
-  displayed in the popup buffer.
-- `decklet-dictionary-audio-function`: Return a local audio file path to be
-  played.
-
-```emacs-lisp
-(setq decklet-dictionary-define-function
-      (lambda (word)
-        (format "Custom definition for: %s" word)))
-(setq decklet-dictionary-audio-function
-      (lambda (word)
-        "/path/to/word.mp3"))
-```
-
-Cache clearing:
-
-- Use `M-x decklet-clear-api-cache` to clear the in-memory dictionary caches.
-- Use `M-x decklet-clear-audio-cache` to clear the on-disk audio caches.
-
-By default, Decklet calls `decklet-clear-api-cache` when `decklet-edit-quit`
-or `decklet-review-quit` is called.
-
-### Card Back Buffer
-
-`decklet-card-back-buffer-major-mode` controls the major mode used for the card
-back popup buffer. It defaults to `text-mode`.
-
-```emacs-lisp
-;; Use Markdown mode for card backs (requires markdown-mode to be installed).
-(setq decklet-card-back-buffer-major-mode 'markdown-mode)
-```
-
 ### Database
 
 Decklet stores all card data in a single SQLite file
@@ -715,20 +692,18 @@ schema used by the export function, as shown above.
 
 ### Hooks
 
-Decklet provides several hooks for users to customize:
+Decklet provides several hooks for customization:
 
-- `decklet-review-start-hook`: runs when `decklet-review` starts a review session.
-- `decklet-review-quit-hook`: runs when `decklet-review-quit` exits review mode.
-- `decklet-review-next-card-hook`: runs after moving to the next review card.
-- `decklet-review-daily-goal-reached-hook`: runs when a rating changes goal status from not reached to reached.
-- `decklet-edit-start-hook`: runs when `decklet-edit` opens the edit buffer.
-- `decklet-edit-quit-hook`: runs when `decklet-edit-quit` exits the edit buffer.
-- `decklet-lookup-hook`: runs after `decklet-lookup` opens browser lookup.
-- `decklet-define-hook`: runs after `decklet-define` prepares definition content.
+- `decklet-review-start-hook`: runs when a review session starts.
+- `decklet-review-quit-hook`: runs when review mode exits.
+- `decklet-review-next-card-hook`: runs after moving to the next card.
+- `decklet-review-daily-goal-reached-hook`: runs when a rating completes the daily goal.
+- `decklet-edit-start-hook`: runs when the edit buffer opens.
+- `decklet-edit-quit-hook`: runs when the edit buffer exits.
+- `decklet-lookup-hook`: runs after browser lookup opens.
+- `decklet-define-hook`: runs after definition content is prepared.
 
-Gamification with sound effects is a good example of hook usage, and I highly
-recommend setting it up to make the review process fun and enjoyable. Here's
-an example:
+Gamification with sound effects is a good example of hook usage. Here's an example:
 
 ```emacs-lisp
 (defun my/decklet-play-sound (path)
@@ -752,19 +727,19 @@ Review mode UI is assembled from component functions.
   block (default: hint area followed by the card back indicator).
 
 In short:
-- Fixed components are what you always want in the main review layout.
-- Floating components are extra parts that may appear later (for example after
-  hint delay). The built-in `decklet-review-component-card-back-indicator`
-  shows `[BACK]` when the current card has a card back.
+- Fixed components form the main review layout and are always rendered.
+- Floating components sit below the fixed block and can update independently
+  (for example, the hint area after the hint delay). The built-in
+  `decklet-review-component-card-back-indicator` shows `[BACK]` when the
+  current card has a card back.
 
 `decklet-review-fill-column` controls the max text width used by review UI
 rendering. If your window is very wide or very narrow, adjusting this can make
 the layout look better.
 
-Each component is just a function that takes no argument and returns a string
-with one or multiple lines, which means you can easily design your own component
-and plug it in. You might want to use `decklet-center-text` or
-`decklet-fill-and-center-text` to center your text for better display.
+Each component is a function that takes no arguments and returns a string. You
+can write your own and add it to either list. Use `decklet-center-text` or
+`decklet-fill-and-center-text` to center the output.
 
 Example: remove the counter component from the fixed layout.
 
@@ -819,33 +794,6 @@ Dependency notes for checks:
   a fixed commit.
 
 CI runs the same command (`./scripts/check-all.sh`) in GitHub Actions.
-
-## Project Scope
-
-Decklet is not trying to become an Emacs version of Anki. Its scope is
-intentionally focused on:
-
-- improving the workflow of quick card capture and review, with lookup as the
-  primary way to explore word meaning, and an optional card back for personal
-  notes
-- providing extension points for advanced needs (hooks, functions, etc.), while
-  leaving less common features to user extensions
-
-New features can still be added, but only when they are useful, reasonable, and
-consistent with this scope. Features that are too complex for this direction
-are unlikely to be included.
-
-Examples that are currently out of scope:
-
-- heavy statistics dashboards
-- single-card rollback/undo
-- multiple decks
-- per-card review history UI
-
-If you need extra analytics, `decklet-db-export-json` is available, so you can
-build your own reports.
-
-If you need something outside this scope, extensions and forks are very welcome.
 
 ## License
 
