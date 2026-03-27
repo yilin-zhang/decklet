@@ -106,29 +106,6 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
   (decklet-card-display-state (decklet-card-meta-state meta)
                               (decklet-card-meta-last-review meta)))
 
-(defun decklet--clamp (value min-val max-val)
-  "Clamp VALUE to be between MIN-VAL and MAX-VAL."
-  (min max-val (max min-val value)))
-
-(defun decklet--shuffle-list (lst)
-  "Shuffle LST randomly."
-  (let* ((vec (vconcat lst))
-         (len (length vec)))
-    ;; Fisher-Yates shuffle for unbiased results.
-    (dotimes (i len)
-      (let* ((j (+ i (random (- len i))))
-             (tmp (aref vec i)))
-        (aset vec i (aref vec j))
-        (aset vec j tmp)))
-    (append vec nil)))
-
-(defun decklet--json-parse-safe (json-string context)
-  "Parse JSON-STRING, reporting errors with CONTEXT."
-  (condition-case err
-      (json-parse-string json-string :object-type 'alist)
-    (error
-     (message "%s: %s" context (error-message-string err))
-     nil)))
 
 (defun decklet--get-fsrs-scheduler ()
   "Return a configured FSRS scheduler for Decklet."

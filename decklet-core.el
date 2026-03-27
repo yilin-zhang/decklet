@@ -52,5 +52,31 @@
   "Face for the card back indicator."
   :group 'decklet)
 
+;; Utility functions used across modules
+
+(defun decklet--clamp (value min-val max-val)
+  "Clamp VALUE to be between MIN-VAL and MAX-VAL."
+  (min max-val (max min-val value)))
+
+(defun decklet--shuffle-list (lst)
+  "Return a new randomly shuffled copy of LST."
+  (let* ((vec (vconcat lst))
+         (len (length vec)))
+    ;; Fisher-Yates shuffle for unbiased results.
+    (dotimes (i len)
+      (let* ((j (+ i (random (- len i))))
+             (tmp (aref vec i)))
+        (aset vec i (aref vec j))
+        (aset vec j tmp)))
+    (append vec nil)))
+
+(defun decklet--json-parse-safe (json-string context)
+  "Parse JSON-STRING, reporting errors with CONTEXT."
+  (condition-case err
+      (json-parse-string json-string :object-type 'alist)
+    (error
+     (message "%s: %s" context (error-message-string err))
+     nil)))
+
 (provide 'decklet-core)
 ;;; decklet-core.el ends here

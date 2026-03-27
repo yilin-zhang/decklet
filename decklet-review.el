@@ -212,6 +212,17 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 (defvar decklet-review--hint-timer nil
   "Delay timer for hint display.")
 
+(defvar decklet-review--render-meta nil
+  "Card meta for the current word; bound for the duration of a render cycle.")
+
+(defvar decklet-review--render-has-back nil
+  "Non-nil when the current word has a card back; bound during a render cycle.")
+
+(defvar decklet-review--render-hint nil
+  "Hint text for the current word; bound for the duration of a render cycle.
+Scoped to `decklet-review--render-buffer' so both the component and the
+post-render hint-timer decision share the same value.")
+
 ;; Bring the definition up because it will be used by other functions down below.
 (defvar decklet-review-mode-map
   (define-keymap
@@ -359,7 +370,12 @@ are skipped so rendering won't stack separator lines."
 
 (defun decklet-review--render-components ()
   "Render fixed and floating components with vertical centering for fixed ones."
-  (let* ((content-components (seq-remove (lambda (fn)
+  (let* ((decklet-review--render-meta
+          (and decklet-current-word (decklet--load-card-meta decklet-current-word)))
+         (decklet-review--render-has-back
+          (and decklet-current-word
+               (decklet-db--select-card-back decklet-current-word)))
+         (content-components (seq-remove (lambda (fn)
                                            (eq fn 'decklet-review-component-separator))
                                          (append decklet-review-fixed-components
                                                  decklet-review-floating-components)))
@@ -495,14 +511,13 @@ When LENGTH is non-nil, use it as the separator width."
 (defun decklet-review-component-title ()
   "Return the centered title line for the review header."
   (decklet-center-text
-   (let ((meta (decklet--load-card-meta decklet-current-word)))
-     (pcase (decklet-card-meta-display-state meta)
-       (:new
-        (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
-       ((or :learning :relearning)
-        (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
-       (_
-        (propertize "REVIEWING" 'face 'decklet-review-state-review-face))))))
+   (pcase (decklet-card-meta-display-state decklet-review--render-meta)
+     (:new
+      (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
+     ((or :learning :relearning)
+      (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
+     (_
+      (propertize "REVIEWING" 'face 'decklet-review-state-review-face)))))
 
 (defun decklet-review-component-counters ()
   "Return the counter block for the instructions."
@@ -540,7 +555,7 @@ When LENGTH is non-nil, use it as the separator width."
   "Return the options block for review ratings and commands.
 Interval labels are included when
 `decklet-review-enable-interval-labels' is non-nil."
-  (let* ((meta (decklet--load-card-meta decklet-current-word))
+  (let* ((meta decklet-review--render-meta)
          (option-lines
           (list
            (concat (decklet-review--instruction-key-label 'decklet-review-rate-again)
@@ -574,17 +589,15 @@ Interval labels are included when
 
 (defun decklet-review-component-hint ()
   "Insert the current word's hint in the review buffer."
-  (let ((hint (decklet--current-card-hint)))
-    (when hint
-      (if decklet-review--state-display-hint
-          (decklet-fill-and-center-text hint decklet-review-fill-column)
-        (let ((hint-placeholder (propertize "[HINT]" 'face 'decklet-review-hint-placeholder-face)))
-          (decklet-center-text hint-placeholder))))))
+  (when decklet-review--render-hint
+    (if decklet-review--state-display-hint
+        (decklet-fill-and-center-text decklet-review--render-hint decklet-review-fill-column)
+      (decklet-center-text
+       (propertize "[HINT]" 'face 'decklet-review-hint-placeholder-face)))))
 
 (defun decklet-review-component-card-back-indicator ()
   "Return a centered [BACK] indicator when the current card has a back."
-  (when (and decklet-current-word
-             (decklet-db--select-card-back decklet-current-word))
+  (when decklet-review--render-has-back
     (decklet-center-text
      (propertize "[BACK]" 'face 'decklet-card-back-indicator-face))))
 
@@ -605,7 +618,8 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   (with-current-buffer (get-buffer decklet-review-buffer-name)
     (when decklet-review-hide-cursor
       (decklet-review--hide-cursor))
-    (let* ((window (get-buffer-window (current-buffer) 0))
+    (let* ((decklet-review--render-hint (decklet--current-card-hint))
+           (window (get-buffer-window (current-buffer) 0))
            (saved-point (when (and keep-position window) (window-point window)))
            (saved-start (when (and keep-position window) (window-start window)))
            (render (lambda ()
@@ -616,7 +630,7 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
       (if window
           (with-selected-window window (funcall render))
         (funcall render))
-      (if (decklet--current-card-hint)
+      (if decklet-review--render-hint
           (decklet-review--start-hint-timer)
         (decklet-review--cancel-hint-timer))
       (if (and keep-position window)
@@ -718,11 +732,10 @@ When current list is empty, re-check for due cards and continue if any exist."
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."
   (interactive)
-  (if (null decklet-current-word)
-      (message "No current word to delete")
-    (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " decklet-current-word))
-      (decklet-delete-card decklet-current-word)
-      (message "Deleted \"%s\" from the deck." decklet-current-word)
+  (let ((word (decklet--require-current-word "delete")))
+    (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
+      (decklet-delete-card word)
+      (message "Deleted \"%s\" from the deck." word)
       (setq decklet-current-word nil)
       (when (eq major-mode 'decklet-review-mode)
         (decklet-review-next-card)))))

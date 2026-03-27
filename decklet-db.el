@@ -26,25 +26,6 @@
   :type 'file
   :group 'decklet-db)
 
-(defcustom decklet-review-order
-  '((:sort :due :asc :learning)
-    (:shuffle :review)
-    (:sort :added :desc :new))
-  "Review order for due cards.
-
-Each entry is one of:
-
-  (:shuffle TARGETS)
-  (:sort FIELD ORDER TARGETS)
-
-TARGETS can be a single type or a list of types.  Types are:
-`:learning', `:review', and `:new'.  `:learning' includes relearning cards.
-
-FIELD can be `:due', `:added', `:last-review', `:difficulty', or `:stability'.
-For `:learning' or `:new' targets, only `:due' and `:added' are supported.
-ORDER can be `:asc' or `:desc'."
-  :type '(repeat sexp)
-  :group 'decklet-review)
 
 (defvar decklet-db--conn nil
   "SQLite connection for Decklet.")
@@ -228,13 +209,13 @@ left unchanged on conflict."
   (let ((conn (decklet-db--ensure))
         (old-word (decklet-db--normalize-word old-word))
         (new-word (decklet-db--normalize-word new-word)))
-    (when (string-equal old-word new-word)
-      (cl-return-from decklet-db--update-word old-word))
-    (when (decklet-db--select-card new-word)
-      (user-error "Word \"%s\" already exists in the deck" new-word))
-    (sqlite-execute conn "UPDATE cards SET word = ? WHERE word = ?;"
-                    (list new-word old-word))
-    new-word))
+    (if (string-equal old-word new-word)
+        old-word
+      (when (decklet-db--select-card new-word)
+        (user-error "Word \"%s\" already exists in the deck" new-word))
+      (sqlite-execute conn "UPDATE cards SET word = ? WHERE word = ?;"
+                      (list new-word old-word))
+      new-word)))
 
 (defun decklet-db--edit-filter-sql (filter)
   "Return (SQL . PARAMS) for FILTER."
@@ -341,6 +322,29 @@ left unchanged on conflict."
           (error "Review target already used: %S" target))
         (puthash target t seen)))))
 
+(defcustom decklet-review-order
+  '((:sort :due :asc :learning)
+    (:shuffle :review)
+    (:sort :added :desc :new))
+  "Review order for due cards.
+
+Each entry is one of:
+
+  (:shuffle TARGETS)
+  (:sort FIELD ORDER TARGETS)
+
+TARGETS can be a single type or a list of types.  Types are:
+`:learning', `:review', and `:new'.  `:learning' includes relearning cards.
+
+FIELD can be `:due', `:added', `:last-review', `:difficulty', or `:stability'.
+For `:learning' or `:new' targets, only `:due' and `:added' are supported.
+ORDER can be `:asc' or `:desc'."
+  :type '(repeat sexp)
+  :set (lambda (sym val)
+         (decklet-db--review-validate-order val)
+         (set-default sym val))
+  :group 'decklet-review)
+
 (defun decklet-db--review-sort-clause (field order)
   "Return ORDER BY clause for FIELD and ORDER."
   (let* ((column (pcase field
@@ -421,52 +425,35 @@ STEP can be a shuffle or sort clause."
   "Return words due for review according to `decklet-review-order'."
   (let* ((now (current-time))
          (items '()))
-    (decklet-db--review-validate-order decklet-review-order)
     (dolist (step decklet-review-order)
       (let ((step-items (decklet-db--review-step-items step now)))
         ;; Preserve step ordering while concatenating.
         (setq items (append items step-items))))
     (mapcar (lambda (item) (plist-get item :word)) items)))
 
-(defun decklet-db--count (sql params)
-  "Return the count for SQL query with PARAMS."
-  (let* ((conn (decklet-db--ensure))
-         (row (car (sqlite-select conn sql params))))
-    (if row (car row) 0)))
-
 (defun decklet-db--counts ()
   "Return counter plist from database state."
   (let* ((now (current-time))
-         (day-start (decklet--time->fsrs-timestamp
-                     (decklet--day-start-time now)))
-         (review-cutoff (decklet--time->fsrs-timestamp
-                         (decklet--next-day-start-time now)))
+         (day-start (decklet--time->fsrs-timestamp (decklet--day-start-time now)))
+         (review-cutoff (decklet--time->fsrs-timestamp (decklet--next-day-start-time now)))
          (learning-cutoff (decklet--time->fsrs-timestamp now))
-         (reviewed (decklet-db--count
-                    "SELECT COUNT(*) FROM cards
-                     WHERE archived_at IS NULL
-                       AND last_review IS NOT NULL
-                       AND last_review >= ?
-                       AND last_review < ?;"
-                    (list day-start review-cutoff)))
-         (due-review (decklet-db--count
-                      "SELECT COUNT(*) FROM cards
-                       WHERE archived_at IS NULL
-                         AND last_review IS NOT NULL
-                         AND state = 'review'
-                         AND due <= ?;"
-                      (list review-cutoff)))
-         (due-learning (decklet-db--count
-                        "SELECT COUNT(*) FROM cards
-                         WHERE archived_at IS NULL
-                           AND last_review IS NOT NULL
-                           AND state IN ('learning', 'relearning')
-                           AND due <= ?;"
-                        (list learning-cutoff)))
-         (new (decklet-db--count
-               "SELECT COUNT(*) FROM cards WHERE archived_at IS NULL AND last_review IS NULL;"
-               nil)))
-    (list :reviewed reviewed :due-review due-review :due-learning due-learning :new new)))
+         (conn (decklet-db--ensure))
+         (row (car (sqlite-select
+                    conn
+                    "SELECT
+                       SUM(CASE WHEN last_review >= ? AND last_review < ? THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN last_review IS NOT NULL AND state = 'review'
+                                     AND due <= ? THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN last_review IS NOT NULL
+                                     AND state IN ('learning', 'relearning')
+                                     AND due <= ? THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN last_review IS NULL THEN 1 ELSE 0 END)
+                     FROM cards WHERE archived_at IS NULL;"
+                    (list day-start review-cutoff review-cutoff learning-cutoff)))))
+    (list :reviewed    (or (nth 0 row) 0)
+          :due-review  (or (nth 1 row) 0)
+          :due-learning (or (nth 2 row) 0)
+          :new         (or (nth 3 row) 0))))
 
 ;; Calendar queries
 
@@ -580,51 +567,72 @@ confirms an \"all\" behavior."
              (message "Canceled \"overwrite all\"; choose for current word."))))))
     (cons resolved global-choice)))
 
-(defun decklet-db--apply-import-card (word meta archived-at hint back)
-  "Upsert WORD with META, write HINT and BACK, then apply ARCHIVED-AT flag."
+(defun decklet-db--apply-import-card (word meta archived-at hint back overwrite-p)
+  "Upsert WORD with META, write HINT and BACK, then apply ARCHIVED-AT flag.
+When OVERWRITE-P is non-nil, also clear any stale archived flag on the
+existing card.  New cards never need this since they start unarchived."
   (decklet-db--upsert-card word meta)
   (when hint (decklet-db--update-hint word hint))
   (when back (decklet-db--update-back word back))
   (if archived-at
       (decklet-db--archive-card word archived-at)
-    (decklet-db--unarchive-card word)))
+    (when overwrite-p
+      (decklet-db--unarchive-card word))))
 
 (defun decklet-db--import-json-file (file)
   "Import cards from JSON FILE.
 Return a plist with :added, :overwritten, and :skipped."
-  (let ((global-conflict-action nil)
-        (added 0)
-        (overwritten 0)
-        (skipped 0))
-    (unless (file-exists-p file)
-      (user-error "Import file does not exist: %s" file))
-    (with-temp-buffer
-      (insert-file-contents file)
-      (let ((records (json-parse-buffer :object-type 'alist
-                                        :array-type 'list
-                                        :null-object nil
-                                        :false-object nil)))
-        (unless (listp records)
-          (error "Import JSON must be an array of card objects"))
-        (dolist (record records)
-          (pcase-let ((`(,word ,meta ,archived-at ,hint ,back)
-                       (decklet-db--import-record->card record)))
-            (if (decklet-db--select-card word)
-                (let ((action (or global-conflict-action
-                                  (let ((decision (decklet-db--import-read-conflict-choice word)))
-                                    (setq global-conflict-action (or (cdr decision) global-conflict-action))
-                                    (car decision)))))
-                  (pcase action
+  (unless (file-exists-p file)
+    (user-error "Import file does not exist: %s" file))
+  (let ((records (with-temp-buffer
+                   (insert-file-contents file)
+                   (json-parse-buffer :object-type 'alist
+                                      :array-type 'list
+                                      :null-object nil
+                                      :false-object nil))))
+    (unless (listp records)
+      (error "Import JSON must be an array of card objects"))
+    ;; Resolve all conflict decisions before opening a transaction so
+    ;; interactive prompts don't block inside a write transaction.
+    (let ((resolved (mapcar (lambda (record)
+                              (pcase-let ((`(,word ,meta ,archived-at ,hint ,back)
+                                           (decklet-db--import-record->card record)))
+                                (list word meta archived-at hint back
+                                      (when (decklet-db--select-card word) :conflict))))
+                            records))
+          (global-conflict-action nil)
+          (added 0) (overwritten 0) (skipped 0))
+      (dolist (entry resolved)
+        (pcase-let ((`(,word ,_meta ,_archived-at ,_hint ,_back ,conflict) entry))
+          (when (and conflict (not global-conflict-action))
+            (let ((decision (decklet-db--import-read-conflict-choice word)))
+              (setq global-conflict-action (cdr decision))
+              (setcar (nthcdr 5 entry) (car decision))))))
+      ;; Write all cards in a single transaction.
+      (let ((conn (decklet-db--ensure)))
+        (sqlite-execute conn "BEGIN;")
+        (condition-case err
+            (progn
+              (dolist (entry resolved)
+                (pcase-let ((`(,word ,meta ,archived-at ,hint ,back ,conflict) entry))
+                  (pcase conflict
+                    ('nil
+                     (decklet-db--apply-import-card word meta archived-at hint back nil)
+                     (cl-incf added))
+                    (:conflict
+                     (cl-incf skipped))
                     (:skip
                      (cl-incf skipped))
                     (:overwrite
-                     (decklet-db--apply-import-card word meta archived-at hint back)
+                     (decklet-db--apply-import-card word meta archived-at hint back t)
                      (cl-incf overwritten))
                     (_
-                     (error "Unknown import action: %S" action))))
-              (decklet-db--apply-import-card word meta archived-at hint back)
-              (cl-incf added))))))
-    (list :added added :overwritten overwritten :skipped skipped)))
+                     (error "Unknown import action: %S" conflict)))))
+              (sqlite-execute conn "COMMIT;"))
+          (error
+           (sqlite-execute conn "ROLLBACK;")
+           (signal (car err) (cdr err)))))
+      (list :added added :overwritten overwritten :skipped skipped))))
 
 ;;;###autoload
 (defun decklet-db-export-json (&optional file)
@@ -723,6 +731,11 @@ When non-nil, it is called with no arguments inside
   :type 'function
   :group 'decklet-db)
 
+(defun decklet-db--backup-file-pattern (base)
+  "Return a regexp matching backup files for BASE, including collision suffixes."
+  (format "\\`%s-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\(-[0-9]+\\)?\\.sqlite\\'"
+          (regexp-quote base)))
+
 (defun decklet-db--backup-target (backup-dir base timestamp)
   "Return a unique backup filename in BACKUP-DIR using BASE and TIMESTAMP."
   (let ((suffix 0))
@@ -745,8 +758,7 @@ When non-nil, it is called with no arguments inside
              (integerp decklet-backup-prune-min-count)
              (> decklet-backup-prune-min-count 0))
     ;; Find all backup files for the current DB base name.
-    (let* ((pattern (format "\\`%s-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\.sqlite\\'"
-                            (regexp-quote base)))
+    (let* ((pattern (decklet-db--backup-file-pattern base))
            (files (directory-files backup-dir t pattern))
            (count (length files))
            (max-exceeded (and (integerp decklet-backup-prune-max-count)
@@ -808,8 +820,7 @@ When non-nil, it is called with no arguments inside
   "Return backup files sorted by newest timestamp first."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
-         (pattern (format "\\`%s-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\(-[0-9]+\\)?\\.sqlite\\'"
-                          (regexp-quote base)))
+         (pattern (decklet-db--backup-file-pattern base))
          (files (when (file-directory-p backup-dir)
                   (directory-files backup-dir t pattern))))
     (sort (or files '())
@@ -834,9 +845,7 @@ When non-nil, it is called with no arguments inside
                      (funcall decklet-backup-restore-completion-setup)))
          (symbols (mapcar #'car bindings))
          (values (mapcar #'cdr bindings)))
-    (if bindings
-        (cl-progv symbols values
-          (completing-read "Restore backup: " choices nil t nil nil default))
+    (cl-progv symbols values
       (completing-read "Restore backup: " choices nil t nil nil default))))
 
 ;;;###autoload
