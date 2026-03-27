@@ -14,7 +14,7 @@
 (require 'subr-x)
 
 (require 'decklet-core)
-(require 'decklet-schedular)
+(require 'decklet-scheduler)
 
 (defgroup decklet-db nil
   "Database for Decklet."
@@ -594,40 +594,38 @@ Return a plist with :added, :overwritten, and :skipped."
       (error "Import JSON must be an array of card objects"))
     ;; Resolve all conflict decisions before opening a transaction so
     ;; interactive prompts don't block inside a write transaction.
-    (let ((resolved (mapcar (lambda (record)
-                              (pcase-let ((`(,word ,meta ,archived-at ,hint ,back)
-                                           (decklet-db--import-record->card record)))
-                                (list word meta archived-at hint back
-                                      (when (decklet-db--select-card word) :conflict))))
-                            records))
-          (global-conflict-action nil)
-          (added 0) (overwritten 0) (skipped 0))
-      (dolist (entry resolved)
-        (pcase-let ((`(,word ,_meta ,_archived-at ,_hint ,_back ,conflict) entry))
-          (when (and conflict (not global-conflict-action))
-            (let ((decision (decklet-db--import-read-conflict-choice word)))
-              (setq global-conflict-action (cdr decision))
-              (setcar (nthcdr 5 entry) (car decision))))))
+    (let* ((global-conflict-action nil)
+           (planned (mapcar
+                     (lambda (record)
+                       (pcase-let ((`(,word ,meta ,archived-at ,hint ,back)
+                                    (decklet-db--import-record->card record)))
+                         (let ((action (if (decklet-db--select-card word)
+                                           (or global-conflict-action
+                                               (let ((decision (decklet-db--import-read-conflict-choice word)))
+                                                 (setq global-conflict-action (cdr decision))
+                                                 (car decision)))
+                                         :add)))
+                           (list word meta archived-at hint back action))))
+                     records))
+           (added 0) (overwritten 0) (skipped 0))
       ;; Write all cards in a single transaction.
       (let ((conn (decklet-db--ensure)))
         (sqlite-execute conn "BEGIN;")
         (condition-case err
             (progn
-              (dolist (entry resolved)
-                (pcase-let ((`(,word ,meta ,archived-at ,hint ,back ,conflict) entry))
-                  (pcase conflict
-                    ('nil
+              (dolist (entry planned)
+                (pcase-let ((`(,word ,meta ,archived-at ,hint ,back ,action) entry))
+                  (pcase action
+                    (:add
                      (decklet-db--apply-import-card word meta archived-at hint back nil)
                      (cl-incf added))
-                    (:conflict
-                     (cl-incf skipped))
                     (:skip
                      (cl-incf skipped))
                     (:overwrite
                      (decklet-db--apply-import-card word meta archived-at hint back t)
                      (cl-incf overwritten))
                     (_
-                     (error "Unknown import action: %S" conflict)))))
+                     (error "Unknown import action: %S" action)))))
               (sqlite-execute conn "COMMIT;"))
           (error
            (sqlite-execute conn "ROLLBACK;")

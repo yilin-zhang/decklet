@@ -1,4 +1,4 @@
-;;; decklet-schedular.el --- Scheduler core for Decklet -*- lexical-binding: t; -*-
+;;; decklet-scheduler.el --- Scheduler core for Decklet -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026
 
@@ -195,5 +195,5 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
     (decklet--apply-fsrs-card meta new-card))
   meta)
 
-(provide 'decklet-schedular)
-;;; decklet-schedular.el ends here
+(provide 'decklet-scheduler)
+;;; decklet-scheduler.el ends here

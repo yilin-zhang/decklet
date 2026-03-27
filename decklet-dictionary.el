@@ -13,7 +13,7 @@
 (require 'url)
 
 (require 'decklet-core)
-(require 'decklet-schedular)
+(require 'decklet-scheduler)
 (require 'decklet-deck)
 (require 'decklet-edit)
 (require 'decklet-review)

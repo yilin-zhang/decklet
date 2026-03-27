@@ -14,7 +14,7 @@
 (require 'tabulated-list)
 
 (require 'decklet-core)
-(require 'decklet-schedular)
+(require 'decklet-scheduler)
 (require 'decklet-db)
 (require 'decklet-deck)
 

@@ -14,7 +14,7 @@
 (require 'tabulated-list)
 
 (require 'decklet-core)
-(require 'decklet-schedular)
+(require 'decklet-scheduler)
 (require 'decklet-db)
 
 (defcustom decklet-add-and-refresh t
@@ -343,7 +343,7 @@ and :message-prefix."
 
 ;; Card back popup
 
-(defcustom decklet-card-back-buffer-major-mode 'text-mode
+(defcustom decklet-card-back-buffer-major-mode 'org-mode
   "Major mode used for the card back popup buffer."
   :type 'function
   :group 'decklet)

@@ -44,7 +44,7 @@ emacs --batch \
   -f package-lint-batch-and-exit \
   decklet.el \
   decklet-core.el \
-  decklet-schedular.el \
+  decklet-scheduler.el \
   decklet-db.el \
   decklet-deck.el \
   decklet-edit.el \
