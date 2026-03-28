@@ -102,6 +102,19 @@
       (should (string= (decklet-edit--nearest-surviving-word '("c")) "d"))
       (should (string= (decklet-edit--nearest-surviving-word '("b" "c")) "d")))))
 
+(ert-deftest decklet-test-edit-entries-render-multiline-word-and-hint-inline ()
+  (cl-letf (((symbol-function 'decklet-db--select-cards)
+             (lambda (&rest _)
+               '(("line1\nline2" "20250101T000000Z" nil "20250102T000000Z"
+                  "learning" nil nil nil "hint1\nhint2" nil)))))
+    (let* ((decklet-edit--filter 'all)
+           (tabulated-list-sort-key nil)
+           (entry (car (decklet-edit--entries)))
+           (columns (cadr entry)))
+      (should (string= (car entry) "line1\nline2"))
+      (should (string= (aref columns 0) "line1↵line2"))
+      (should (string= (aref columns 1) "hint1↵hint2")))))
+
 (ert-deftest decklet-test-edit-delete-without-marks-delegates-to-single-delete ()
   (let ((delegated nil))
     (cl-letf (((symbol-function 'decklet-edit--marked-words) (lambda () nil))

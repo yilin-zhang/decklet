@@ -298,6 +298,7 @@ WORDS can be a single word string or a list of words."
                               (:review 'decklet-state-review-face)
                               (_ 'decklet-edit-state-face)))
                (state-text (or (decklet--fsrs-state-string display-state) ""))
+               (word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
                 (hint (if hint
                           (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
                         ""))

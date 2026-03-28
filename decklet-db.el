@@ -46,11 +46,12 @@ such as card-back popup buffers.")
   "Mapping of edit table headers to database columns.")
 
 (defun decklet-db--normalize-word (word)
-  "Trim WORD and signal an error if empty."
-  (let ((trimmed (string-trim (or word ""))))
-    (if (string-empty-p trimmed)
+  "Normalize WORD and signal an error if empty."
+  (let* ((trimmed (string-trim (or word "")))
+         (single-line (replace-regexp-in-string "[\r\n]+" " " trimmed)))
+    (if (string-empty-p single-line)
         (error "Word cannot be empty")
-      trimmed)))
+      single-line)))
 
 (defun decklet-db--normalize-optional-text (text)
   "Trim TEXT and return nil if blank."

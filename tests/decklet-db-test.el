@@ -10,6 +10,7 @@
 
 (ert-deftest decklet-test-normalize-word ()
   (should (string= (decklet-db--normalize-word "  lucid  ") "lucid"))
+  (should (string= (decklet-db--normalize-word "  lucid\n\nrain  ") "lucid rain"))
   (should-error (decklet-db--normalize-word "  "))
   (should-error (decklet-db--normalize-word "")))
 
