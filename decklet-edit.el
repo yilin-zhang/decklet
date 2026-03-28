@@ -289,27 +289,27 @@ WORDS can be a single word string or a list of words."
       (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint ,back) row))
         (let* ((state (decklet--normalize-fsrs-state state))
                (display-state (decklet-card-display-state state last-review))
-                (word-face (if (eq decklet-edit--filter 'archived)
-                               'decklet-edit-word-archived-face
-                             'decklet-edit-word-face))
-                (state-face (pcase display-state
-                              (:new 'decklet-state-new-face)
-                              ((or :learning :relearning) 'decklet-state-learning-face)
-                              (:review 'decklet-state-review-face)
-                              (_ 'decklet-edit-state-face)))
+               (word-face (if (eq decklet-edit--filter 'archived)
+                              'decklet-edit-word-archived-face
+                            'decklet-edit-word-face))
+               (state-face (pcase display-state
+                             (:new 'decklet-state-new-face)
+                             ((or :learning :relearning) 'decklet-state-learning-face)
+                             (:review 'decklet-state-review-face)
+                             (_ 'decklet-edit-state-face)))
                (state-text (or (decklet--fsrs-state-string display-state) ""))
-               (word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
-                (hint (if hint
-                          (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
-                        ""))
-               (added (or added ""))
-               (last-review (or last-review ""))
-              (due (or due "")))
-         (list word
-                (vector
-                 (propertize word 'face word-face)
-                 (propertize hint 'face 'decklet-edit-hint-face)
-                 (if back (propertize "*" 'face 'decklet-card-back-indicator-face) "")
+               (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
+               (hint (if hint
+                         (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
+                       ""))
+                (added (or added ""))
+                (last-review (or last-review ""))
+               (due (or due "")))
+          (list word
+                 (vector
+                  (propertize display-word 'face word-face)
+                  (propertize hint 'face 'decklet-edit-hint-face)
+                  (if back (propertize "*" 'face 'decklet-card-back-indicator-face) "")
                 (propertize state-text
                             'face state-face)
                 (propertize (decklet-edit--format-timestamp added)

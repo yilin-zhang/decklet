@@ -50,6 +50,18 @@
     (should deactivated)
     (should (= moved 20))))
 
+(ert-deftest decklet-test-edit-mark-keeps-raw-multiline-word-id ()
+  (with-temp-buffer
+    (insert "line1↵line2\n")
+    (let ((decklet-edit--marked (make-hash-table :test 'equal))
+          (decklet-edit--mark-overlays (make-hash-table :test 'equal)))
+      (cl-letf (((symbol-function 'use-region-p) (lambda () nil))
+                ((symbol-function 'tabulated-list-get-id)
+                 (lambda () "line1\nline2")))
+        (decklet-edit-mark))
+      (should (gethash "line1\nline2" decklet-edit--marked))
+      (should (overlayp (gethash "line1\nline2" decklet-edit--mark-overlays))))))
+
 (ert-deftest decklet-test-edit-delete-marked-branch-runs-batch-delete ()
   (let ((deleted '())
          (ensured nil)
