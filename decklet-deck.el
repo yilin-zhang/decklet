@@ -394,6 +394,18 @@ Signals a user error when the buffer is read-only."
   (setq buffer-read-only nil)
   (message "Card back is now editable. C-c C-c to save, C-c C-k to cancel."))
 
+(defvar-keymap decklet-card-back-mode-map
+  :doc "Keymap for `decklet-card-back-mode'."
+  "C-c C-c" #'decklet-card-back-save
+  "C-c C-k" #'decklet-card-back-cancel
+  "E"        #'decklet-card-back--make-editable)
+
+(define-minor-mode decklet-card-back-mode
+  "Minor mode active in Decklet card-back popup buffers.
+Provides keybindings for saving and cancelling edits."
+  :lighter " Decklet"
+  :keymap decklet-card-back-mode-map)
+
 (defun decklet-card-back--open (word read-only-p &optional on-save)
   "Open the card back popup buffer for WORD.
 When READ-ONLY-P is non-nil the buffer is read-only; otherwise it is editable.
@@ -411,9 +423,7 @@ ON-SAVE, when provided, is called with no arguments after a successful save."
           (insert back))
         (goto-char (point-min))
         (setq buffer-read-only read-only-p))
-      (local-set-key (kbd "C-c C-c") #'decklet-card-back-save)
-      (local-set-key (kbd "C-c C-k") #'decklet-card-back-cancel)
-      (local-set-key (kbd "E") #'decklet-card-back--make-editable))
+      (decklet-card-back-mode 1))
     (pop-to-buffer buffer)))
 
 (defun decklet-show-card-back (word &optional on-save)
