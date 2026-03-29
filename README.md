@@ -32,6 +32,7 @@ It is built differently from many SRS tools:
   - [Dictionary](#dictionary)
   - [Hints](#hints)
   - [Card Back](#card-back)
+  - [Undo](#undo)
   - [Daily Goal](#daily-goal)
   - [Edit Mode Workflow](#edit-mode-workflow)
   - [Calendar Mode](#calendar-mode)
@@ -144,7 +145,8 @@ cards just like most flashcard apps.
 | `2` | Rate as Hard                        |
 | `3` | Rate as Good                        |
 | `4` | Rate as Easy                        |
-| `n` | Next card                           |
+| `n` | Next card / Confirm undone card     |
+| `u` | Undo last rating or skip            |
 | `g` | Refresh review buffer               |
 | `e` | Edit current word                   |
 | `t` | Edit current hint                   |
@@ -413,6 +415,14 @@ with `decklet-card-back-buffer-major-mode`:
 ;; Use Markdown mode for card backs (requires markdown-mode to be installed).
 (setq decklet-card-back-buffer-major-mode 'markdown-mode)
 ```
+
+### Undo
+
+Press `u` during review to go back to a previously rated or skipped card.
+The previous rating is highlighted. Press `1`–`4` to re-rate, or `n` to
+keep the original rating and move on.
+
+Edit-mode rating is disabled while a review session is active.
 
 ### Daily Goal
 

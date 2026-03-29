@@ -142,6 +142,8 @@ a minibuffer prompt is needed."
     (when decklet-due-words
       (setq decklet-due-words
             (cl-substitute new-word old-word decklet-due-words :test #'string=)))
+    (when (fboundp 'decklet-review--revlog-rename)
+      (decklet-review--revlog-rename old-word new-word))
     new-word))
 
 (defun decklet-update-card-hint (word hint)
@@ -154,6 +156,8 @@ a minibuffer prompt is needed."
   (decklet-db--delete-card word)
   (when decklet-due-words
     (setq decklet-due-words (delete word decklet-due-words)))
+  (when (fboundp 'decklet-review--revlog-delete)
+    (decklet-review--revlog-delete word))
   (decklet--refresh-counter))
 
 (defun decklet-archive-card (word)

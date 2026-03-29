@@ -176,6 +176,11 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for horizontal separators."
   :group 'decklet-review)
 
+(defface decklet-review-undo-highlight-face
+  '((t :inherit bold :box t))
+  "Face for highlighting the previous rating on an undone card."
+  :group 'decklet-review)
+
 ;; Hooks
 
 (defcustom decklet-review-start-hook nil
@@ -223,6 +228,15 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 Scoped to `decklet-review--render-buffer' so both the component and the
 post-render hint-timer decision share the same value.")
 
+(defvar decklet-review--revlog-queue nil
+  "List of revlog entries for the current review session.
+Each entry is a plist (:word :grade :pre-meta).")
+
+(defvar decklet-review--revlog-pointer 0
+  "Index into `decklet-review--revlog-queue'.
+Equal to the log length during normal forward review.
+Less than the log length when the user has undone cards.")
+
 ;; Bring the definition up because it will be used by other functions down below.
 (defvar decklet-review-mode-map
   (define-keymap
@@ -236,6 +250,7 @@ post-render hint-timer decision share the same value.")
     "D" #'decklet-review-delete-card
     "e" #'decklet-review-edit-word
     "t" #'decklet-review-edit-hint
+    "u" #'decklet-review-undo
     "b" #'decklet-review-show-card-back
     "B" #'decklet-review-edit-card-back)
   "Keymap for `decklet-review-mode'.")
@@ -424,6 +439,7 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
   (setq decklet-current-word nil)
   (setq decklet-last-added-word nil)
   (setq decklet-due-words nil)
+  (decklet-review--revlog-reset)
   (decklet-review--reset-ui-state))
 
 (defun decklet-review--refresh-visible (&rest _args)
@@ -551,25 +567,37 @@ When LENGTH is non-nil, use it as the separator width."
          "\n"
          (decklet-center-text (propertize progress-bar 'face 'decklet-review-state-progress-face)))))))
 
+(defun decklet-review--make-rating-option (command label meta grade undo-grade)
+  "Build a single rating option string for COMMAND with LABEL.
+META and GRADE are used for interval prediction.  When UNDO-GRADE matches
+GRADE, apply `decklet-review-undo-highlight-face' to the LABEL text only."
+  (let* ((highlight (and undo-grade (= undo-grade grade)))
+         (styled-label (if highlight
+                           (propertize label 'face 'decklet-review-undo-highlight-face)
+                         label)))
+    (concat (decklet-review--instruction-key-label command)
+            " " styled-label
+            (decklet-review--instruction-interval-label
+             decklet-current-word meta grade))))
+
 (defun decklet-review-component-rates ()
   "Return the options block for review ratings and commands.
 Interval labels are included when
-`decklet-review-enable-interval-labels' is non-nil."
+`decklet-review-enable-interval-labels' is non-nil.
+When reviewing an undone card, the previous rating is highlighted."
   (let* ((meta decklet-review--render-meta)
+         (undo-entry (decklet-review--revlog-current-entry))
+         (undo-grade (and undo-entry (plist-get undo-entry :grade)))
          (option-lines
           (list
-           (concat (decklet-review--instruction-key-label 'decklet-review-rate-again)
-                   " Again"
-                   (decklet-review--instruction-interval-label decklet-current-word meta 1))
-           (concat (decklet-review--instruction-key-label 'decklet-review-rate-hard)
-                   " Hard"
-                   (decklet-review--instruction-interval-label decklet-current-word meta 2))
-           (concat (decklet-review--instruction-key-label 'decklet-review-rate-good)
-                   " Good"
-                   (decklet-review--instruction-interval-label decklet-current-word meta 3))
-           (concat (decklet-review--instruction-key-label 'decklet-review-rate-easy)
-                   " Easy"
-                   (decklet-review--instruction-interval-label decklet-current-word meta 4)))))
+           (decklet-review--make-rating-option
+            'decklet-review-rate-again "Again" meta 1 undo-grade)
+           (decklet-review--make-rating-option
+            'decklet-review-rate-hard "Hard" meta 2 undo-grade)
+           (decklet-review--make-rating-option
+            'decklet-review-rate-good "Good" meta 3 undo-grade)
+           (decklet-review--make-rating-option
+            'decklet-review-rate-easy "Easy" meta 4 undo-grade))))
     (decklet-center-text (string-join option-lines "   "))))
 
 (defun decklet-review-component-separator ()
@@ -642,17 +670,109 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 
 ;; Review flow and rating commands
 
+(defun decklet-review--revlog-reset ()
+  "Clear the revlog and pointer."
+  (setq decklet-review--revlog-queue nil)
+  (setq decklet-review--revlog-pointer 0))
+
+(defun decklet-review--undo-in-progress-p ()
+  "Return non-nil when review is in undo state."
+  (and decklet-review--revlog-queue
+       (< decklet-review--revlog-pointer (length decklet-review--revlog-queue))))
+
+(defun decklet-review--revlog-current-entry ()
+  "Return the revlog entry at the current pointer, or nil."
+  (when (decklet-review--undo-in-progress-p)
+    (nth decklet-review--revlog-pointer decklet-review--revlog-queue)))
+
+(defun decklet-review--revlog-can-retreat-p ()
+  "Return non-nil when the pointer can move backward."
+  (and decklet-review--revlog-queue
+       (> decklet-review--revlog-pointer 0)))
+
+(defun decklet-review--revlog-advance-pointer ()
+  "Move the pointer forward by one position."
+  (setq decklet-review--revlog-pointer
+        (1+ decklet-review--revlog-pointer)))
+
+(defun decklet-review--revlog-retreat-pointer ()
+  "Move the pointer backward by one position."
+  (setq decklet-review--revlog-pointer
+        (1- decklet-review--revlog-pointer)))
+
+(defun decklet-review--revlog-append (entry)
+  "Append ENTRY to the revlog."
+  (setq decklet-review--revlog-queue
+        (append decklet-review--revlog-queue (list entry)))
+  (setq decklet-review--revlog-pointer (length decklet-review--revlog-queue)))
+
+(defun decklet-review--revlog-update-entry (grade)
+  "Update the current undone entry with GRADE, then advance."
+  (let ((entry (decklet-review--revlog-current-entry)))
+    (plist-put entry :grade grade)
+    (decklet-review--revlog-advance-pointer)))
+
+(defun decklet-review--revlog-rename (old-word new-word)
+  "Update `:word' entries in the revlog from OLD-WORD to NEW-WORD."
+  (dolist (entry decklet-review--revlog-queue)
+    (when (string-equal (plist-get entry :word) old-word)
+      (plist-put entry :word new-word))))
+
+(defun decklet-review--revlog-delete (word)
+  "Remove entries for WORD from the revlog and adjust the pointer."
+  (when decklet-review--revlog-queue
+    (let ((removed-before-pointer 0)
+          (i 0))
+      (dolist (entry decklet-review--revlog-queue)
+        (when (and (string-equal (plist-get entry :word) word)
+                   (< i decklet-review--revlog-pointer))
+          (setq removed-before-pointer (1+ removed-before-pointer)))
+        (setq i (1+ i)))
+      (setq decklet-review--revlog-queue
+            (seq-remove (lambda (e) (string-equal (plist-get e :word) word))
+                        decklet-review--revlog-queue))
+      (setq decklet-review--revlog-pointer
+            (min (- decklet-review--revlog-pointer removed-before-pointer)
+                 (length decklet-review--revlog-queue))))))
+
+(defun decklet-review--present-card (word)
+  "Set WORD as the current card and render the review buffer."
+  (setq decklet-current-word word)
+  (decklet-review--reset-ui-state)
+  (run-hooks 'decklet-review-next-card-hook)
+  (decklet-review--render-buffer))
+
+(defun decklet-review--revlog-skip ()
+  "Log a skip entry for the current word."
+  (when decklet-current-word
+    (let ((meta (decklet--load-card-meta decklet-current-word)))
+      (when meta
+        (decklet-review--revlog-append
+         (list :word decklet-current-word
+               :grade nil
+               :pre-meta (copy-decklet-card-meta meta)))))))
+
+(defun decklet-review--advance ()
+  "Show the next card from the revlog or the due queue, or quit."
+  (if (decklet-review--undo-in-progress-p)
+      (decklet-review--present-card
+       (plist-get (decklet-review--revlog-current-entry) :word))
+    (if (or decklet-due-words (decklet--refresh-due-words))
+        (decklet-review--present-card (pop decklet-due-words))
+      (decklet-review-quit))))
+
 (defun decklet-review-next-card ()
   "Review the next due card.
+When in undo state, confirm the current undone card and advance.
 When current list is empty, re-check for due cards and continue if any exist."
   (interactive)
-  (if (or decklet-due-words (decklet--refresh-due-words))
-      (let ((word (pop decklet-due-words)))
-        (setq decklet-current-word word)
-        (decklet-review--reset-ui-state)
-        (run-hooks 'decklet-review-next-card-hook)
-        (decklet-review--render-buffer))
-    (decklet-review-quit)))
+  (if (decklet-review--undo-in-progress-p)
+      (progn
+        (decklet-review--revlog-advance-pointer)
+        (decklet-review--advance))
+    ;; Normal forward flow: log skip, then pop next card.
+    (decklet-review--revlog-skip)
+    (decklet-review--advance)))
 
 (defun decklet-review-quit ()
   "Quit Decklet review."
@@ -666,9 +786,23 @@ When current list is empty, re-check for due cards and continue if any exist."
 
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next word."
-  (let ((word (decklet--require-current-word "rate")))
+  (let ((word (decklet--require-current-word "rate"))
+        (in-undo (decklet-review--undo-in-progress-p)))
     (let ((goal-was-reached (decklet-review--daily-goal-reached-p)))
-      (decklet-rate-card word grade)
+      (if in-undo
+          ;; Re-rate: restore pre-meta so FSRS computes from the
+          ;; correct base state, then rate and update the entry.
+          (let ((pre-meta (plist-get (decklet-review--revlog-current-entry)
+                                     :pre-meta)))
+            (decklet-db--upsert-card word pre-meta)
+            (decklet-rate-card word grade)
+            (decklet-review--revlog-update-entry grade))
+        ;; Normal forward rating: snapshot pre-meta, rate, append.
+        (let ((pre-meta (let ((m (decklet--load-card-meta word)))
+                          (when m (copy-decklet-card-meta m)))))
+          (decklet-rate-card word grade)
+          (decklet-review--revlog-append
+           (list :word word :grade grade :pre-meta pre-meta))))
       (when (and (not goal-was-reached)
                  (decklet-review--daily-goal-reached-p))
         (run-hooks 'decklet-review-daily-goal-reached-hook)))
@@ -679,7 +813,34 @@ When current list is empty, re-check for due cards and continue if any exist."
                          (4 "Easy")
                          (_ "Unknown"))))
       (message "Rated \"%s\" as (%s)" word rating-text))
-    (decklet-review-next-card)))
+    ;; Advance to the next card.  Do not go through `next-card' since
+    ;; that would log a spurious skip for the word we just rated.
+    (decklet-review--advance)))
+
+(defun decklet-review-undo ()
+  "Go back to the previous card and redisplay it.
+Moves the undo pointer backward.  Does not revert DB state — the
+original rating remains in the database until the user re-rates."
+  (interactive)
+  (if (not (decklet-review--revlog-can-retreat-p))
+      (message "Nothing to undo")
+    ;; When undoing from normal flow, the current card hasn't been
+    ;; logged yet — push it back to the front of the due queue so it
+    ;; isn't lost.  When already in undo state, the current card is in
+    ;; the log and will be revisited when the pointer advances.
+    (when (and (not (decklet-review--undo-in-progress-p))
+               decklet-current-word)
+      (push decklet-current-word decklet-due-words))
+    (decklet-review--revlog-retreat-pointer)
+    (let* ((entry (decklet-review--revlog-current-entry))
+           (word (plist-get entry :word)))
+      (if (not (decklet-db--select-card word))
+          (progn
+            (message "Card \"%s\" no longer exists, undo skipped" word)
+            (decklet-review-undo))
+        (setq decklet-current-word word)
+        (decklet-review--reset-ui-state)
+        (decklet-review--render-buffer)))))
 
 (defun decklet-review-rate-again ()
   "Rate the current word as `again'."
@@ -738,7 +899,7 @@ When current list is empty, re-check for due cards and continue if any exist."
       (message "Deleted \"%s\" from the deck." word)
       (setq decklet-current-word nil)
       (when (eq major-mode 'decklet-review-mode)
-        (decklet-review-next-card)))))
+        (decklet-review--advance)))))
 
 (defun decklet-review-show-card-back ()
   "Show the card back for the current word in a read-only popup."
@@ -761,6 +922,7 @@ When current list is empty, re-check for due cards and continue if any exist."
   "Start a review session."
   (interactive)
   (run-hooks 'decklet-review-start-hook)
+  (decklet-review--revlog-reset)
   (decklet--refresh-due-words)
   (if (null decklet-due-words)
       (progn

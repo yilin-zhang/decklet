@@ -18,6 +18,8 @@
 (require 'decklet-db)
 (require 'decklet-deck)
 
+(defvar decklet-review-buffer-name)
+
 (defgroup decklet-edit nil
   "Edit mode for Decklet."
   :group 'decklet)
@@ -260,6 +262,8 @@ WORDS can be a single word string or a list of words."
 (defun decklet-edit-rate-card ()
   "Rate the card at point, regardless of its current state."
   (interactive)
+  (when (get-buffer decklet-review-buffer-name)
+    (user-error "Rating is disabled while a review session is active"))
   (let* ((word (or (tabulated-list-get-id)
                    (user-error "No card on this line")))
          (line (line-number-at-pos))
