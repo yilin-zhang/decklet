@@ -262,7 +262,6 @@ left unchanged on conflict."
       (let* ((scheduler (decklet--get-fsrs-scheduler))
              (state (decklet--normalize-fsrs-state state))
              (added-date (or added-date (fsrs-now)))
-             (last-review last-review)
              (due (or due (fsrs-now)))
              (is-new (decklet-last-review-empty-p last-review))
              (state (or state (if is-new :learning :review)))
@@ -764,7 +763,7 @@ When non-nil, it is called with no arguments inside
                               (> decklet-backup-prune-max-count 0)
                               (> count decklet-backup-prune-max-count))))
       ;; Only prune if we have minimum count or exceeded maximum.
-      (when (or (>= count decklet-backup-prune-min-count) max-exceeded)
+      (when (or (> count decklet-backup-prune-min-count) max-exceeded)
         ;; Calculate cutoff date and find old files.
         (let* ((cutoff-time (time-subtract (current-time)
                                            (days-to-time decklet-backup-retain-days)))

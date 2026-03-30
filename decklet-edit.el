@@ -8,7 +8,6 @@
 
 ;;; Code:
 
-(require 'ansi-color)
 (require 'cl-lib)
 (require 'seq)
 (require 'tabulated-list)

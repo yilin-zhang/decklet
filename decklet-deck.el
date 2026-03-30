@@ -11,7 +11,6 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'subr-x)
-(require 'tabulated-list)
 
 (require 'decklet-core)
 (require 'decklet-scheduler)

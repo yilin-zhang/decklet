@@ -10,7 +10,6 @@
 
 (require 'cl-lib)
 (require 'fsrs)
-(require 'json)
 (require 'subr-x)
 
 (require 'decklet-core)

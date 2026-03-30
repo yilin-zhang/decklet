@@ -380,7 +380,7 @@ are skipped so rendering won't stack separator lines."
       ;; In TTY, fall back to line counts for centering.
       (let* ((line-count (length (split-string fixed-text "\n" t)))
              (half-body-h (floor (window-body-height) 2))
-             (top-n-lines (max 0 (- half-body-h line-count 0))))
+             (top-n-lines (max 0 (- half-body-h line-count))))
         (concat (make-string top-n-lines ?\n) fixed-text floating-text)))))
 
 (defun decklet-review--render-components ()

@@ -151,20 +151,22 @@
            (decklet-backup-prune-min-count 2)
            (decklet-backup-prune-max-count nil)
            (decklet-backup-prune-confirm nil)
-           ;; One file older than retain-days, one recent.
-           (old-file (expand-file-name (format "%s-20250101T010101Z.sqlite" base) backup-dir))
-           (new-file (expand-file-name (format "%s-20250102T010101Z.sqlite" base) backup-dir)))
+           ;; Two files older than retain-days, one recent.
+           ;; Count (3) > min-count (2), so age pruning activates.
+           (old-1 (expand-file-name (format "%s-20250101T010101Z.sqlite" base) backup-dir))
+           (old-2 (expand-file-name (format "%s-20250102T010101Z.sqlite" base) backup-dir))
+           (new-file (expand-file-name (format "%s-20250103T010101Z.sqlite" base) backup-dir)))
       (make-directory backup-dir t)
-      (dolist (f (list old-file new-file))
+      (dolist (f (list old-1 old-2 new-file))
         (with-temp-file f (insert "dummy")))
-      ;; old-file: 60 days ago; new-file: 1 day ago.
-      (set-file-times old-file (time-subtract (current-time) (days-to-time 60)))
+      (set-file-times old-1 (time-subtract (current-time) (days-to-time 61)))
+      (set-file-times old-2 (time-subtract (current-time) (days-to-time 60)))
       (set-file-times new-file (time-subtract (current-time) (days-to-time 1)))
       (decklet-db--backup-prune backup-dir base)
       (let ((remaining (directory-files backup-dir t "\\.sqlite\\'")))
         (should (= 1 (length remaining)))
         (should (string= (file-name-nondirectory (car remaining))
-                         (format "%s-20250102T010101Z.sqlite" base)))))))
+                         (format "%s-20250103T010101Z.sqlite" base)))))))
 
 (ert-deftest decklet-test-backup-prune-age-skips-when-below-min-count ()
   (decklet-test--with-temp-db
