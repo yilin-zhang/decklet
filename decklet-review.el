@@ -787,32 +787,26 @@ When current list is empty, re-check for due cards and continue if any exist."
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next word."
   (let ((word (decklet--require-current-word "rate"))
-        (in-undo (decklet-review--undo-in-progress-p)))
-    (let ((goal-was-reached (decklet-review--daily-goal-reached-p)))
-      (if in-undo
-          ;; Re-rate: restore pre-meta so FSRS computes from the
-          ;; correct base state, then rate and update the entry.
-          (let ((pre-meta (plist-get (decklet-review--revlog-current-entry)
-                                     :pre-meta)))
-            (decklet-db--upsert-card word pre-meta)
-            (decklet-rate-card word grade)
-            (decklet-review--revlog-update-entry grade))
-        ;; Normal forward rating: snapshot pre-meta, rate, append.
-        (let ((pre-meta (let ((m (decklet--load-card-meta word)))
-                          (when m (copy-decklet-card-meta m)))))
+        (goal-was-reached (decklet-review--daily-goal-reached-p)))
+    (if (decklet-review--undo-in-progress-p)
+        ;; Re-rate: restore pre-meta so FSRS computes from the
+        ;; correct base state, then rate and update the entry.
+        (let ((pre-meta (plist-get (decklet-review--revlog-current-entry)
+                                   :pre-meta)))
+          (decklet-db--upsert-card word pre-meta)
           (decklet-rate-card word grade)
-          (decklet-review--revlog-append
-           (list :word word :grade grade :pre-meta pre-meta))))
-      (when (and (not goal-was-reached)
-                 (decklet-review--daily-goal-reached-p))
-        (run-hooks 'decklet-review-daily-goal-reached-hook)))
-    (let ((rating-text (pcase grade
-                         (1 "Again")
-                         (2 "Hard")
-                         (3 "Good")
-                         (4 "Easy")
-                         (_ "Unknown"))))
-      (message "Rated \"%s\" as (%s)" word rating-text))
+          (decklet-review--revlog-update-entry grade))
+      ;; Normal forward rating: snapshot pre-meta, rate, append.
+      (let ((pre-meta (let ((m (decklet--load-card-meta word)))
+                        (when m (copy-decklet-card-meta m)))))
+        (decklet-rate-card word grade)
+        (decklet-review--revlog-append
+         (list :word word :grade grade :pre-meta pre-meta))))
+    (when (and (not goal-was-reached)
+               (decklet-review--daily-goal-reached-p))
+      (run-hooks 'decklet-review-daily-goal-reached-hook))
+    (message "Rated \"%s\" as (%s)" word
+             (pcase grade (1 "Again") (2 "Hard") (3 "Good") (4 "Easy") (_ "Unknown")))
     ;; Advance to the next card.  Do not go through `next-card' since
     ;; that would log a spurious skip for the word we just rated.
     (decklet-review--advance)))
@@ -838,9 +832,7 @@ original rating remains in the database until the user re-rates."
           (progn
             (message "Card \"%s\" no longer exists, undo skipped" word)
             (decklet-review-undo))
-        (setq decklet-current-word word)
-        (decklet-review--reset-ui-state)
-        (decklet-review--render-buffer)))))
+        (decklet-review--present-card word)))))
 
 (defun decklet-review-rate-again ()
   "Rate the current word as `again'."
