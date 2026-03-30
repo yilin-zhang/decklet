@@ -491,14 +491,14 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (let ((word (or (tabulated-list-get-id)
                   (user-error "No card on this line"))))
-    (decklet-card-back--open word t (lambda () (decklet-edit-refresh)))))
+    (decklet-card-back-show word (lambda () (decklet-edit-refresh)))))
 
 (defun decklet-edit-edit-card-back ()
   "Open the card back for the card at point in an editable popup."
   (interactive)
   (let ((word (or (tabulated-list-get-id)
                   (user-error "No card on this line"))))
-    (decklet-card-back--open word nil (lambda () (decklet-edit-refresh)))))
+    (decklet-card-back-edit word (lambda () (decklet-edit-refresh)))))
 
 (defun decklet-edit-delete-card ()
   "Delete the card at point from the deck."

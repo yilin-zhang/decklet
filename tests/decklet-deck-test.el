@@ -119,7 +119,7 @@
           (on-save-called nil))
       (unwind-protect
           (with-current-buffer buf
-            (setq-local decklet-card-back--on-save (lambda () (setq on-save-called t)))
+            (setq-local decklet-card-back--callback (lambda () (setq on-save-called t)))
             (erase-buffer)
             (insert "a vivid glow")
             (decklet-card-back-save)

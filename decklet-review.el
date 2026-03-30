@@ -897,15 +897,15 @@ original rating remains in the database until the user re-rates."
   "Show the card back for the current word in a read-only popup."
   (interactive)
   (let ((word (decklet--require-current-word "show card back for")))
-    (decklet-card-back--open word t
-                             (lambda () (decklet-review--render-buffer t)))))
+    (decklet-card-back-show word
+                            (lambda () (decklet-review--render-buffer t)))))
 
 (defun decklet-review-edit-card-back ()
   "Open the card back for the current word in an editable popup."
   (interactive)
   (let ((word (decklet--require-current-word "edit card back for")))
-    (decklet-card-back--open word nil
-                             (lambda () (decklet-review--render-buffer t)))))
+    (decklet-card-back-edit word
+                            (lambda () (decklet-review--render-buffer t)))))
 
 ;; Review mode setup
 

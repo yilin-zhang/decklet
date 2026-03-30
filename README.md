@@ -403,9 +403,8 @@ In edit mode, the `Back` column shows `*` for cards that have a back.
 
 Key bindings (available in both review and edit modes):
 
-- `b`: open the card back in a read-only popup. Press `E` inside the popup to
-  switch to editing, then `C-c C-c` to save or `C-c C-k` to cancel.
-- `B`: open the card back directly in an editable popup. `C-c C-c` saves,
+- `b`: open the card back in a read-only popup. Press `q` to close.
+- `B`: open the card back in an editable popup. `C-c C-c` saves,
   `C-c C-k` cancels.
 
 The card back buffer uses `org-mode` by default. You can change the major mode
