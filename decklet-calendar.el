@@ -162,14 +162,14 @@ When enabled, dates with due cards are highlighted in the calendar."
   :group 'decklet-calendar
   (if decklet-calendar-mode
       (progn
-        (add-hook 'calendar-mode-hook 'decklet-calendar--refresh-due-counts)
-        (add-hook 'calendar-today-visible-hook 'decklet-calendar-mark-due-dates)
-        (add-hook 'calendar-today-invisible-hook 'decklet-calendar-mark-due-dates)
-        (add-hook 'calendar-move-hook 'decklet-calendar-show-due-count-at-date))
-    (remove-hook 'calendar-mode-hook 'decklet-calendar--refresh-due-counts)
-    (remove-hook 'calendar-today-visible-hook 'decklet-calendar-mark-due-dates)
-    (remove-hook 'calendar-today-invisible-hook 'decklet-calendar-mark-due-dates)
-    (remove-hook 'calendar-move-hook 'decklet-calendar-show-due-count-at-date)))
+        (add-hook 'calendar-mode-hook #'decklet-calendar--refresh-due-counts)
+        (add-hook 'calendar-today-visible-hook #'decklet-calendar-mark-due-dates)
+        (add-hook 'calendar-today-invisible-hook #'decklet-calendar-mark-due-dates)
+        (add-hook 'calendar-move-hook #'decklet-calendar-show-due-count-at-date))
+    (remove-hook 'calendar-mode-hook #'decklet-calendar--refresh-due-counts)
+    (remove-hook 'calendar-today-visible-hook #'decklet-calendar-mark-due-dates)
+    (remove-hook 'calendar-today-invisible-hook #'decklet-calendar-mark-due-dates)
+    (remove-hook 'calendar-move-hook #'decklet-calendar-show-due-count-at-date)))
 
 (provide 'decklet-calendar)
 ;;; decklet-calendar.el ends here

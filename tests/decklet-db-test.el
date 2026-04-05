@@ -37,7 +37,7 @@
       (decklet-db--upsert-card "lucid" meta)
       (let ((row (decklet-db--select-card "lucid")))
         (should row)
-        (should (string= (car row) "lucid"))))))
+        (should (string= (plist-get row :word) "lucid"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Archive/unarchive flow
@@ -136,11 +136,11 @@
          (learning (decklet-db--review-target-clause :learning now))
          (review (decklet-db--review-target-clause :review now))
          (new (decklet-db--review-target-clause :new now)))
-    (should (string-match-p "state IN ('learning', 'relearning')" (car learning)))
-    (should (string-match-p "state = 'review'" (car review)))
+    (should (string-match-p "state IN (\\?, \\?)" (car learning)))
+    (should (string-match-p "state = \\?" (car review)))
     (should (string-match-p "last_review IS NULL" (car new)))
-    (should (= 1 (length (cdr learning))))
-    (should (= 1 (length (cdr review))))
+    (should (= 3 (length (cdr learning))))
+    (should (= 2 (length (cdr review))))
     (should (= 1 (length (cdr new))))))
 
 ;; ---------------------------------------------------------------------------
@@ -155,12 +155,12 @@
               (`(,all-sql . ,all-params) (decklet-db--edit-filter-sql 'all)))
     ;; Keep checks resilient to SQL formatting changes while asserting semantics.
     (should (string-match-p "archived_at IS NULL" review-sql))
-    (should (string-match-p "state = 'review'" review-sql))
-    (should (equal review-params nil))
+    (should (string-match-p "state = \\?" review-sql))
+    (should (equal review-params '("review")))
 
     (should (string-match-p "archived_at IS NULL" learning-sql))
-    (should (string-match-p "state IN ('learning', 'relearning')" learning-sql))
-    (should (equal learning-params nil))
+    (should (string-match-p "state IN (\\?, \\?)" learning-sql))
+    (should (equal learning-params '("learning" "relearning")))
 
     (should (string-match-p "archived_at IS NOT NULL" archived-sql))
     (should (equal archived-params nil))
@@ -177,10 +177,10 @@
 (ert-deftest decklet-test-edit-order-sql-numeric-vs-text-columns ()
   (should (string-match-p
            "ORDER BY COALESCE(stability, 0) DESC, rowid DESC"
-           (decklet-db--edit-order-sql '("Stability" . t))))
+           (decklet-db--edit-order-sql '("stability" . t))))
   (should (string-match-p
            "ORDER BY COALESCE(due, '') ASC, rowid ASC"
-           (decklet-db--edit-order-sql '("Due" . nil)))))
+           (decklet-db--edit-order-sql '("due" . nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON import
@@ -253,7 +253,7 @@
           (should (= 0 (plist-get stats :added)))
           (should (= 0 (plist-get stats :overwritten)))
           (should (= 1 (plist-get stats :skipped)))))
-      (should (string= "old" (nth 8 (decklet-db--select-card "alpha"))))
+      (should (string= "old" (plist-get (decklet-db--select-card "alpha") :hint)))
       ;; Conflict => overwrite
       (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
                  (lambda (_word) (cons :overwrite nil))))
@@ -261,7 +261,7 @@
           (should (= 0 (plist-get stats :added)))
           (should (= 1 (plist-get stats :overwritten)))
           (should (= 0 (plist-get stats :skipped)))))
-      (should (string= "new" (nth 8 (decklet-db--select-card "alpha")))))))
+      (should (string= "new" (plist-get (decklet-db--select-card "alpha") :hint))))))
 
 (ert-deftest decklet-test-db-import-read-conflict-choice-global-confirm ()
   ;; Choosing all-overwrite and confirming should return current overwrite action

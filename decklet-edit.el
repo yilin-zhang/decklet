@@ -116,6 +116,16 @@ One of: all, review, learning, archived.")
   '("Added" "Last Review" "Due")
   "Columns that default to descending order when sorting.")
 
+(defconst decklet-edit--db-sort-columns
+  '(("Word" . "word")
+    ("Hint" . "hint")
+    ("Added" . "added_date")
+    ("Due" . "due")
+    ("State" . "state")
+    ("Stability" . "stability")
+    ("Difficulty" . "difficulty"))
+  "Mapping of edit table column names to database column names.")
+
 (defconst decklet-edit--column-indices
   (let ((index 0)
         (table nil))
@@ -125,6 +135,23 @@ One of: all, review, learning, archived.")
   "Alist mapping edit table column names to indices.")
 
 ;; Edit table formatting and sorting
+
+(defun decklet-edit--db-sort-key (sort-key)
+  "Translate tabulated-list SORT-KEY to a DB sort-key.
+SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
+  (when sort-key
+    (let ((db-col (cdr (assoc-string (car sort-key) decklet-edit--db-sort-columns))))
+      (cons (or db-col "word") (cdr sort-key)))))
+
+(defmacro decklet-edit--with-position-restore (&rest body)
+  "Execute BODY, then refresh and restore cursor position."
+  (declare (indent 0) (debug t))
+  `(let ((decklet-edit--saved-line (line-number-at-pos))
+         (decklet-edit--saved-win-line (count-screen-lines (window-start) (point))))
+     ,@body
+     (decklet-edit-refresh)
+     (decklet-edit--restore-position decklet-edit--saved-line
+                                     decklet-edit--saved-win-line)))
 
 (defun decklet-edit--clean-up ()
   "Clear edit session state."
@@ -265,8 +292,6 @@ WORDS can be a single word string or a list of words."
     (user-error "Rating is disabled while a review session is active"))
   (let* ((word (or (tabulated-list-get-id)
                    (user-error "No card on this line")))
-         (line (line-number-at-pos))
-         (win-line (count-screen-lines (window-start) (point)))
          (grade-options '((1 . "Again") (2 . "Hard") (3 . "Good") (4 . "Easy")))
          (prompt (concat (format "Rate \"%s\" " word)
                          (mapconcat (lambda (g)
@@ -276,11 +301,10 @@ WORDS can be a single word string or a list of words."
          (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
          (label (alist-get grade grade-options "" nil #'=)))
     (decklet-edit--ensure-not-current word)
-    (when (eq decklet-edit--filter 'archived)
-      (decklet-unarchive-card word))
-    (decklet-rate-card word grade)
-    (decklet-edit-refresh)
-    (decklet-edit--restore-position line win-line)
+    (decklet-edit--with-position-restore
+      (when (eq decklet-edit--filter 'archived)
+        (decklet-unarchive-card word))
+      (decklet-rate-card word grade))
     (message "Rated \"%s\" as %s" word label)))
 
 ;; Edit table mode and commands
@@ -289,48 +313,52 @@ WORDS can be a single word string or a list of words."
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
-      (pcase-let ((`(,word ,added ,last-review ,due ,state ,_step ,stability ,difficulty ,hint ,back) row))
-        (let* ((state (decklet--normalize-fsrs-state state))
-               (display-state (decklet-card-display-state state last-review))
-               (word-face (if (eq decklet-edit--filter 'archived)
-                              'decklet-edit-word-archived-face
-                            'decklet-edit-word-face))
-               (state-face (pcase display-state
-                             (:new 'decklet-state-new-face)
-                             ((or :learning :relearning) 'decklet-state-learning-face)
-                             (:review 'decklet-state-review-face)
-                             (_ 'decklet-edit-state-face)))
-               (state-text (or (decklet--fsrs-state-string display-state) ""))
-               (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
-               (hint (if hint
-                         (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
-                       ""))
-                (added (or added ""))
-                (last-review (or last-review ""))
-               (due (or due "")))
-          (list word
-                 (vector
-                  (propertize display-word 'face word-face)
-                  (propertize hint 'face 'decklet-edit-hint-face)
-                  (if back (propertize "*" 'face 'decklet-card-back-indicator-face) "")
-                (propertize state-text
-                            'face state-face)
-                (propertize (decklet-edit--format-timestamp added)
-                            'face 'decklet-edit-added-face
-                            'decklet-sort-key added)
-                (propertize (decklet-edit--format-timestamp last-review)
-                            'face 'decklet-edit-last-review-face
-                            'decklet-sort-key last-review)
-                (propertize (decklet-edit--format-timestamp due)
-                            'face 'decklet-edit-due-face
-                            'decklet-sort-key due)
-                (propertize (if stability (format "%.3f" stability) "")
-                            'face 'decklet-edit-stability-face
-                            'decklet-sort-number (or stability 0))
-                (propertize (if difficulty (format "%.3f" difficulty) "")
-                            'face 'decklet-edit-difficulty-face
-                            'decklet-sort-number (or difficulty 0)))))))
-   (decklet-db--select-cards decklet-edit--filter tabulated-list-sort-key)))
+     (let* ((word (plist-get row :word))
+            (added (or (plist-get row :added) ""))
+            (last-review (or (plist-get row :last-review) ""))
+            (due (or (plist-get row :due) ""))
+            (state (decklet--normalize-fsrs-state (plist-get row :state)))
+            (stability (plist-get row :stability))
+            (difficulty (plist-get row :difficulty))
+            (hint (plist-get row :hint))
+            (back (plist-get row :back))
+            (display-state (decklet-card-display-state state last-review))
+            (word-face (if (eq decklet-edit--filter 'archived)
+                           'decklet-edit-word-archived-face
+                         'decklet-edit-word-face))
+            (state-face (pcase display-state
+                          (:new 'decklet-state-new-face)
+                          ((or :learning :relearning) 'decklet-state-learning-face)
+                          (:review 'decklet-state-review-face)
+                          (_ 'decklet-edit-state-face)))
+            (state-text (or (decklet--fsrs-state-string display-state) ""))
+            (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
+            (hint (if hint
+                      (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
+                    "")))
+       (list word
+             (vector
+              (propertize display-word 'face word-face)
+              (propertize hint 'face 'decklet-edit-hint-face)
+              (if back (propertize "*" 'face 'decklet-card-back-indicator-face) "")
+              (propertize state-text 'face state-face)
+              (propertize (decklet-edit--format-timestamp added)
+                          'face 'decklet-edit-added-face
+                          'decklet-sort-key added)
+              (propertize (decklet-edit--format-timestamp last-review)
+                          'face 'decklet-edit-last-review-face
+                          'decklet-sort-key last-review)
+              (propertize (decklet-edit--format-timestamp due)
+                          'face 'decklet-edit-due-face
+                          'decklet-sort-key due)
+              (propertize (if stability (format "%.3f" stability) "")
+                          'face 'decklet-edit-stability-face
+                          'decklet-sort-number (or stability 0))
+              (propertize (if difficulty (format "%.3f" difficulty) "")
+                          'face 'decklet-edit-difficulty-face
+                          'decklet-sort-number (or difficulty 0))))))
+   (decklet-db--select-cards decklet-edit--filter
+                            (decklet-edit--db-sort-key tabulated-list-sort-key))))
 
 (defun decklet-edit-refresh ()
   "Refresh the card list buffer."
@@ -465,15 +493,12 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit--edit-card-at-point (edit-word edit-hint)
   "Edit the card at point using EDIT-WORD and EDIT-HINT flags."
-  (let ((word (tabulated-list-get-id))
-        (line (line-number-at-pos))
-        (win-line (count-screen-lines (window-start) (point))))
+  (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
     (decklet-edit--ensure-not-current word)
-    (setq word (decklet-prompt-edit-card-fields word edit-word edit-hint))
-    (decklet-edit-refresh)
-    (decklet-edit--restore-position line win-line)
+    (decklet-edit--with-position-restore
+      (setq word (decklet-prompt-edit-card-fields word edit-word edit-hint)))
     (message "Updated \"%s\"" word)))
 
 (defun decklet-edit-word ()
@@ -503,16 +528,13 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-delete-card ()
   "Delete the card at point from the deck."
   (interactive)
-  (let ((word (tabulated-list-get-id))
-        (line (line-number-at-pos))
-        (win-line (count-screen-lines (window-start) (point))))
+  (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
     (decklet-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Delete \"%s\" from the deck? " word))
-      (decklet-delete-card word)
-      (decklet-edit-refresh)
-      (decklet-edit--restore-position line win-line)
+      (decklet-edit--with-position-restore
+        (decklet-delete-card word))
       (message "Deleted \"%s\"" word))))
 
 (defun decklet-edit-delete ()
@@ -536,30 +558,24 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-archive-card ()
   "Archive the card at point."
   (interactive)
-  (let ((word (tabulated-list-get-id))
-        (line (line-number-at-pos))
-        (win-line (count-screen-lines (window-start) (point))))
+  (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
     (decklet-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Archive \"%s\" from review? " word))
-      (decklet-archive-card word)
-      (decklet-edit-refresh)
-      (decklet-edit--restore-position line win-line)
+      (decklet-edit--with-position-restore
+        (decklet-archive-card word))
       (message "Archived \"%s\"" word))))
 
 (defun decklet-edit-unarchive-card ()
   "Unarchive the card at point."
   (interactive)
-  (let ((word (tabulated-list-get-id))
-        (line (line-number-at-pos))
-        (win-line (count-screen-lines (window-start) (point))))
+  (let ((word (tabulated-list-get-id)))
     (unless word
       (user-error "No card on this line"))
     (decklet-edit--ensure-not-current word)
-    (decklet-unarchive-card word)
-    (decklet-edit-refresh)
-    (decklet-edit--restore-position line win-line)
+    (decklet-edit--with-position-restore
+      (decklet-unarchive-card word))
     (message "Unarchived \"%s\"" word)))
 
 (defun decklet-edit-archive ()

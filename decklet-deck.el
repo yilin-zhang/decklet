@@ -70,6 +70,15 @@ Lines starting with `#' are highlighted as comment-style hint lines."
     (when row
       (decklet-db--row->card-meta row))))
 
+(defun decklet--load-card-full (word)
+  "Return a plist with :meta, :hint, and :back for WORD from a single query.
+Return nil if the card does not exist."
+  (let ((row (decklet-db--select-card word)))
+    (when row
+      (list :meta (decklet-db--row->card-meta row)
+            :hint (plist-get row :hint)
+            :back (plist-get row :back)))))
+
 (defun decklet--require-current-word (action)
   "Return the current word, or report ACTION and return nil.
 ACTION should be a verb phrase used in the fallback message."
@@ -115,8 +124,8 @@ a minibuffer prompt is needed."
 
 (defun decklet--require-card-hint (word)
   "Get the hint for WORD's card."
-  (decklet--require-card word)
-  (decklet-db--select-card-hint word))
+  (let ((row (decklet--require-card word)))
+    (plist-get row :hint)))
 
 (defun decklet--current-card-hint ()
   "Return the hint for the current review word, if any."
@@ -175,18 +184,18 @@ a minibuffer prompt is needed."
 (defun decklet-prompt-edit-card-fields (word &optional edit-word edit-hint)
   "Edit WORD fields based on EDIT-WORD and EDIT-HINT flags.
 Return the updated word."
-  (let ((row (decklet--require-card word)))
-    (pcase-let ((`(,_word ,_added ,_last ,_due ,_state ,_step ,_stability ,_difficulty ,hint ,_back) row))
-      (when edit-word
-        (let ((new-word (read-string (format "Word (%s): " word) word)))
-          (unless (string-equal new-word word)
-            (decklet-rename-word word new-word)
-            (setq word new-word))))
-      (when edit-hint
-        (let ((new-hint (read-string (format "Hint (%s): " word) (or hint ""))))
-          (unless (string-equal new-hint (or hint ""))
-            (decklet-update-card-hint word new-hint))))
-      word)))
+  (let* ((row (decklet--require-card word))
+         (hint (plist-get row :hint)))
+    (when edit-word
+      (let ((new-word (read-string (format "Word (%s): " word) word)))
+        (unless (string-equal new-word word)
+          (decklet-rename-word word new-word)
+          (setq word new-word))))
+    (when edit-hint
+      (let ((new-hint (read-string (format "Hint (%s): " word) (or hint ""))))
+        (unless (string-equal new-hint (or hint ""))
+          (decklet-update-card-hint word new-hint))))
+    word))
 
 (defun decklet--add-hint-precheck ()
   "Get the target word for adding hint, or signal an error if none."
@@ -239,14 +248,15 @@ After adding a card, prompts if you want to add another."
     (when (called-interactively-p 'any)
       (decklet--add-card-prompt-next status-msg))))
 
-(defun decklet-add-hint (hint)
-  "Add HINT to the last added word."
+(defun decklet-add-hint (hint &optional target)
+  "Add HINT to TARGET word, defaulting to the last added word."
   (interactive
    (let ((target (decklet--add-hint-precheck)))
      (list
       (read-string (format "Hint for \"%s\": " target)
-                   (decklet--require-card-hint target)))))
-  (let ((target (decklet--add-hint-precheck)))
+                   (decklet--require-card-hint target))
+      target)))
+  (let ((target (or target (decklet--add-hint-precheck))))
     (decklet-update-card-hint target hint)
     (format "Updated the hint of \"%s\". " target)))
 
@@ -295,13 +305,21 @@ Hint lines are joined with newlines."
 (defun decklet-add-card-batch-confirm ()
   "Confirm batch import for the current buffer."
   (interactive)
-  (let ((cards (decklet--batch-collect-cards)))
-    (dolist (card cards)
-      (let ((word (plist-get card :word))
-            (hint (plist-get card :hint)))
-        (decklet-add-card word)
-        (when hint
-          (decklet-update-card-hint word hint))))
+  (let* ((cards (decklet--batch-collect-cards))
+         (conn (decklet-db--ensure)))
+    (sqlite-execute conn "BEGIN;")
+    (condition-case err
+        (progn
+          (dolist (card cards)
+            (let ((word (plist-get card :word))
+                  (hint (plist-get card :hint)))
+              (decklet-add-card word)
+              (when hint
+                (decklet-update-card-hint word hint))))
+          (sqlite-execute conn "COMMIT;"))
+      (error
+       (sqlite-execute conn "ROLLBACK;")
+       (signal (car err) (cdr err))))
     (message "Imported %d words" (length cards))
     (when (functionp decklet-add-card-batch--on-confirm)
       (funcall decklet-add-card-batch--on-confirm

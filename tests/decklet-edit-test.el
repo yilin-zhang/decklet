@@ -117,8 +117,10 @@
 (ert-deftest decklet-test-edit-entries-render-multiline-word-and-hint-inline ()
   (cl-letf (((symbol-function 'decklet-db--select-cards)
              (lambda (&rest _)
-               '(("line1\nline2" "20250101T000000Z" nil "20250102T000000Z"
-                  "learning" nil nil nil "hint1\nhint2" nil)))))
+               '((:word "line1\nline2" :added "20250101T000000Z"
+                  :last-review nil :due "20250102T000000Z"
+                  :state "learning" :step nil :stability nil
+                  :difficulty nil :hint "hint1\nhint2" :back nil)))))
     (let* ((decklet-edit--filter 'all)
            (tabulated-list-sort-key nil)
            (entry (car (decklet-edit--entries)))

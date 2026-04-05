@@ -96,7 +96,6 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
     (pcase (decklet--normalize-fsrs-state state)
       (:learning :learning)
       (:relearning :relearning)
-      (:review :review)
       (_ :review))))
 
 (defun decklet-card-meta-display-state (meta)

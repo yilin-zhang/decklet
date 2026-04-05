@@ -85,9 +85,7 @@
 ;; separator-collapse rule without requiring full buffer rendering.
 
 (ert-deftest decklet-test-review-collect-component-items-collapses-separators ()
-  (cl-letf (((symbol-function 'decklet-review-component-separator)
-             (lambda () "SEP"))
-            ((symbol-function 'decklet-test--component-a)
+  (cl-letf (((symbol-function 'decklet-test--component-a)
              (lambda () "A"))
             ((symbol-function 'decklet-test--component-b)
              (lambda () "B")))
@@ -100,7 +98,8 @@
            (items (car result)))
       ;; Leading separator should be skipped.
       ;; Consecutive separators should collapse into one.
-      (should (equal (mapcar #'car items) '("A" "SEP" "B")))
+      ;; Separator items store a placeholder for later replacement by the renderer.
+      (should (equal (mapcar #'car items) '("A" "" "B")))
       (should (equal (mapcar #'cdr items) '(nil t nil))))))
 
 ;; ---------------------------------------------------------------------------
@@ -177,7 +176,7 @@
          (decklet-due-words '("fig"))
          (upserted nil))
     (cl-letf (((symbol-function 'decklet-db--select-card)
-               (lambda (_word) '("date")))
+               (lambda (_word) '(:word "date")))
               ((symbol-function 'decklet-db--upsert-card)
                (lambda (word meta) (setq upserted (list word meta))))
               ((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
@@ -211,7 +210,7 @@
          (decklet-current-word "D")
          (words-seen nil))
     (cl-letf (((symbol-function 'decklet-db--select-card)
-               (lambda (_word) '("x")))
+               (lambda (_word) '(:word "x")))
               ((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
               ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
       (dotimes (_ 3)
@@ -342,7 +341,7 @@ The confirmed card must not be double-logged as a skip."
          (decklet-current-word "B")
          (decklet-due-words '("C")))
     (cl-letf (((symbol-function 'decklet-db--select-card)
-               (lambda (_word) '("A")))
+               (lambda (_word) '(:word "A")))
               ((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
               ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
       (decklet-review-undo))
@@ -361,7 +360,7 @@ The confirmed card must not be double-logged as a skip."
          (decklet-current-word "B")
          (decklet-due-words '("C")))
     (cl-letf (((symbol-function 'decklet-db--select-card)
-               (lambda (_word) '("x")))
+               (lambda (_word) '(:word "x")))
               ((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
               ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
       (decklet-review-undo))
@@ -581,7 +580,7 @@ The confirmed card must not be double-logged as a skip."
          (decklet-due-words nil))
     ;; B is gone from DB, A exists.
     (cl-letf (((symbol-function 'decklet-db--select-card)
-               (lambda (word) (when (equal word "A") '("A"))))
+               (lambda (word) (when (equal word "A") '(:word "A"))))
               ((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
               ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
       (decklet-review-undo))

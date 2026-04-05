@@ -318,10 +318,10 @@ AUDIO-PLAYER specifies the command to play audio (defaults to system default)."
 (defun decklet-clear-audio-cache ()
   "Clear the audio cache directory."
   (interactive)
-  (when (file-directory-p decklet-dictionary-audio-cache-dir)
-    (delete-directory decklet-dictionary-audio-cache-dir t)
-    (message "Audio cache cleared"))
-  (unless (file-directory-p decklet-dictionary-audio-cache-dir)
+  (if (file-directory-p decklet-dictionary-audio-cache-dir)
+      (progn
+        (delete-directory decklet-dictionary-audio-cache-dir t)
+        (message "Audio cache cleared"))
     (message "Audio cache was already empty")))
 
 ;;;###autoload

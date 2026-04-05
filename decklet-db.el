@@ -35,15 +35,8 @@
 Use this to clean up any resources that depend on an open DB connection,
 such as card-back popup buffers.")
 
-(defconst decklet-db--edit-sort-columns
-  '(("Word" . "word")
-    ("Hint" . "hint")
-    ("Added" . "added_date")
-    ("Due" . "due")
-    ("State" . "state")
-    ("Stability" . "stability")
-    ("Difficulty" . "difficulty"))
-  "Mapping of edit table headers to database columns.")
+(defconst decklet-db--numeric-sort-columns '("stability" "difficulty")
+  "DB columns that use numeric COALESCE for sorting.")
 
 (defun decklet-db--normalize-word (word)
   "Normalize WORD and signal an error if empty."
@@ -61,15 +54,21 @@ such as card-back popup buffers.")
         trimmed))))
 
 (defun decklet-db--normalize-row (row)
-  "Normalize ROW values for word, hint, and back fields."
+  "Normalize ROW into a card plist with named keys.
+Return a plist with keys :word, :added, :last-review, :due, :state,
+:step, :stability, :difficulty, :hint, and :back."
   (when row
     (pcase-let ((`(,word ,added ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back) row))
-      (let ((normalized-word (decklet-db--normalize-word word))
-            (normalized-hint (decklet-db--normalize-optional-text hint))
-            (normalized-back (decklet-db--normalize-optional-text back)))
-        (list normalized-word
-              added last-review due state step stability difficulty
-              normalized-hint normalized-back)))))
+      (list :word (decklet-db--normalize-word word)
+            :added added
+            :last-review last-review
+            :due due
+            :state state
+            :step step
+            :stability stability
+            :difficulty difficulty
+            :hint (decklet-db--normalize-optional-text hint)
+            :back (decklet-db--normalize-optional-text back)))))
 
 (defun decklet-db--ensure-db-dir ()
   "Ensure the database directory exists."
@@ -180,13 +179,17 @@ left unchanged on conflict."
 
 (defun decklet-db--select-card-hint (word)
   "Return the hint for WORD's card, or nil."
-  (when-let ((row (decklet-db--select-card word)))
-    (nth 8 row)))
+  (let ((conn (decklet-db--ensure)))
+    (decklet-db--normalize-optional-text
+     (caar (sqlite-select conn "SELECT hint FROM cards WHERE word = ?;"
+                          (list word))))))
 
 (defun decklet-db--select-card-back (word)
   "Return the back content for WORD's card, or nil."
-  (when-let ((row (decklet-db--select-card word)))
-    (nth 9 row)))
+  (let ((conn (decklet-db--ensure)))
+    (decklet-db--normalize-optional-text
+     (caar (sqlite-select conn "SELECT back FROM cards WHERE word = ?;"
+                          (list word))))))
 
 (defun decklet-db--delete-card (word)
   "Delete WORD from the database."
@@ -220,24 +223,28 @@ left unchanged on conflict."
 
 (defun decklet-db--edit-filter-sql (filter)
   "Return (SQL . PARAMS) for FILTER."
-  (pcase filter
-    ('review (cons " WHERE archived_at IS NULL AND state = 'review'" nil))
-    ('learning (cons " WHERE archived_at IS NULL AND state IN ('learning', 'relearning')" nil))
-    ('archived (cons " WHERE archived_at IS NOT NULL" nil))
-    (_ (cons " WHERE archived_at IS NULL" nil))))
+  (let ((s-review (decklet--fsrs-state-string :review))
+        (s-learning (decklet--fsrs-state-string :learning))
+        (s-relearning (decklet--fsrs-state-string :relearning)))
+    (pcase filter
+      ('review
+       (cons " WHERE archived_at IS NULL AND state = ?"
+             (list s-review)))
+      ('learning
+       (cons " WHERE archived_at IS NULL AND state IN (?, ?)"
+             (list s-learning s-relearning)))
+      ('archived (cons " WHERE archived_at IS NOT NULL" nil))
+      (_ (cons " WHERE archived_at IS NULL" nil)))))
 
 (defun decklet-db--edit-order-sql (sort-key)
-  "Return SQL ORDER BY clause for SORT-KEY."
-  (let* ((column (and sort-key (car sort-key)))
-         (reverse (and sort-key (cdr sort-key)))
-         (db-column (cdr (assoc-string column decklet-db--edit-sort-columns)))
-         (db-column (or db-column "word"))
-         (direction (if reverse "DESC" "ASC"))
-         (order-expr (if (member db-column '("stability" "difficulty"))
+  "Return SQL ORDER BY clause for SORT-KEY.
+SORT-KEY is (DB-COLUMN . DESCENDING-P), where DB-COLUMN is a raw
+database column name string."
+  (let* ((db-column (or (car sort-key) "word"))
+         (direction (if (cdr sort-key) "DESC" "ASC"))
+         (order-expr (if (member db-column decklet-db--numeric-sort-columns)
                          (format "COALESCE(%s, 0)" db-column)
                        (format "COALESCE(%s, '')" db-column))))
-    ;; Tie-break equal sort values by insertion order so later-added cards stay
-    ;; after earlier ones (later inserts usually have larger rowid values).
     (format " ORDER BY %s %s, rowid %s" order-expr direction direction)))
 
 (defun decklet-db--select-cards (&optional filter sort-key)
@@ -256,32 +263,35 @@ left unchanged on conflict."
                       params)))))
 
 (defun decklet-db--row->card-meta (row)
-  "Convert ROW into a `decklet-card-meta' instance."
+  "Convert card plist ROW into a `decklet-card-meta' instance."
   (when row
-    (pcase-let ((`(,_word ,added-date ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back) row))
-      (let* ((scheduler (decklet--get-fsrs-scheduler))
-             (state (decklet--normalize-fsrs-state state))
-             (added-date (or added-date (fsrs-now)))
-             (due (or due (fsrs-now)))
-             (is-new (decklet-last-review-empty-p last-review))
-             (state (or state (if is-new :learning :review)))
-             (step (if is-new (or step 0) step))
-             (stability (and (numberp stability) (> stability 0) stability))
-             (difficulty (and (numberp difficulty) (> difficulty 0) difficulty))
-             (stability (if (and (not is-new) (null stability))
-                            (fsrs-scheduler-initial-stability scheduler :good)
-                          stability))
-             (difficulty (if (and (not is-new) (null difficulty))
-                             (fsrs-scheduler-initial-difficulty scheduler :good)
-                           difficulty)))
-        (make-decklet-card-meta
-         :added-date added-date
-         :last-review last-review
-         :due due
-         :state state
-         :step step
-         :stability stability
-         :difficulty difficulty)))))
+    (let* ((scheduler (decklet--get-fsrs-scheduler))
+           (last-review (plist-get row :last-review))
+           (state (decklet--normalize-fsrs-state (plist-get row :state)))
+           (added-date (or (plist-get row :added) (fsrs-now)))
+           (due (or (plist-get row :due) (fsrs-now)))
+           (is-new (decklet-last-review-empty-p last-review))
+           (state (or state (if is-new :learning :review)))
+           (step (let ((s (plist-get row :step)))
+                   (if is-new (or s 0) s)))
+           (stability (let ((s (plist-get row :stability)))
+                        (and (numberp s) (> s 0) s)))
+           (difficulty (let ((d (plist-get row :difficulty)))
+                         (and (numberp d) (> d 0) d)))
+           (stability (if (and (not is-new) (null stability))
+                          (fsrs-scheduler-initial-stability scheduler :good)
+                        stability))
+           (difficulty (if (and (not is-new) (null difficulty))
+                           (fsrs-scheduler-initial-difficulty scheduler :good)
+                         difficulty)))
+      (make-decklet-card-meta
+       :added-date added-date
+       :last-review last-review
+       :due due
+       :state state
+       :step step
+       :stability stability
+       :difficulty difficulty))))
 
 (defun decklet-db--review-normalize-targets (targets)
   "Normalize TARGETS into a list of review types."
@@ -364,16 +374,19 @@ ORDER can be `:asc' or `:desc'."
   ;; Review cards are due by day; learning cards are due by timestamp.
   (let ((review-cutoff (decklet--time->fsrs-timestamp
                         (decklet--next-day-start-time now)))
-        (learning-cutoff (decklet--time->fsrs-timestamp now)))
+        (learning-cutoff (decklet--time->fsrs-timestamp now))
+        (s-review (decklet--fsrs-state-string :review))
+        (s-learning (decklet--fsrs-state-string :learning))
+        (s-relearning (decklet--fsrs-state-string :relearning)))
     (pcase target
       (:learning
-       (cons "state IN ('learning', 'relearning')
+       (cons "state IN (?, ?)
               AND last_review IS NOT NULL
-              AND due <= ?" (list learning-cutoff)))
+              AND due <= ?" (list s-learning s-relearning learning-cutoff)))
       (:review
-       (cons "state = 'review'
+       (cons "state = ?
               AND last_review IS NOT NULL
-              AND due <= ?" (list review-cutoff)))
+              AND due <= ?" (list s-review review-cutoff)))
       (:new
        (cons "last_review IS NULL
               AND due <= ?" (list review-cutoff)))
@@ -437,19 +450,24 @@ STEP can be a shuffle or sort clause."
          (day-start (decklet--time->fsrs-timestamp (decklet--day-start-time now)))
          (review-cutoff (decklet--time->fsrs-timestamp (decklet--next-day-start-time now)))
          (learning-cutoff (decklet--time->fsrs-timestamp now))
+         (s-review (decklet--fsrs-state-string :review))
+         (s-learning (decklet--fsrs-state-string :learning))
+         (s-relearning (decklet--fsrs-state-string :relearning))
          (conn (decklet-db--ensure))
          (row (car (sqlite-select
                     conn
                     "SELECT
                        SUM(CASE WHEN last_review >= ? AND last_review < ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NOT NULL AND state = 'review'
+                       SUM(CASE WHEN last_review IS NOT NULL AND state = ?
                                      AND due <= ? THEN 1 ELSE 0 END),
                        SUM(CASE WHEN last_review IS NOT NULL
-                                     AND state IN ('learning', 'relearning')
+                                     AND state IN (?, ?)
                                      AND due <= ? THEN 1 ELSE 0 END),
                        SUM(CASE WHEN last_review IS NULL THEN 1 ELSE 0 END)
                      FROM cards WHERE archived_at IS NULL;"
-                    (list day-start review-cutoff review-cutoff learning-cutoff)))))
+                    (list day-start review-cutoff
+                          s-review review-cutoff
+                          s-learning s-relearning learning-cutoff)))))
     (list :reviewed    (or (nth 0 row) 0)
           :due-review  (or (nth 1 row) 0)
           :due-learning (or (nth 2 row) 0)

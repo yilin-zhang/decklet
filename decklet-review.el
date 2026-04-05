@@ -346,16 +346,18 @@ Multi-line text is centered as a block, not per-line."
 
 (defun decklet-review--collect-component-items (components &optional last-was-sep)
   "Return (ITEMS . LAST-WAS-SEP) for COMPONENTS.
-ITEMS contains (TEXT . SEPARATOR) pairs.  Leading or consecutive separators
-are skipped so rendering won't stack separator lines."
+ITEMS contains (TEXT . SEPARATOR) pairs.  Separator functions are not called;
+a placeholder is stored in TEXT for later replacement.  Leading or consecutive
+separators are skipped so rendering won't stack separator lines."
   (let (items)
     (dolist (fn components)
-      (let ((text (funcall fn))
-            (separator (eq fn 'decklet-review-component-separator)))
-        (when text
-          (unless (and separator (or last-was-sep (null items)))
-            (push (cons text separator) items)
-            (setq last-was-sep separator)))))
+      (if (eq fn 'decklet-review-component-separator)
+          (unless (or last-was-sep (null items))
+            (push (cons "" t) items)
+            (setq last-was-sep t))
+        (when-let ((text (funcall fn)))
+          (push (cons text nil) items)
+          (setq last-was-sep nil))))
     (cons (nreverse items) last-was-sep)))
 
 (defun decklet-review--render-component-items (items)
@@ -385,33 +387,29 @@ are skipped so rendering won't stack separator lines."
 
 (defun decklet-review--render-components ()
   "Render fixed and floating components with vertical centering for fixed ones."
-  (let* ((decklet-review--render-meta
-          (and decklet-current-word (decklet--load-card-meta decklet-current-word)))
-         (decklet-review--render-has-back
-          (and decklet-current-word
-               (decklet-db--select-card-back decklet-current-word)))
-         (content-components (seq-remove (lambda (fn)
-                                           (eq fn 'decklet-review-component-separator))
-                                         (append decklet-review-fixed-components
-                                                 decklet-review-floating-components)))
-         (content-texts (delq nil (mapcar #'funcall content-components))))
+  ;; Collect items in a single pass; separators are recorded as placeholders.
+  (let* ((fixed-result (decklet-review--collect-component-items decklet-review-fixed-components))
+         (fixed-items (car fixed-result))
+         (last-was-sep (cdr fixed-result))
+         (floating-result (decklet-review--collect-component-items decklet-review-floating-components last-was-sep))
+         (floating-items (car floating-result))
+         (all-items (append fixed-items floating-items))
+         ;; Compute separator width from non-separator content.
+         (content-texts (mapcar #'car (seq-remove #'cdr all-items))))
     (if (null content-texts)
         ""
-      ;; Update separator width.
-      ;; Width is based on content only so separators match visible text.
       (setq decklet-review--separator-width
             (seq-reduce
              #'max
              (mapcar #'decklet--string-max-line-width content-texts)
              0))
-      (let* ((fixed-result (decklet-review--collect-component-items decklet-review-fixed-components))
-             (fixed-items (car fixed-result))
-             ;; Track if the fixed block ended with a separator so we
-             ;; do not stack separators between fixed and floating blocks.
-             (last-was-sep (cdr fixed-result))
-             (floating-result (decklet-review--collect-component-items decklet-review-floating-components last-was-sep))
-             (floating-items (car floating-result)))
-        (decklet-review--render-with-vertical-center fixed-items floating-items)))))
+      ;; Replace separator placeholders with actual separator strings.
+      (let ((sep-text (decklet-center-text
+                       (decklet-review--separator decklet-review--separator-width))))
+        (dolist (item all-items)
+          (when (cdr item)
+            (setcar item sep-text))))
+      (decklet-review--render-with-vertical-center fixed-items floating-items))))
 
 (defun decklet-review--setup-buffer ()
   "Set up the review buffer."
@@ -646,7 +644,11 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   (with-current-buffer (get-buffer decklet-review-buffer-name)
     (when decklet-review-hide-cursor
       (decklet-review--hide-cursor))
-    (let* ((decklet-review--render-hint (decklet--current-card-hint))
+    (let* ((card-full (and decklet-current-word
+                          (decklet--load-card-full decklet-current-word)))
+           (decklet-review--render-meta (plist-get card-full :meta))
+           (decklet-review--render-has-back (plist-get card-full :back))
+           (decklet-review--render-hint (plist-get card-full :hint))
            (window (get-buffer-window (current-buffer) 0))
            (saved-point (when (and keep-position window) (window-point window)))
            (saved-start (when (and keep-position window) (window-start window)))
@@ -703,7 +705,7 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 (defun decklet-review--revlog-append (entry)
   "Append ENTRY to the revlog."
   (setq decklet-review--revlog-queue
-        (append decklet-review--revlog-queue (list entry)))
+        (nconc decklet-review--revlog-queue (list entry)))
   (setq decklet-review--revlog-pointer (length decklet-review--revlog-queue)))
 
 (defun decklet-review--revlog-update-entry (grade)
