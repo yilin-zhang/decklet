@@ -456,5 +456,81 @@
       (decklet-db-import-json file)
       (should (null (decklet-db--select-card-back "dim"))))))
 
+;; ---------------------------------------------------------------------------
+;; JSON export
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-db-export-json-writes-all-cards ()
+  "Export produces a JSON array with one object per card."
+  (decklet-test--with-temp-db
+    (let* ((file (expand-file-name "export.json" tmp-dir))
+           (ts "20250101T010101Z")
+           (meta (make-decklet-card-meta
+                  :added-date ts :last-review ts :due ts :state :review
+                  :stability 5.0 :difficulty 3.0)))
+      (decklet-db--upsert-card "sun" meta)
+      (decklet-db--update-hint "sun" "star")
+      (decklet-db--update-back "sun" "notes about sun")
+      (decklet-db--upsert-card "moon" meta)
+      (decklet-db-export-json file)
+      (let* ((data (with-temp-buffer
+                     (insert-file-contents file)
+                     (json-parse-buffer :object-type 'alist
+                                        :array-type 'list)))
+             (words (mapcar (lambda (r) (alist-get 'word r)) data)))
+        (should (= 2 (length data)))
+        ;; Cards are ordered by added_date ASC, word ASC.
+        (should (equal words '("moon" "sun")))
+        ;; Verify fields on a card with all content populated.
+        (let ((sun (cl-find "sun" data :key (lambda (r) (alist-get 'word r)) :test #'equal)))
+          (should (equal (alist-get 'hint sun) "star"))
+          (should (equal (alist-get 'back sun) "notes about sun"))
+          (should (equal (alist-get 'state sun) "review")))))))
+
+;; ---------------------------------------------------------------------------
+;; JSON round-trip (export → import)
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-db-export-import-round-trip ()
+  "Exporting then importing into a fresh DB preserves card data."
+  (decklet-test--with-temp-db
+    (let* ((export-file (expand-file-name "round-trip.json" tmp-dir))
+           (ts1 "20250101T010101Z")
+           (ts2 "20250201T010101Z")
+           (meta1 (make-decklet-card-meta
+                   :added-date ts1 :last-review ts1 :due ts1 :state :review
+                   :stability 8.5 :difficulty 4.2))
+           (meta2 (make-decklet-card-meta
+                   :added-date ts2 :last-review nil :due ts2 :state :learning
+                   :step 0)))
+      ;; Populate source DB.
+      (decklet-db--upsert-card "river" meta1)
+      (decklet-db--update-hint "river" "flows")
+      (decklet-db--update-back "river" "water body")
+      (decklet-db--upsert-card "lake" meta2)
+      (decklet-db--update-hint "lake" "still")
+      (decklet-archive-card "lake")
+      ;; Export.
+      (decklet-db-export-json export-file)
+      ;; Clear all cards to simulate a fresh DB.
+      (sqlite-execute (decklet-db--ensure) "DELETE FROM cards;")
+      ;; Import into the empty DB.
+      (let ((stats (decklet-db-import-json export-file)))
+        (should (= 2 (plist-get stats :added))))
+      ;; Verify river (active, reviewed card with back and scheduling data).
+      (let ((row (decklet-db--select-card "river")))
+        (should row)
+        (should (equal (plist-get row :hint) "flows"))
+        (should (equal (plist-get row :back) "water body"))
+        (should (equal (plist-get row :state) "review"))
+        (should (= (plist-get row :stability) 8.5))
+        (should (= (plist-get row :difficulty) 4.2)))
+      ;; Verify lake (archived, new card without scheduling data).
+      (should (= 1 (length (decklet-db--select-cards 'archived nil))))
+      (let ((row (decklet-db--select-card "lake")))
+        (should row)
+        (should (equal (plist-get row :hint) "still"))
+        (should (equal (plist-get row :step) 0))))))
+
 (provide 'decklet-db-test)
 ;;; decklet-db-test.el ends here
