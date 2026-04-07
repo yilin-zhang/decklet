@@ -46,8 +46,11 @@ Receives a list of added words.")
     "C-c C-k" #'decklet-add-card-batch-cancel)
   "Keymap for `decklet-add-card-batch-mode'.")
 
+(defconst decklet--batch-hint-re "^[ \t]*#\\(.*\\)"
+  "Regex matching a hint line.  Group 1 captures the hint text.")
+
 (defvar decklet-add-card-batch-font-lock-keywords
-  '(("^#.*$" . font-lock-comment-face))
+  `((,decklet--batch-hint-re . font-lock-comment-face))
   "Font-lock rules for `decklet-add-card-batch-mode'.")
 
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
@@ -276,30 +279,29 @@ Lines that are empty or contain only whitespace are removed."
 (defun decklet--batch-collect-cards ()
   "Parse current batch buffer and return card plists.
 Each returned plist contains `:word' and optional `:hint'.  Any line
-starting with `#' is treated as a hint line for the most recent word.
-Hint lines are joined with newlines."
-  (let ((lines (decklet--batch-clean-lines))
-        (cards nil)
-        (current-word nil)
-        (current-hints nil))
+whose first non-whitespace character is `#' is treated as a hint line
+for the most recent word.  Hint lines are joined with newlines."
+  (let* ((lines (decklet--batch-clean-lines))
+         (cards nil)
+         (current-word nil)
+         (current-hints nil)
+         (flush (lambda ()
+                  (when current-word
+                    (push (list :word current-word
+                                :hint (when current-hints
+                                        (string-join (nreverse current-hints) "\n")))
+                          cards)
+                    (setq current-word nil
+                          current-hints nil)))))
     (dolist (line lines)
-      (if (string-prefix-p "#" line)
+      (if (string-match decklet--batch-hint-re line)
           (progn
             (unless current-word
               (user-error "Hint line must follow a word line: %s" line))
-            (push (string-trim (substring line 1)) current-hints))
-        (when current-word
-          (push (list :word current-word
-                      :hint (when current-hints
-                              (string-join (nreverse current-hints) "\n")))
-                cards))
-        (setq current-word line
-              current-hints nil)))
-    (when current-word
-      (push (list :word current-word
-                  :hint (when current-hints
-                          (string-join (nreverse current-hints) "\n")))
-            cards))
+            (push (string-trim (match-string 1 line)) current-hints))
+        (funcall flush)
+        (setq current-word line)))
+    (funcall flush)
     (nreverse cards)))
 
 (defun decklet-add-card-batch-confirm ()
