@@ -170,7 +170,7 @@ a minibuffer prompt is needed."
 
 (defun decklet-archive-card (word)
   "Archive the card for WORD without deleting it."
-  (decklet-db--archive-card word (fsrs-now))
+  (decklet-db--archive-card word (decklet--now))
   (when decklet-due-words
     (setq decklet-due-words (delete word decklet-due-words)))
   (decklet--refresh-counter))
@@ -212,7 +212,7 @@ Return the updated word."
              (or (not is-new)
                  (not decklet-add-and-refresh)))
         (format "Word \"%s\" already exists in the deck. " word)
-      (let ((now (fsrs-now)))
+      (let ((now (decklet--now)))
         (unless meta
           (setq meta (make-decklet-card-meta)))
         (setf (decklet-card-meta-added-date meta) now)

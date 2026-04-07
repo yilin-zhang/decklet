@@ -265,11 +265,10 @@ database column name string."
 (defun decklet-db--row->card-meta (row)
   "Convert card plist ROW into a `decklet-card-meta' instance."
   (when row
-    (let* ((scheduler (decklet--get-fsrs-scheduler))
-           (last-review (plist-get row :last-review))
+    (let* ((last-review (plist-get row :last-review))
            (state (decklet--normalize-fsrs-state (plist-get row :state)))
-           (added-date (or (plist-get row :added) (fsrs-now)))
-           (due (or (plist-get row :due) (fsrs-now)))
+           (added-date (or (plist-get row :added) (decklet--now)))
+           (due (or (plist-get row :due) (decklet--now)))
            (is-new (decklet-last-review-empty-p last-review))
            (state (or state (if is-new :learning :review)))
            (step (let ((s (plist-get row :step)))
@@ -277,13 +276,7 @@ database column name string."
            (stability (let ((s (plist-get row :stability)))
                         (and (numberp s) (> s 0) s)))
            (difficulty (let ((d (plist-get row :difficulty)))
-                         (and (numberp d) (> d 0) d)))
-           (stability (if (and (not is-new) (null stability))
-                          (fsrs-scheduler-initial-stability scheduler :good)
-                        stability))
-           (difficulty (if (and (not is-new) (null difficulty))
-                           (fsrs-scheduler-initial-difficulty scheduler :good)
-                         difficulty)))
+                         (and (numberp d) (> d 0) d))))
       (make-decklet-card-meta
        :added-date added-date
        :last-review last-review
@@ -531,7 +524,7 @@ Return a plist with keys:
   "Convert JSON RECORD alist to (WORD META ARCHIVED-AT)."
   (unless (listp record)
     (error "Invalid JSON record: expected object, got %S" record))
-  (let* ((now (fsrs-now))
+  (let* ((now (decklet--now))
          (word (decklet-db--normalize-word
                 (decklet-db--json-alist-get record 'word)))
          (state (or (decklet--normalize-fsrs-state

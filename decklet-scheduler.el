@@ -71,9 +71,9 @@ Set to nil to disable relearning steps."
 
 (cl-defstruct (decklet-card-meta)
   ;; Scheduling metadata only.  Content fields (hint, back) live in the DB.
-  (added-date (fsrs-now))
+  (added-date (decklet--now))
   (last-review nil)
-  (due (fsrs-now))
+  (due (decklet--now))
   (state :learning)
   (step 0)
   (stability nil)
@@ -155,9 +155,25 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
   "Return the next review day start time after TIME."
   (time-add (decklet--day-start-time time) (days-to-time 1)))
 
+(defun decklet--now ()
+  "Return the current time as an FSRS timestamp string."
+  (fsrs-now))
+
 (defun decklet--time->fsrs-timestamp (time)
   "Return TIME formatted as an FSRS timestamp string."
   (fsrs-now time))
+
+(defun decklet--simulate-review-interval (word meta grade)
+  "Return predicted interval in seconds for GRADE on WORD with META.
+Simulates one FSRS review without mutating META."
+  (let* ((scheduler (decklet--get-fsrs-scheduler))
+         (rating (decklet--fsrs-rating-from-grade grade))
+         (review-time (decklet--now))
+         (card (decklet--card-meta->fsrs-card word meta))
+         (new-card (cl-nth-value 0
+                                 (fsrs-scheduler-review-card
+                                  scheduler card rating review-time))))
+    (fsrs-timestamp-difference (fsrs-card-due new-card) review-time)))
 
 (defun decklet--card-meta->fsrs-card (word meta)
   "Create an FSRS card for WORD from card META."
@@ -168,7 +184,7 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
      :step (decklet-card-meta-step meta)
      :stability (decklet-card-meta-stability meta)
      :difficulty (decklet-card-meta-difficulty meta)
-     :due (or (decklet-card-meta-due meta) (fsrs-now))
+     :due (or (decklet-card-meta-due meta) (decklet--now))
      :last-review (decklet-card-meta-last-review meta))))
 
 (defun decklet--apply-fsrs-card (meta card)
@@ -185,7 +201,7 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
   "Update card META for WORD based on GRADE rating (1-4)."
   (let* ((scheduler (decklet--get-fsrs-scheduler))
          (rating (decklet--fsrs-rating-from-grade grade))
-         (review-time (fsrs-now))
+         (review-time (decklet--now))
          (card (decklet--card-meta->fsrs-card word meta))
          (new-card (cl-nth-value 0
                                  (fsrs-scheduler-review-card

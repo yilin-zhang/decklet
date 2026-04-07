@@ -502,19 +502,11 @@ Otherwise, simulate one FSRS review with GRADE and format the predicted
 interval as a compact label, for example (10m)."
   (if (not decklet-review-enable-interval-labels)
       ""
-    (let* ((scheduler (decklet--get-fsrs-scheduler))
-           (rating (decklet--fsrs-rating-from-grade grade))
-           (review-time (fsrs-now))
-           (card (decklet--card-meta->fsrs-card word meta))
-           ;; Simulate the rating to show the interval before the user commits.
-           (new-card (cl-nth-value 0
-                                   (fsrs-scheduler-review-card
-                                    scheduler card rating review-time))))
-      (propertize
-       (format " (%s)"
-               (decklet--format-interval
-                (fsrs-timestamp-difference (fsrs-card-due new-card) review-time)))
-       'face 'decklet-review-rating-interval-face))))
+    (propertize
+     (format " (%s)"
+             (decklet--format-interval
+              (decklet--simulate-review-interval word meta grade)))
+     'face 'decklet-review-rating-interval-face)))
 
 (defun decklet-review--separator (&optional length)
   "Return the styled separator line for instruction blocks.
