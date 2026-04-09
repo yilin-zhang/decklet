@@ -30,9 +30,9 @@
 (defvar decklet-db--conn nil
   "SQLite connection for Decklet.")
 
-(defvar decklet-db--last-instance-id nil
-  "In-memory monotonic counter for `cards.instance_id' values.
-Seeded lazily from the current `MAX(instance_id)' on first call,
+(defvar decklet-db--last-card-id nil
+  "In-memory monotonic counter for `cards.card_id' values.
+Seeded lazily from the current `MAX(card_id)' on first call,
 then incremented monotonically with each mint.  Reset to nil each
 Emacs session so the seed is recomputed from the DB on startup.")
 
@@ -67,21 +67,24 @@ review log JSONL) alongside the DB snapshot.")
 
 (defun decklet-db--normalize-row (row)
   "Normalize ROW into a card plist with named keys.
-Return a plist with keys :word, :added, :last-review, :due, :state,
-:step, :stability, :difficulty, :hint, :back, and :instance-id."
+ROW's column order must match the physical DB column order (skipping
+`archived_at'): card_id, word, hint, back, added_date, last_review,
+due, state, step, stability, difficulty.
+Return a plist with keys :card-id, :word, :hint, :back, :added,
+:last-review, :due, :state, :step, :stability, and :difficulty."
   (when row
-    (pcase-let ((`(,word ,added ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back ,instance-id) row))
-      (list :word (decklet-db--normalize-word word)
+    (pcase-let ((`(,card-id ,word ,hint ,back ,added ,last-review ,due ,state ,step ,stability ,difficulty) row))
+      (list :card-id card-id
+            :word (decklet-db--normalize-word word)
+            :hint (decklet-db--normalize-optional-text hint)
+            :back (decklet-db--normalize-optional-text back)
             :added added
             :last-review last-review
             :due due
             :state state
             :step step
             :stability stability
-            :difficulty difficulty
-            :hint (decklet-db--normalize-optional-text hint)
-            :back (decklet-db--normalize-optional-text back)
-            :instance-id instance-id))))
+            :difficulty difficulty))))
 
 (defun decklet-db--ensure-db-dir ()
   "Ensure the database directory exists."
@@ -98,7 +101,7 @@ Return a plist with keys :word, :added, :last-review, :due, :state,
     (sqlite-execute decklet-db--conn "PRAGMA foreign_keys = ON;")
     (sqlite-execute decklet-db--conn
                     "CREATE TABLE IF NOT EXISTS cards (
-                       instance_id INTEGER PRIMARY KEY,
+                       card_id     INTEGER PRIMARY KEY,
                        word        TEXT    UNIQUE NOT NULL,
                        hint        TEXT,
                        back        TEXT,
@@ -111,10 +114,10 @@ Return a plist with keys :word, :added, :last-review, :due, :state,
                        stability   REAL,
                        difficulty  REAL
                      );")
-    ;; `instance_id INTEGER PRIMARY KEY' aliases to rowid, so no
-    ;; separate unique index is needed on it — the rowid B-tree IS
-    ;; the primary key index.  The implicit index on `word' is
-    ;; created automatically from `UNIQUE NOT NULL'.
+    ;; `card_id INTEGER PRIMARY KEY' aliases to rowid, so no separate
+    ;; unique index is needed on it — the rowid B-tree IS the primary
+    ;; key index.  The implicit index on `word' is created
+    ;; automatically from `UNIQUE NOT NULL'.
     (sqlite-execute decklet-db--conn
                     "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
   decklet-db--conn)
@@ -146,21 +149,21 @@ Return a plist with keys :word, :added, :last-review, :due, :state,
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
      (car (sqlite-select conn
-                         "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back, instance_id
+                         "SELECT card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty
                           FROM cards WHERE word = ?;"
                          (list word))))))
 
 (defun decklet-db--upsert-card (word card-meta)
   "Insert or update WORD with CARD-META in the database.
 Only scheduling fields are written; content fields (hint, back) are
-left unchanged on conflict.  `instance_id' is inserted for new rows
-but intentionally excluded from the ON CONFLICT UPDATE clause, so
-a card's stable identity is preserved across rating updates."
+left unchanged on conflict.  `card_id' is inserted for new rows but
+intentionally excluded from the ON CONFLICT UPDATE clause, so a
+card's stable identity is preserved across rating updates."
   (let* ((word (decklet-db--normalize-word word))
          (conn (decklet-db--ensure)))
     (sqlite-execute
      conn
-     "INSERT INTO cards (word, added_date, last_review, due, state, step, stability, difficulty, instance_id)
+     "INSERT INTO cards (card_id, word, added_date, last_review, due, state, step, stability, difficulty)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(word) DO UPDATE SET
         added_date = excluded.added_date,
@@ -170,15 +173,15 @@ a card's stable identity is preserved across rating updates."
         step = excluded.step,
         stability = excluded.stability,
         difficulty = excluded.difficulty;"
-     (list word
+     (list (decklet-card-meta-card-id card-meta)
+           word
            (decklet-card-meta-added-date card-meta)
            (decklet-card-meta-last-review card-meta)
            (decklet-card-meta-due card-meta)
            (decklet--fsrs-state-string (decklet-card-meta-state card-meta))
            (decklet-card-meta-step card-meta)
            (decklet-card-meta-stability card-meta)
-           (decklet-card-meta-difficulty card-meta)
-           (decklet-card-meta-instance-id card-meta)))))
+           (decklet-card-meta-difficulty card-meta)))))
 
 (defun decklet-db--update-hint (word hint)
   "Update WORD's hint with HINT in the database, return normalized hint."
@@ -229,24 +232,24 @@ a card's stable identity is preserved across rating updates."
     (sqlite-execute conn "UPDATE cards SET archived_at = NULL WHERE word = ?;"
                     (list word))))
 
-(defun decklet-db--max-instance-id ()
-  "Return the current `MAX(instance_id)' in the cards table, or 0."
+(defun decklet-db--max-card-id ()
+  "Return the current `MAX(card_id)' in the cards table, or 0."
   (or (caar (sqlite-select (decklet-db--ensure)
-                           "SELECT COALESCE(MAX(instance_id), 0) FROM cards;"))
+                           "SELECT COALESCE(MAX(card_id), 0) FROM cards;"))
       0))
 
-(defun decklet-db--mint-instance-id ()
-  "Return a fresh unique card instance id.
-First call after Emacs start seeds from `MAX(instance_id)' in the DB,
+(defun decklet-db--mint-card-id ()
+  "Return a fresh unique card id.
+First call after Emacs start seeds from `MAX(card_id)' in the DB,
 then each call returns `(max (1+ previous) (current-microsecond))' so
 ids are strictly monotonic and never collide — even under batch
 imports where two mint calls can land in the same microsecond."
-  (unless decklet-db--last-instance-id
-    (setq decklet-db--last-instance-id (decklet-db--max-instance-id)))
+  (unless decklet-db--last-card-id
+    (setq decklet-db--last-card-id (decklet-db--max-card-id)))
   (let ((now (truncate (* (float-time) 1e6))))
-    (setq decklet-db--last-instance-id
-          (max (1+ decklet-db--last-instance-id) now)))
-  decklet-db--last-instance-id)
+    (setq decklet-db--last-card-id
+          (max (1+ decklet-db--last-card-id) now)))
+  decklet-db--last-card-id)
 
 (defun decklet-db--update-word (old-word new-word)
   "Rename OLD-WORD to NEW-WORD in the database, return normalized new word."
@@ -295,7 +298,7 @@ database column name string."
        #'decklet-db--normalize-row
        (sqlite-select conn
                       (concat
-                       "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back, instance_id
+                       "SELECT card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty
                         FROM cards"
                        where
                        (decklet-db--edit-order-sql sort-key)
@@ -315,7 +318,7 @@ database column name string."
            (difficulty (let ((d (plist-get row :difficulty)))
                          (and (numberp d) d))))
       (make-decklet-card-meta
-       :instance-id (plist-get row :instance-id)
+       :card-id (plist-get row :card-id)
        :added-date (plist-get row :added)
        :last-review last-review
        :due (plist-get row :due)
@@ -575,7 +578,7 @@ Return a plist with keys:
                    step-raw
                  (if (eq state :review) nil 0)))
          (meta (make-decklet-card-meta
-                :instance-id (decklet-db--mint-instance-id)
+                :card-id (decklet-db--mint-card-id)
                 :added-date (or (decklet-db--json-alist-get record 'added_date) now)
                 :last-review (decklet-db--json-alist-get record 'last_review)
                 :due (or (decklet-db--json-alist-get record 'due) now)
@@ -704,12 +707,12 @@ file under `decklet-directory'."
   (unwind-protect
       (let* ((rows (sqlite-select
                     (decklet-db--ensure)
-                    "SELECT word, added_date, last_review, due, archived_at, state,
-                        step, stability, difficulty, hint, back
+                    "SELECT word, hint, back, added_date, last_review, due,
+                        archived_at, state, step, stability, difficulty
                  FROM cards
                  ORDER BY added_date ASC, word ASC;"))
-             (fields '(word added_date last_review due archived_at state
-                            step stability difficulty hint back))
+             (fields '(word hint back added_date last_review due
+                            archived_at state step stability difficulty))
              (payload (mapcar (lambda (row)
                                 (cl-mapcar #'cons fields row))
                               rows))

@@ -71,7 +71,7 @@ Set to nil to disable relearning steps."
 
 (cl-defstruct (decklet-card-meta)
   ;; Scheduling metadata only.  Content fields (hint, back) live in the DB.
-  (instance-id nil)
+  (card-id nil)
   (added-date (decklet--now))
   (last-review nil)
   (due (decklet--now))
@@ -188,9 +188,9 @@ Simulates one FSRS review without mutating META."
 
 (defun decklet--card-meta->fsrs-card (word meta)
   "Create an FSRS card for WORD from card META."
-  (let ((card-id (abs (sxhash word))))
+  (let ((fsrs-card-id (abs (sxhash word))))
     (fsrs-make-card
-     :card-id card-id
+     :card-id fsrs-card-id
      :state (or (decklet-card-meta-state meta) :learning)
      :step (decklet-card-meta-step meta)
      :stability (decklet-card-meta-stability meta)

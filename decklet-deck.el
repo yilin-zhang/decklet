@@ -201,7 +201,7 @@ when the log write failed — log errors never abort the rating)."
   (let* ((row (decklet--require-card word))
          (old-meta (decklet-db--row->card-meta row))
          (new-meta (decklet--update-card-with-grade word old-meta grade))
-         (card-id (decklet-card-meta-instance-id new-meta))
+         (card-id (decklet-card-meta-card-id new-meta))
          (log-id nil))
     (decklet-db--upsert-card word new-meta)
     (decklet--refresh-counter)
@@ -221,7 +221,7 @@ Fires `decklet-card-renamed-functions' and appends a `rename' record
 to the persistent review log when the rename actually changes the
 stored word."
   (let* ((card-meta (decklet--load-card-meta old-word))
-         (card-id (and card-meta (decklet-card-meta-instance-id card-meta)))
+         (card-id (and card-meta (decklet-card-meta-card-id card-meta)))
          (normalized (decklet-db--update-word old-word new-word)))
     (when (and decklet-current-word (string-equal old-word decklet-current-word))
       (setq decklet-current-word normalized))
@@ -309,9 +309,9 @@ Fires `decklet-card-added-functions' only when a brand-new row is
 created.  Refreshing the added date of an existing new card does not
 fire the hook (the card's existence has not changed).
 
-A brand-new row is also assigned a fresh `instance-id' via
-`decklet-db--mint-instance-id'.  Refreshing an existing new card
-preserves its existing `instance-id'."
+A brand-new row is also assigned a fresh `card-id' via
+`decklet-db--mint-card-id'.  Refreshing an existing new card
+preserves its existing `card-id'."
   (setq word (decklet-db--normalize-word word))
   (let* ((meta (decklet--load-card-meta word))
          (was-absent (null meta))
@@ -324,7 +324,7 @@ preserves its existing `instance-id'."
       (let ((now (decklet--now)))
         (unless meta
           (setq meta (make-decklet-card-meta
-                      :instance-id (decklet-db--mint-instance-id))))
+                      :card-id (decklet-db--mint-card-id))))
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--upsert-card word meta)

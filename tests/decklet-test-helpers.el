@@ -19,7 +19,7 @@ on exit."
           (decklet-db--conn nil)
           (decklet--fsrs-scheduler nil)
           ;; Reset id counters so each test mints from a fresh state.
-          (decklet-db--last-instance-id nil)
+          (decklet-db--last-card-id nil)
           (decklet-review-log--next-record-id nil)
           ;; Use the real production default so config regressions are caught.
           (decklet-review-order (default-value 'decklet-review-order))

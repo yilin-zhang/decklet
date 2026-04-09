@@ -95,9 +95,9 @@ RECORD nil values are serialised as JSON null."
 (defun decklet-review-log-append-rated (word card-id grade old-meta new-meta)
   "Append a rated event to the review log and return the new record id.
 WORD is the card's word at the time of rating.  CARD-ID is its
-stable instance id (`decklet-card-meta-instance-id').  GRADE is the
-rating, 1-4.  OLD-META is the card meta before this rating; NEW-META
-is the meta after FSRS scheduled the rating."
+stable card id (`decklet-card-meta-card-id').  GRADE is the rating,
+1-4.  OLD-META is the card meta before this rating; NEW-META is the
+meta after FSRS scheduled the rating."
   (let* ((now-str (decklet--now))
          (record-id (decklet-review-log--mint-record-id))
          (elapsed-days (decklet--elapsed-days-since
