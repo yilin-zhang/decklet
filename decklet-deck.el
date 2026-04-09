@@ -215,8 +215,8 @@ changes the stored word."
     (when decklet-due-words
       (setq decklet-due-words
             (cl-substitute normalized old-word decklet-due-words :test #'string=)))
-    (when (fboundp 'decklet-review--revlog-rename)
-      (decklet-review--revlog-rename old-word normalized))
+    (when (fboundp 'decklet-review--trail-rename)
+      (decklet-review--trail-rename old-word normalized))
     (unless (string-equal old-word normalized)
       (run-hook-with-args 'decklet-card-renamed-functions old-word normalized))
     normalized))
@@ -243,8 +243,8 @@ Fires `decklet-card-deleted-functions' after the row is removed."
   (decklet-db--delete-card word)
   (when decklet-due-words
     (setq decklet-due-words (delete word decklet-due-words)))
-  (when (fboundp 'decklet-review--revlog-delete)
-    (decklet-review--revlog-delete word))
+  (when (fboundp 'decklet-review--trail-delete)
+    (decklet-review--trail-delete word))
   (decklet--refresh-counter)
   (run-hook-with-args 'decklet-card-deleted-functions word))
 

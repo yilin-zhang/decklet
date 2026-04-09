@@ -228,14 +228,14 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 Scoped to `decklet-review--render-buffer' so both the component and the
 post-render hint-timer decision share the same value.")
 
-(defvar decklet-review--revlog-queue nil
-  "List of revlog entries for the current review session.
+(defvar decklet-review--trail nil
+  "List of trail entries for the current review session.
 Each entry is a plist (:word :grade :pre-meta).")
 
-(defvar decklet-review--revlog-pointer 0
-  "Index into `decklet-review--revlog-queue'.
-Equal to the log length during normal forward review.
-Less than the log length when the user has undone cards.")
+(defvar decklet-review--trail-pointer 0
+  "Index into `decklet-review--trail'.
+Equal to the trail length during normal forward review.
+Less than the trail length when the user has undone cards.")
 
 ;; Bring the definition up because it will be used by other functions down below.
 (defvar decklet-review-mode-map
@@ -437,7 +437,7 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
   (setq decklet-current-word nil)
   (setq decklet-last-added-word nil)
   (setq decklet-due-words nil)
-  (decklet-review--revlog-reset)
+  (decklet-review--trail-reset)
   (decklet-review--reset-ui-state))
 
 (defun decklet-review--refresh-visible (&rest _args)
@@ -576,7 +576,7 @@ Interval labels are included when
 `decklet-review-enable-interval-labels' is non-nil.
 When reviewing an undone card, the previous rating is highlighted."
   (let* ((meta decklet-review--render-meta)
-         (undo-entry (decklet-review--revlog-current-entry))
+         (undo-entry (decklet-review--trail-current-entry))
          (undo-grade (and undo-entry (plist-get undo-entry :grade)))
          (option-lines
           (list
@@ -664,70 +664,70 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 
 ;; Review flow and rating commands
 
-(defun decklet-review--revlog-reset ()
-  "Clear the revlog and pointer."
-  (setq decklet-review--revlog-queue nil)
-  (setq decklet-review--revlog-pointer 0))
+(defun decklet-review--trail-reset ()
+  "Clear the trail and pointer."
+  (setq decklet-review--trail nil)
+  (setq decklet-review--trail-pointer 0))
 
 (defun decklet-review--undo-in-progress-p ()
   "Return non-nil when review is in undo state."
-  (and decklet-review--revlog-queue
-       (< decklet-review--revlog-pointer (length decklet-review--revlog-queue))))
+  (and decklet-review--trail
+       (< decklet-review--trail-pointer (length decklet-review--trail))))
 
-(defun decklet-review--revlog-current-entry ()
-  "Return the revlog entry at the current pointer, or nil."
+(defun decklet-review--trail-current-entry ()
+  "Return the trail entry at the current pointer, or nil."
   (when (decklet-review--undo-in-progress-p)
-    (nth decklet-review--revlog-pointer decklet-review--revlog-queue)))
+    (nth decklet-review--trail-pointer decklet-review--trail)))
 
-(defun decklet-review--revlog-can-retreat-p ()
+(defun decklet-review--trail-can-retreat-p ()
   "Return non-nil when the pointer can move backward."
-  (and decklet-review--revlog-queue
-       (> decklet-review--revlog-pointer 0)))
+  (and decklet-review--trail
+       (> decklet-review--trail-pointer 0)))
 
-(defun decklet-review--revlog-advance-pointer ()
+(defun decklet-review--trail-advance-pointer ()
   "Move the pointer forward by one position."
-  (setq decklet-review--revlog-pointer
-        (1+ decklet-review--revlog-pointer)))
+  (setq decklet-review--trail-pointer
+        (1+ decklet-review--trail-pointer)))
 
-(defun decklet-review--revlog-retreat-pointer ()
+(defun decklet-review--trail-retreat-pointer ()
   "Move the pointer backward by one position."
-  (setq decklet-review--revlog-pointer
-        (1- decklet-review--revlog-pointer)))
+  (setq decklet-review--trail-pointer
+        (1- decklet-review--trail-pointer)))
 
-(defun decklet-review--revlog-append (entry)
-  "Append ENTRY to the revlog."
-  (setq decklet-review--revlog-queue
-        (nconc decklet-review--revlog-queue (list entry)))
-  (setq decklet-review--revlog-pointer (length decklet-review--revlog-queue)))
+(defun decklet-review--trail-append (entry)
+  "Append ENTRY to the trail."
+  (setq decklet-review--trail
+        (nconc decklet-review--trail (list entry)))
+  (setq decklet-review--trail-pointer (length decklet-review--trail)))
 
-(defun decklet-review--revlog-update-entry (grade)
+(defun decklet-review--trail-update-entry (grade)
   "Update the current undone entry with GRADE, then advance."
-  (let ((entry (decklet-review--revlog-current-entry)))
+  (let ((entry (decklet-review--trail-current-entry)))
     (plist-put entry :grade grade)
-    (decklet-review--revlog-advance-pointer)))
+    (decklet-review--trail-advance-pointer)))
 
-(defun decklet-review--revlog-rename (old-word new-word)
-  "Update `:word' entries in the revlog from OLD-WORD to NEW-WORD."
-  (dolist (entry decklet-review--revlog-queue)
+(defun decklet-review--trail-rename (old-word new-word)
+  "Update `:word' entries in the trail from OLD-WORD to NEW-WORD."
+  (dolist (entry decklet-review--trail)
     (when (string-equal (plist-get entry :word) old-word)
       (plist-put entry :word new-word))))
 
-(defun decklet-review--revlog-delete (word)
-  "Remove entries for WORD from the revlog and adjust the pointer."
-  (when decklet-review--revlog-queue
+(defun decklet-review--trail-delete (word)
+  "Remove entries for WORD from the trail and adjust the pointer."
+  (when decklet-review--trail
     (let ((removed-before-pointer 0)
           (i 0))
-      (dolist (entry decklet-review--revlog-queue)
+      (dolist (entry decklet-review--trail)
         (when (and (string-equal (plist-get entry :word) word)
-                   (< i decklet-review--revlog-pointer))
+                   (< i decklet-review--trail-pointer))
           (setq removed-before-pointer (1+ removed-before-pointer)))
         (setq i (1+ i)))
-      (setq decklet-review--revlog-queue
+      (setq decklet-review--trail
             (seq-remove (lambda (e) (string-equal (plist-get e :word) word))
-                        decklet-review--revlog-queue))
-      (setq decklet-review--revlog-pointer
-            (min (- decklet-review--revlog-pointer removed-before-pointer)
-                 (length decklet-review--revlog-queue))))))
+                        decklet-review--trail))
+      (setq decklet-review--trail-pointer
+            (min (- decklet-review--trail-pointer removed-before-pointer)
+                 (length decklet-review--trail))))))
 
 (defun decklet-review--present-card (word)
   "Set WORD as the current card and render the review buffer."
@@ -736,21 +736,21 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   (run-hooks 'decklet-review-next-card-hook)
   (decklet-review--render-buffer))
 
-(defun decklet-review--revlog-skip ()
-  "Log a skip entry for the current word."
+(defun decklet-review--trail-skip ()
+  "Append a skip entry for the current word to the trail."
   (when decklet-current-word
     (let ((meta (decklet--load-card-meta decklet-current-word)))
       (when meta
-        (decklet-review--revlog-append
+        (decklet-review--trail-append
          (list :word decklet-current-word
                :grade nil
                :pre-meta (copy-decklet-card-meta meta)))))))
 
 (defun decklet-review--advance ()
-  "Show the next card from the revlog or the due queue, or quit."
+  "Show the next card from the trail or the due queue, or quit."
   (if (decklet-review--undo-in-progress-p)
       (decklet-review--present-card
-       (plist-get (decklet-review--revlog-current-entry) :word))
+       (plist-get (decklet-review--trail-current-entry) :word))
     (if (or decklet-due-words (decklet--refresh-due-words))
         (decklet-review--present-card (pop decklet-due-words))
       (decklet-review-quit))))
@@ -762,10 +762,10 @@ When current list is empty, re-check for due cards and continue if any exist."
   (interactive)
   (if (decklet-review--undo-in-progress-p)
       (progn
-        (decklet-review--revlog-advance-pointer)
+        (decklet-review--trail-advance-pointer)
         (decklet-review--advance))
-    ;; Normal forward flow: log skip, then pop next card.
-    (decklet-review--revlog-skip)
+    ;; Normal forward flow: record skip on the trail, then pop next card.
+    (decklet-review--trail-skip)
     (decklet-review--advance)))
 
 (defun decklet-review-quit ()
@@ -787,17 +787,17 @@ When current list is empty, re-check for due cards and continue if any exist."
         ;; correct base state, then rate and update the entry.  The
         ;; grade being replaced is forwarded to `decklet-rate-card' so
         ;; rated-hook observers can compensate for the prior event.
-        (let* ((entry (decklet-review--revlog-current-entry))
+        (let* ((entry (decklet-review--trail-current-entry))
                (pre-meta (plist-get entry :pre-meta))
                (prior-grade (plist-get entry :grade)))
           (decklet-db--upsert-card word pre-meta)
           (decklet-rate-card word grade prior-grade)
-          (decklet-review--revlog-update-entry grade))
+          (decklet-review--trail-update-entry grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
       (let ((pre-meta (let ((m (decklet--load-card-meta word)))
                         (when m (copy-decklet-card-meta m)))))
         (decklet-rate-card word grade)
-        (decklet-review--revlog-append
+        (decklet-review--trail-append
          (list :word word :grade grade :pre-meta pre-meta))))
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
@@ -805,7 +805,7 @@ When current list is empty, re-check for due cards and continue if any exist."
     (message "Rated \"%s\" as (%s)" word
              (pcase grade (1 "Again") (2 "Hard") (3 "Good") (4 "Easy") (_ "Unknown")))
     ;; Advance to the next card.  Do not go through `next-card' since
-    ;; that would log a spurious skip for the word we just rated.
+    ;; that would record a spurious skip on the trail for the word we just rated.
     (decklet-review--advance)))
 
 (defun decklet-review-undo ()
@@ -813,17 +813,18 @@ When current list is empty, re-check for due cards and continue if any exist."
 Moves the undo pointer backward.  Does not revert DB state — the
 original rating remains in the database until the user re-rates."
   (interactive)
-  (if (not (decklet-review--revlog-can-retreat-p))
+  (if (not (decklet-review--trail-can-retreat-p))
       (message "Nothing to undo")
     ;; When undoing from normal flow, the current card hasn't been
-    ;; logged yet — push it back to the front of the due queue so it
-    ;; isn't lost.  When already in undo state, the current card is in
-    ;; the log and will be revisited when the pointer advances.
+    ;; appended to the trail yet — push it back to the front of the
+    ;; due queue so it isn't lost.  When already in undo state, the
+    ;; current card is on the trail and will be revisited when the
+    ;; pointer advances.
     (when (and (not (decklet-review--undo-in-progress-p))
                decklet-current-word)
       (push decklet-current-word decklet-due-words))
-    (decklet-review--revlog-retreat-pointer)
-    (let* ((entry (decklet-review--revlog-current-entry))
+    (decklet-review--trail-retreat-pointer)
+    (let* ((entry (decklet-review--trail-current-entry))
            (word (plist-get entry :word)))
       (if (not (decklet-card-exists-p word))
           (progn
@@ -911,7 +912,7 @@ original rating remains in the database until the user re-rates."
   "Start a review session."
   (interactive)
   (run-hooks 'decklet-review-start-hook)
-  (decklet-review--revlog-reset)
+  (decklet-review--trail-reset)
   (decklet--refresh-due-words)
   (if (null decklet-due-words)
       (progn
