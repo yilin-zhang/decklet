@@ -15,6 +15,7 @@
 (require 'decklet-core)
 (require 'decklet-scheduler)
 (require 'decklet-db)
+(require 'decklet-review-log)
 
 (defcustom decklet-add-and-refresh t
   "When non-nil, re-adding an unreviewed word resets its timestamps."
@@ -192,22 +193,36 @@ optional PROMPT, defaulting to the word at point."
 (defun decklet-rate-card (word grade &optional prior-grade)
   "Update the card for WORD with review GRADE (1-4).
 Fires `decklet-card-rated-functions' with
-\(WORD OLD-META GRADE NEW-META PRIOR-GRADE).  PRIOR-GRADE is nil for
-fresh ratings; review mode passes the replaced grade when re-rating
-after undo."
+\(WORD OLD-META GRADE NEW-META PRIOR-GRADE).  PRIOR-GRADE is nil
+for fresh ratings; review mode passes the replaced grade when
+re-rating after undo.  Also appends a `rated' record to the
+persistent review log and returns the new log record id (or nil
+when the log write failed — log errors never abort the rating)."
   (let* ((row (decklet--require-card word))
          (old-meta (decklet-db--row->card-meta row))
-         (new-meta (decklet--update-card-with-grade word old-meta grade)))
+         (new-meta (decklet--update-card-with-grade word old-meta grade))
+         (card-id (decklet-card-meta-instance-id new-meta))
+         (log-id nil))
     (decklet-db--upsert-card word new-meta)
     (decklet--refresh-counter)
+    (condition-case err
+        (setq log-id (decklet-review-log-append-rated
+                      word card-id grade old-meta new-meta))
+      (error
+       (message "Decklet: failed to write review log: %s"
+                (error-message-string err))))
     (run-hook-with-args 'decklet-card-rated-functions
-                        word old-meta grade new-meta prior-grade)))
+                        word old-meta grade new-meta prior-grade)
+    log-id))
 
 (defun decklet-rename-word (old-word new-word)
   "Rename OLD-WORD to NEW-WORD and return the normalized new value.
-Fires `decklet-card-renamed-functions' when the rename actually
-changes the stored word."
-  (let ((normalized (decklet-db--update-word old-word new-word)))
+Fires `decklet-card-renamed-functions' and appends a `rename' record
+to the persistent review log when the rename actually changes the
+stored word."
+  (let* ((card-meta (decklet--load-card-meta old-word))
+         (card-id (and card-meta (decklet-card-meta-instance-id card-meta)))
+         (normalized (decklet-db--update-word old-word new-word)))
     (when (and decklet-current-word (string-equal old-word decklet-current-word))
       (setq decklet-current-word normalized))
     (when (and decklet-last-added-word (string-equal old-word decklet-last-added-word))
@@ -215,9 +230,13 @@ changes the stored word."
     (when decklet-due-words
       (setq decklet-due-words
             (cl-substitute normalized old-word decklet-due-words :test #'string=)))
-    (when (fboundp 'decklet-review--trail-rename)
-      (decklet-review--trail-rename old-word normalized))
     (unless (string-equal old-word normalized)
+      (when card-id
+        (condition-case err
+            (decklet-review-log-append-rename card-id old-word normalized)
+          (error
+           (message "Decklet: failed to write rename to review log: %s"
+                    (error-message-string err)))))
       (run-hook-with-args 'decklet-card-renamed-functions old-word normalized))
     normalized))
 
@@ -243,8 +262,6 @@ Fires `decklet-card-deleted-functions' after the row is removed."
   (decklet-db--delete-card word)
   (when decklet-due-words
     (setq decklet-due-words (delete word decklet-due-words)))
-  (when (fboundp 'decklet-review--trail-delete)
-    (decklet-review--trail-delete word))
   (decklet--refresh-counter)
   (run-hook-with-args 'decklet-card-deleted-functions word))
 
@@ -290,7 +307,11 @@ Return the updated word."
   "Add WORD as a new card and return a status message.
 Fires `decklet-card-added-functions' only when a brand-new row is
 created.  Refreshing the added date of an existing new card does not
-fire the hook (the card's existence has not changed)."
+fire the hook (the card's existence has not changed).
+
+A brand-new row is also assigned a fresh `instance-id' via
+`decklet-db--mint-instance-id'.  Refreshing an existing new card
+preserves its existing `instance-id'."
   (setq word (decklet-db--normalize-word word))
   (let* ((meta (decklet--load-card-meta word))
          (was-absent (null meta))
@@ -302,7 +323,8 @@ fire the hook (the card's existence has not changed)."
         (format "Word \"%s\" already exists in the deck. " word)
       (let ((now (decklet--now)))
         (unless meta
-          (setq meta (make-decklet-card-meta)))
+          (setq meta (make-decklet-card-meta
+                      :instance-id (decklet-db--mint-instance-id))))
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--upsert-card word meta)

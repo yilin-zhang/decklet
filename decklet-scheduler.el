@@ -71,6 +71,7 @@ Set to nil to disable relearning steps."
 
 (cl-defstruct (decklet-card-meta)
   ;; Scheduling metadata only.  Content fields (hint, back) live in the DB.
+  (instance-id nil)
   (added-date (decklet--now))
   (last-review nil)
   (due (decklet--now))
@@ -163,6 +164,16 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
   "Return TIME formatted as an FSRS timestamp string."
   (fsrs-now time))
 
+(defun decklet--elapsed-days-since (last-review &optional now)
+  "Return the number of days elapsed between LAST-REVIEW and NOW.
+Both arguments are FSRS timestamp strings; NOW defaults to the
+current time via `decklet--now'.  Returns 0.0 when LAST-REVIEW is
+nil or empty (i.e. the card has never been reviewed)."
+  (if (or (null last-review) (string-empty-p last-review))
+      0.0
+    (/ (fsrs-timestamp-difference (or now (decklet--now)) last-review)
+       86400.0)))
+
 (defun decklet--simulate-review-interval (word meta grade)
   "Return predicted interval in seconds for GRADE on WORD with META.
 Simulates one FSRS review without mutating META."
@@ -198,7 +209,9 @@ Simulates one FSRS review without mutating META."
   meta)
 
 (defun decklet--update-card-with-grade (word meta grade)
-  "Update card META for WORD based on GRADE rating (1-4)."
+  "Return a new card meta for WORD with GRADE applied via FSRS.
+Does not mutate META; the returned value is a fresh copy with the
+scheduling fields updated."
   (let* ((scheduler (decklet--get-fsrs-scheduler))
          (rating (decklet--fsrs-rating-from-grade grade))
          (review-time (decklet--now))
@@ -206,8 +219,7 @@ Simulates one FSRS review without mutating META."
          (new-card (cl-nth-value 0
                                  (fsrs-scheduler-review-card
                                   scheduler card rating review-time))))
-    (decklet--apply-fsrs-card meta new-card))
-  meta)
+    (decklet--apply-fsrs-card (copy-decklet-card-meta meta) new-card)))
 
 (provide 'decklet-scheduler)
 ;;; decklet-scheduler.el ends here

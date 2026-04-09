@@ -46,6 +46,7 @@ emacs --batch \
   decklet-core.el \
   decklet-scheduler.el \
   decklet-db.el \
+  decklet-review-log.el \
   decklet-deck.el \
   decklet-edit.el \
   decklet-review.el \

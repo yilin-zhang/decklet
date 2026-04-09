@@ -15,6 +15,7 @@
 (require 'decklet-core)
 (require 'decklet-db)
 (require 'decklet-deck)
+(require 'decklet-review-log)
 
 (defgroup decklet-review nil
   "Review mode for Decklet."
@@ -267,24 +268,16 @@ Less than the trail length when the user has undone cards.")
 
 (defun decklet--string-pixel-size (text)
   "Return the pixel (WIDTH . HEIGHT) of TEXT in the current buffer context."
-  (let ((fallback-height (* (length (split-string text "\n" t))
-                            (frame-char-height))))
-    (if (fboundp 'buffer-text-pixel-size)
-        (let ((remap face-remapping-alist)
-              (buffer-face (and (boundp 'buffer-face-mode-face)
-                                buffer-face-mode-face)))
-          (with-temp-buffer
-            (let ((face-remapping-alist remap)
-                  (inhibit-modification-hooks t))
-              (when (boundp 'buffer-face-mode-face)
-                (setq buffer-face-mode-face buffer-face))
-              (insert text)
-              (let ((size (buffer-text-pixel-size (current-buffer))))
-                (cond
-                 ((consp size) size)
-                 ((numberp size) (cons size fallback-height))
-                 (t (cons (string-pixel-width text) fallback-height)))))))
-      (cons (string-pixel-width text) fallback-height))))
+  (let ((remap face-remapping-alist)
+        (buffer-face (and (boundp 'buffer-face-mode-face)
+                          buffer-face-mode-face)))
+    (with-temp-buffer
+      (let ((face-remapping-alist remap)
+            (inhibit-modification-hooks t))
+        (when (boundp 'buffer-face-mode-face)
+          (setq buffer-face-mode-face buffer-face))
+        (insert text)
+        (buffer-text-pixel-size (current-buffer))))))
 
 (defun decklet--center-padding (lines)
   "Return a padding string to center LINES as a block in the window.
@@ -784,21 +777,30 @@ When current list is empty, re-check for due cards and continue if any exist."
         (goal-was-reached (decklet-review--daily-goal-reached-p)))
     (if (decklet-review--undo-in-progress-p)
         ;; Re-rate: restore pre-meta so FSRS computes from the
-        ;; correct base state, then rate and update the entry.  The
-        ;; grade being replaced is forwarded to `decklet-rate-card' so
-        ;; rated-hook observers can compensate for the prior event.
+        ;; correct base state, then rate and update the entry.  Also
+        ;; void the prior review-log entry so the log cleanly reflects
+        ;; the user's final intent rather than both the typo and the
+        ;; correction.
         (let* ((entry (decklet-review--trail-current-entry))
                (pre-meta (plist-get entry :pre-meta))
-               (prior-grade (plist-get entry :grade)))
+               (prior-grade (plist-get entry :grade))
+               (prior-log-id (plist-get entry :log-id)))
           (decklet-db--upsert-card word pre-meta)
-          (decklet-rate-card word grade prior-grade)
+          (when prior-log-id
+            (condition-case err
+                (decklet-review-log-append-void prior-log-id)
+              (error
+               (message "Decklet: failed to void prior review log entry: %s"
+                        (error-message-string err)))))
+          (let ((new-log-id (decklet-rate-card word grade prior-grade)))
+            (plist-put entry :log-id new-log-id))
           (decklet-review--trail-update-entry grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
-      (let ((pre-meta (let ((m (decklet--load-card-meta word)))
-                        (when m (copy-decklet-card-meta m)))))
-        (decklet-rate-card word grade)
+      (let* ((pre-meta (let ((m (decklet--load-card-meta word)))
+                         (when m (copy-decklet-card-meta m))))
+             (new-log-id (decklet-rate-card word grade)))
         (decklet-review--trail-append
-         (list :word word :grade grade :pre-meta pre-meta))))
+         (list :word word :grade grade :pre-meta pre-meta :log-id new-log-id))))
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
       (run-hooks 'decklet-review-daily-goal-reached-hook))
@@ -939,6 +941,17 @@ original rating remains in the database until the user re-rates."
 
 (add-hook 'decklet-card-field-updated-functions
           #'decklet-review--on-field-updated)
+
+(defun decklet-review--on-card-renamed (old-word new-word)
+  "Propagate a card rename into the session trail."
+  (decklet-review--trail-rename old-word new-word))
+
+(defun decklet-review--on-card-deleted (word)
+  "Remove WORD from the session trail after a card deletion."
+  (decklet-review--trail-delete word))
+
+(add-hook 'decklet-card-renamed-functions #'decklet-review--on-card-renamed)
+(add-hook 'decklet-card-deleted-functions #'decklet-review--on-card-deleted)
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

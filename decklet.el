@@ -34,6 +34,7 @@
 (require 'decklet-core)
 (require 'decklet-scheduler)
 (require 'decklet-db)
+(require 'decklet-review-log)
 (require 'decklet-deck)
 (require 'decklet-edit)
 (require 'decklet-review)

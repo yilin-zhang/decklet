@@ -9,6 +9,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'parse-time)
 (require 'seq)
 (require 'tabulated-list)
 
@@ -162,9 +163,7 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
 (defun decklet--parse-iso-date (date-string)
   "Parse DATE-STRING as ISO 8601 date to internal time format."
   (when date-string
-    (if (fboundp 'parse-iso8601-time-string)
-        (parse-iso8601-time-string date-string)
-      (encode-time (parse-time-string date-string)))))
+    (parse-iso8601-time-string date-string)))
 
 (defun decklet-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."

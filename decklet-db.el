@@ -30,10 +30,22 @@
 (defvar decklet-db--conn nil
   "SQLite connection for Decklet.")
 
+(defvar decklet-db--last-instance-id nil
+  "In-memory monotonic counter for `cards.instance_id' values.
+Seeded lazily from the current `MAX(instance_id)' on first call,
+then incremented monotonically with each mint.  Reset to nil each
+Emacs session so the seed is recomputed from the DB on startup.")
+
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
 Use this to clean up any resources that depend on an open DB connection,
 such as card-back popup buffers.")
+
+(defvar decklet-db-post-backup-functions nil
+  "Abnormal hook called after a successful database backup.
+Each function is called with two arguments: BACKUP-DIR and TIMESTAMP.
+Intended for modules that want to back up auxiliary files (e.g. the
+review log JSONL) alongside the DB snapshot.")
 
 (defconst decklet-db--numeric-sort-columns '("stability" "difficulty")
   "DB columns that use numeric COALESCE for sorting.")
@@ -56,9 +68,9 @@ such as card-back popup buffers.")
 (defun decklet-db--normalize-row (row)
   "Normalize ROW into a card plist with named keys.
 Return a plist with keys :word, :added, :last-review, :due, :state,
-:step, :stability, :difficulty, :hint, and :back."
+:step, :stability, :difficulty, :hint, :back, and :instance-id."
   (when row
-    (pcase-let ((`(,word ,added ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back) row))
+    (pcase-let ((`(,word ,added ,last-review ,due ,state ,step ,stability ,difficulty ,hint ,back ,instance-id) row))
       (list :word (decklet-db--normalize-word word)
             :added added
             :last-review last-review
@@ -68,7 +80,8 @@ Return a plist with keys :word, :added, :last-review, :due, :state,
             :stability stability
             :difficulty difficulty
             :hint (decklet-db--normalize-optional-text hint)
-            :back (decklet-db--normalize-optional-text back)))))
+            :back (decklet-db--normalize-optional-text back)
+            :instance-id instance-id))))
 
 (defun decklet-db--ensure-db-dir ()
   "Ensure the database directory exists."
@@ -85,18 +98,23 @@ Return a plist with keys :word, :added, :last-review, :due, :state,
     (sqlite-execute decklet-db--conn "PRAGMA foreign_keys = ON;")
     (sqlite-execute decklet-db--conn
                     "CREATE TABLE IF NOT EXISTS cards (
-                       word TEXT PRIMARY KEY,
-                       added_date TEXT NOT NULL,
+                       instance_id INTEGER PRIMARY KEY,
+                       word        TEXT    UNIQUE NOT NULL,
+                       hint        TEXT,
+                       back        TEXT,
+                       added_date  TEXT    NOT NULL,
                        last_review TEXT,
-                       due TEXT NOT NULL,
+                       due         TEXT    NOT NULL,
                        archived_at TEXT,
-                       state TEXT NOT NULL,
-                       step INTEGER,
-                       stability REAL,
-                       difficulty REAL,
-                       hint TEXT,
-                       back TEXT
+                       state       TEXT    NOT NULL,
+                       step        INTEGER,
+                       stability   REAL,
+                       difficulty  REAL
                      );")
+    ;; `instance_id INTEGER PRIMARY KEY' aliases to rowid, so no
+    ;; separate unique index is needed on it — the rowid B-tree IS
+    ;; the primary key index.  The implicit index on `word' is
+    ;; created automatically from `UNIQUE NOT NULL'.
     (sqlite-execute decklet-db--conn
                     "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
   decklet-db--conn)
@@ -128,20 +146,22 @@ Return a plist with keys :word, :added, :last-review, :due, :state,
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
      (car (sqlite-select conn
-                         "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back
+                         "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back, instance_id
                           FROM cards WHERE word = ?;"
                          (list word))))))
 
 (defun decklet-db--upsert-card (word card-meta)
   "Insert or update WORD with CARD-META in the database.
 Only scheduling fields are written; content fields (hint, back) are
-left unchanged on conflict."
+left unchanged on conflict.  `instance_id' is inserted for new rows
+but intentionally excluded from the ON CONFLICT UPDATE clause, so
+a card's stable identity is preserved across rating updates."
   (let* ((word (decklet-db--normalize-word word))
          (conn (decklet-db--ensure)))
     (sqlite-execute
      conn
-     "INSERT INTO cards (word, added_date, last_review, due, state, step, stability, difficulty)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     "INSERT INTO cards (word, added_date, last_review, due, state, step, stability, difficulty, instance_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(word) DO UPDATE SET
         added_date = excluded.added_date,
         last_review = excluded.last_review,
@@ -157,7 +177,8 @@ left unchanged on conflict."
            (decklet--fsrs-state-string (decklet-card-meta-state card-meta))
            (decklet-card-meta-step card-meta)
            (decklet-card-meta-stability card-meta)
-           (decklet-card-meta-difficulty card-meta)))))
+           (decklet-card-meta-difficulty card-meta)
+           (decklet-card-meta-instance-id card-meta)))))
 
 (defun decklet-db--update-hint (word hint)
   "Update WORD's hint with HINT in the database, return normalized hint."
@@ -208,6 +229,25 @@ left unchanged on conflict."
     (sqlite-execute conn "UPDATE cards SET archived_at = NULL WHERE word = ?;"
                     (list word))))
 
+(defun decklet-db--max-instance-id ()
+  "Return the current `MAX(instance_id)' in the cards table, or 0."
+  (or (caar (sqlite-select (decklet-db--ensure)
+                           "SELECT COALESCE(MAX(instance_id), 0) FROM cards;"))
+      0))
+
+(defun decklet-db--mint-instance-id ()
+  "Return a fresh unique card instance id.
+First call after Emacs start seeds from `MAX(instance_id)' in the DB,
+then each call returns `(max (1+ previous) (current-microsecond))' so
+ids are strictly monotonic and never collide — even under batch
+imports where two mint calls can land in the same microsecond."
+  (unless decklet-db--last-instance-id
+    (setq decklet-db--last-instance-id (decklet-db--max-instance-id)))
+  (let ((now (truncate (* (float-time) 1e6))))
+    (setq decklet-db--last-instance-id
+          (max (1+ decklet-db--last-instance-id) now)))
+  decklet-db--last-instance-id)
+
 (defun decklet-db--update-word (old-word new-word)
   "Rename OLD-WORD to NEW-WORD in the database, return normalized new word."
   (let ((conn (decklet-db--ensure))
@@ -255,7 +295,7 @@ database column name string."
        #'decklet-db--normalize-row
        (sqlite-select conn
                       (concat
-                       "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back
+                       "SELECT word, added_date, last_review, due, state, step, stability, difficulty, hint, back, instance_id
                         FROM cards"
                        where
                        (decklet-db--edit-order-sql sort-key)
@@ -266,21 +306,19 @@ database column name string."
   "Convert card plist ROW into a `decklet-card-meta' instance."
   (when row
     (let* ((last-review (plist-get row :last-review))
-           (state (decklet--normalize-fsrs-state (plist-get row :state)))
-           (added-date (or (plist-get row :added) (decklet--now)))
-           (due (or (plist-get row :due) (decklet--now)))
            (is-new (decklet-last-review-empty-p last-review))
-           (state (or state (if is-new :learning :review)))
+           (state (decklet--normalize-fsrs-state (plist-get row :state)))
            (step (let ((s (plist-get row :step)))
                    (if is-new (or s 0) s)))
            (stability (let ((s (plist-get row :stability)))
-                        (and (numberp s) (> s 0) s)))
+                        (and (numberp s) s)))
            (difficulty (let ((d (plist-get row :difficulty)))
-                         (and (numberp d) (> d 0) d))))
+                         (and (numberp d) d))))
       (make-decklet-card-meta
-       :added-date added-date
+       :instance-id (plist-get row :instance-id)
+       :added-date (plist-get row :added)
        :last-review last-review
-       :due due
+       :due (plist-get row :due)
        :state state
        :step step
        :stability stability
@@ -537,6 +575,7 @@ Return a plist with keys:
                    step-raw
                  (if (eq state :review) nil 0)))
          (meta (make-decklet-card-meta
+                :instance-id (decklet-db--mint-instance-id)
                 :added-date (or (decklet-db--json-alist-get record 'added_date) now)
                 :last-review (decklet-db--json-alist-get record 'last_review)
                 :due (or (decklet-db--json-alist-get record 'due) now)
@@ -746,34 +785,36 @@ When non-nil, it is called with no arguments inside
   :type 'function
   :group 'decklet-db)
 
-(defun decklet-db--backup-file-pattern (base)
-  "Return a regexp matching backup files for BASE, including collision suffixes."
-  (format "\\`%s-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\(-[0-9]+\\)?\\.sqlite\\'"
-          (regexp-quote base)))
+(defun decklet-db--backup-file-pattern (base ext)
+  "Return a regexp matching timestamped backup files for BASE.EXT.
+Includes an optional collision suffix (e.g. `-1', `-2')."
+  (format "\\`%s-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\(-[0-9]+\\)?\\.%s\\'"
+          (regexp-quote base) (regexp-quote ext)))
 
-(defun decklet-db--backup-target (backup-dir base timestamp)
-  "Return a unique backup filename in BACKUP-DIR using BASE and TIMESTAMP."
+(defun decklet-db--backup-target (backup-dir base ext timestamp)
+  "Return a unique backup filename in BACKUP-DIR using BASE, EXT, TIMESTAMP."
   (let ((suffix 0))
     (cl-loop for candidate = (expand-file-name
-                              (format "%s-%s%s.sqlite"
+                              (format "%s-%s%s.%s"
                                       base
                                       timestamp
-                                      (if (zerop suffix) "" (format "-%d" suffix)))
+                                      (if (zerop suffix) "" (format "-%d" suffix))
+                                      ext)
                               backup-dir)
              while (file-exists-p candidate)
              do (cl-incf suffix)
              finally return candidate)))
 
-(defun decklet-db--backup-prune (backup-dir base)
-  "Prune old backups in BACKUP-DIR for BASE when thresholds are met."
+(defun decklet-db--backup-prune (backup-dir base ext)
+  "Prune old backup files in BACKUP-DIR matching BASE.EXT when thresholds are met."
   ;; Only proceed if config values are valid.
   ;; This keeps us from pruning on misconfigured or zero-ish values.
   (when (and (integerp decklet-backup-retain-days)
              (> decklet-backup-retain-days 0)
              (integerp decklet-backup-prune-min-count)
              (> decklet-backup-prune-min-count 0))
-    ;; Find all backup files for the current DB base name.
-    (let* ((pattern (decklet-db--backup-file-pattern base))
+    ;; Find all backup files for the current BASE.EXT.
+    (let* ((pattern (decklet-db--backup-file-pattern base ext))
            (files (directory-files backup-dir t pattern))
            (count (length files))
            (max-exceeded (and (integerp decklet-backup-prune-max-count)
@@ -814,14 +855,31 @@ When non-nil, it is called with no arguments inside
                           (error-message-string err)))))))))))
 
 (defun decklet-db--backup ()
-  "Create a database backup and prune old backups."
+  "Create a database backup, fire the post-backup hook, and prune old backups."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
          (timestamp (decklet-db--timestamp-utc))
-         (backup-file (decklet-db--backup-target backup-dir base timestamp)))
+         (backup-file (decklet-db--backup-target backup-dir base "sqlite" timestamp)))
     (make-directory backup-dir t)
     (copy-file decklet-db-file backup-file t t t)
-    (decklet-db--backup-prune backup-dir base)))
+    (decklet-db--backup-prune backup-dir base "sqlite")
+    (run-hook-with-args 'decklet-db-post-backup-functions backup-dir timestamp)))
+
+(defun decklet-db-backup-auxiliary-file (source-file backup-dir timestamp)
+  "Copy SOURCE-FILE to BACKUP-DIR as a timestamped backup and prune old copies.
+Uses the same retention policy as the main DB backup.  The backup
+name is derived from SOURCE-FILE's base name and extension plus
+TIMESTAMP.  No-op when SOURCE-FILE does not exist.
+
+Intended for modules that maintain files alongside the DB and want
+their backups to ride in the same rotation; register a handler on
+`decklet-db-post-backup-functions' and call this from it."
+  (when (file-exists-p source-file)
+    (let* ((base (file-name-base source-file))
+           (ext (file-name-extension source-file))
+           (target (decklet-db--backup-target backup-dir base ext timestamp)))
+      (copy-file source-file target t t t)
+      (decklet-db--backup-prune backup-dir base ext))))
 
 (defun decklet-db--backup-timestamp (file)
   "Return the backup timestamp for FILE, or nil if unavailable."
@@ -837,7 +895,7 @@ When non-nil, it is called with no arguments inside
   "Return backup files sorted by newest timestamp first."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
-         (pattern (decklet-db--backup-file-pattern base))
+         (pattern (decklet-db--backup-file-pattern base "sqlite"))
          (files (when (file-directory-p backup-dir)
                   (directory-files backup-dir t pattern))))
     (sort (or files '())
@@ -913,12 +971,9 @@ When non-nil, it is called with no arguments inside
 
 ;;;###autoload
 (defun decklet-open-db-file ()
-  "Open the SQLite database file.
-Prefer `sqlite-mode-open-file' when available."
+  "Open the SQLite database file in `sqlite-mode'."
   (interactive)
-  (if (fboundp 'sqlite-mode-open-file)
-      (sqlite-mode-open-file decklet-db-file)
-    (find-file decklet-db-file)))
+  (sqlite-mode-open-file decklet-db-file))
 
 (provide 'decklet-db)
 ;;; decklet-db.el ends here
