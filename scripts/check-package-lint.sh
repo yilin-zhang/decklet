@@ -49,6 +49,6 @@ emacs --batch \
   decklet-deck.el \
   decklet-edit.el \
   decklet-review.el \
-  decklet-dictionary.el \
+  decklet-lookup.el \
   decklet-calendar.el \
   decklet-import.el

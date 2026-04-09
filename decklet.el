@@ -37,7 +37,7 @@
 (require 'decklet-deck)
 (require 'decklet-edit)
 (require 'decklet-review)
-(require 'decklet-dictionary)
+(require 'decklet-lookup)
 (require 'decklet-calendar)
 (require 'decklet-import)
 

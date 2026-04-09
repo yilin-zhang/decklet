@@ -618,7 +618,8 @@ Return a plist with :added, :overwritten, and :skipped."
                                          :add)))
                            (list word meta archived-at hint back action))))
                      records))
-           (added 0) (overwritten 0) (skipped 0))
+           (added 0) (overwritten 0) (skipped 0)
+           (added-words nil))
       ;; Write all cards in a single transaction.
       (let ((conn (decklet-db--ensure)))
         (sqlite-execute conn "BEGIN;")
@@ -629,6 +630,7 @@ Return a plist with :added, :overwritten, and :skipped."
                   (pcase action
                     (:add
                      (decklet-db--apply-import-card word meta archived-at hint back nil)
+                     (push word added-words)
                      (cl-incf added))
                     (:skip
                      (cl-incf skipped))
@@ -641,6 +643,10 @@ Return a plist with :added, :overwritten, and :skipped."
           (error
            (sqlite-execute conn "ROLLBACK;")
            (signal (car err) (cdr err)))))
+      ;; Fire lifecycle events after the transaction commits so
+      ;; sidecar extensions only see successful imports.
+      (dolist (word (nreverse added-words))
+        (run-hook-with-args 'decklet-card-added-functions word))
       (list :added added :overwritten overwritten :skipped skipped))))
 
 ;;;###autoload

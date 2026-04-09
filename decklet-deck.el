@@ -135,54 +135,135 @@ a minibuffer prompt is needed."
   (when decklet-current-word
     (decklet--require-card-hint decklet-current-word)))
 
-(defun decklet-rate-card (word grade)
-  "Update the card for WORD with review GRADE (1-4)."
+;; Public API — card accessors
+;;
+;; These are the stable entry points extensions should use instead of
+;; reaching into `decklet-db--' internals.  They are thin wrappers over
+;; the DB layer and the internal helpers above.
+
+(defun decklet-card-exists-p (word)
+  "Return non-nil when WORD has a card in the deck."
+  (and (decklet-db--select-card word) t))
+
+(defun decklet-get-card (word)
+  "Return card data for WORD as a plist, or nil if not found.
+The plist has keys `:word', `:hint', `:back', and `:meta'."
+  (let ((row (decklet-db--select-card word)))
+    (when row
+      (list :word (plist-get row :word)
+            :hint (plist-get row :hint)
+            :back (plist-get row :back)
+            :meta (decklet-db--row->card-meta row)))))
+
+(defun decklet-get-card-hint (word)
+  "Return the hint string for WORD, or nil when absent."
+  (decklet-db--select-card-hint word))
+
+(defun decklet-get-card-back (word)
+  "Return the card back content for WORD, or nil when absent."
+  (decklet-db--select-card-back word))
+
+(defun decklet-get-card-meta (word)
+  "Return the `decklet-card-meta' struct for WORD, or nil when absent."
+  (decklet--load-card-meta word))
+
+(defun decklet-list-words (&optional filter)
+  "Return all words in the deck as a list, optionally filtered.
+FILTER is one of the symbols `all' (default), `review', `learning',
+or `archived'."
+  (mapcar (lambda (row) (plist-get row :word))
+          (decklet-db--select-cards (or filter 'all))))
+
+(defun decklet-prompt-word (&optional prompt)
+  "Resolve a word from the current context or prompt for one.
+If a region is active, its trimmed text is returned.  In review mode,
+the current review word is used.  In edit mode, the word on the
+current line is used.  Otherwise the minibuffer is read with an
+optional PROMPT, defaulting to the word at point."
+  (decklet--resolve-word nil prompt))
+
+;; Public API — card mutations
+;;
+;; Each mutation broadcasts a lifecycle event so extensions can stay
+;; in sync without scanning state.  UI refresh for field updates is
+;; handled by core subscribers registered in `decklet-review.el' and
+;; `decklet-edit.el'.
+
+(defun decklet-rate-card (word grade &optional prior-grade)
+  "Update the card for WORD with review GRADE (1-4).
+Fires `decklet-card-rated-functions' with
+\(WORD OLD-META GRADE NEW-META PRIOR-GRADE).  PRIOR-GRADE is nil for
+fresh ratings; review mode passes the replaced grade when re-rating
+after undo."
   (let* ((row (decklet--require-card word))
-         (meta (decklet-db--row->card-meta row))
-         (updated (decklet--update-card-with-grade word meta grade)))
-    (decklet-db--upsert-card word updated)
-    (decklet--refresh-counter)))
+         (old-meta (decklet-db--row->card-meta row))
+         (new-meta (decklet--update-card-with-grade word old-meta grade)))
+    (decklet-db--upsert-card word new-meta)
+    (decklet--refresh-counter)
+    (run-hook-with-args 'decklet-card-rated-functions
+                        word old-meta grade new-meta prior-grade)))
 
 (defun decklet-rename-word (old-word new-word)
-  "Rename OLD-WORD to NEW-WORD and return the normalized new value."
-  (let ((new-word (decklet-db--update-word old-word new-word)))
+  "Rename OLD-WORD to NEW-WORD and return the normalized new value.
+Fires `decklet-card-renamed-functions' when the rename actually
+changes the stored word."
+  (let ((normalized (decklet-db--update-word old-word new-word)))
     (when (and decklet-current-word (string-equal old-word decklet-current-word))
-      (setq decklet-current-word new-word))
+      (setq decklet-current-word normalized))
     (when (and decklet-last-added-word (string-equal old-word decklet-last-added-word))
-      (setq decklet-last-added-word new-word))
+      (setq decklet-last-added-word normalized))
     (when decklet-due-words
       (setq decklet-due-words
-            (cl-substitute new-word old-word decklet-due-words :test #'string=)))
+            (cl-substitute normalized old-word decklet-due-words :test #'string=)))
     (when (fboundp 'decklet-review--revlog-rename)
-      (decklet-review--revlog-rename old-word new-word))
-    new-word))
+      (decklet-review--revlog-rename old-word normalized))
+    (unless (string-equal old-word normalized)
+      (run-hook-with-args 'decklet-card-renamed-functions old-word normalized))
+    normalized))
 
-(defun decklet-update-card-hint (word hint)
-  "Update the card for WORD with HINT."
+(defun decklet-set-card-hint (word hint)
+  "Update WORD's card hint to HINT.
+Signals a user error if WORD does not exist.
+Fires `decklet-card-field-updated-functions' with (WORD `hint')."
   (decklet--require-card word)
-  (decklet-db--update-hint word hint))
+  (decklet-db--update-hint word hint)
+  (run-hook-with-args 'decklet-card-field-updated-functions word 'hint))
+
+(defun decklet-set-card-back (word content)
+  "Update WORD's card back to CONTENT.
+Signals a user error if WORD does not exist.
+Fires `decklet-card-field-updated-functions' with (WORD `back')."
+  (decklet--require-card word)
+  (decklet-db--update-back word content)
+  (run-hook-with-args 'decklet-card-field-updated-functions word 'back))
 
 (defun decklet-delete-card (word)
-  "Delete the card for WORD from the deck."
+  "Delete the card for WORD from the deck.
+Fires `decklet-card-deleted-functions' after the row is removed."
   (decklet-db--delete-card word)
   (when decklet-due-words
     (setq decklet-due-words (delete word decklet-due-words)))
   (when (fboundp 'decklet-review--revlog-delete)
     (decklet-review--revlog-delete word))
-  (decklet--refresh-counter))
+  (decklet--refresh-counter)
+  (run-hook-with-args 'decklet-card-deleted-functions word))
 
 (defun decklet-archive-card (word)
-  "Archive the card for WORD without deleting it."
+  "Archive the card for WORD without deleting it.
+Fires `decklet-card-archived-functions'."
   (decklet-db--archive-card word (decklet--now))
   (when decklet-due-words
     (setq decklet-due-words (delete word decklet-due-words)))
-  (decklet--refresh-counter))
+  (decklet--refresh-counter)
+  (run-hook-with-args 'decklet-card-archived-functions word))
 
 (defun decklet-unarchive-card (word)
-  "Unarchive the card for WORD and return it to the active deck."
+  "Unarchive the card for WORD and return it to the active deck.
+Fires `decklet-card-unarchived-functions'."
   (decklet-db--unarchive-card word)
   ;; No need to refresh `decklet-due-words' here
-  (decklet--refresh-counter))
+  (decklet--refresh-counter)
+  (run-hook-with-args 'decklet-card-unarchived-functions word))
 
 (defun decklet-prompt-edit-card-fields (word &optional edit-word edit-hint)
   "Edit WORD fields based on EDIT-WORD and EDIT-HINT flags.
@@ -197,7 +278,7 @@ Return the updated word."
     (when edit-hint
       (let ((new-hint (read-string (format "Hint (%s): " word) (or hint ""))))
         (unless (string-equal new-hint (or hint ""))
-          (decklet-update-card-hint word new-hint))))
+          (decklet-set-card-hint word new-hint))))
     word))
 
 (defun decklet--add-hint-precheck ()
@@ -206,9 +287,13 @@ Return the updated word."
       (user-error "No word to add a hint to")))
 
 (defun decklet--add-card (word)
-  "Add WORD as a new card and return a status message."
+  "Add WORD as a new card and return a status message.
+Fires `decklet-card-added-functions' only when a brand-new row is
+created.  Refreshing the added date of an existing new card does not
+fire the hook (the card's existence has not changed)."
   (setq word (decklet-db--normalize-word word))
   (let* ((meta (decklet--load-card-meta word))
+         (was-absent (null meta))
          (is-new (and meta (decklet-card-meta-is-new meta))))
     (setq decklet-last-added-word word)
     (if (and meta
@@ -222,6 +307,8 @@ Return the updated word."
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--upsert-card word meta)
         ;; No need to refresh `decklet-due-words' here
+        (when was-absent
+          (run-hook-with-args 'decklet-card-added-functions word))
         (if is-new
             (format "Refreshed the added date of existing new word \"%s\". " word)
           (format "Added \"%s\" to the deck. " word))))))
@@ -260,7 +347,7 @@ After adding a card, prompts if you want to add another."
                    (decklet--require-card-hint target))
       target)))
   (let ((target (or target (decklet--add-hint-precheck))))
-    (decklet-update-card-hint target hint)
+    (decklet-set-card-hint target hint)
     (format "Updated the hint of \"%s\". " target)))
 
 (defun decklet--batch-collect-words ()
@@ -317,7 +404,7 @@ for the most recent word.  Hint lines are joined with newlines."
                   (hint (plist-get card :hint)))
               (decklet-add-card word)
               (when hint
-                (decklet-update-card-hint word hint))))
+                (decklet-set-card-hint word hint))))
           (sqlite-execute conn "COMMIT;"))
       (error
        (sqlite-execute conn "ROLLBACK;")
@@ -398,7 +485,7 @@ It is called with no arguments.")
     (unless word
       (user-error "No word associated with this buffer"))
     (let ((content (buffer-substring-no-properties (point-min) (point-max))))
-      (decklet-db--update-back word content)
+      (decklet-set-card-back word content)
       (quit-window t)
       (when (functionp callback)
         (funcall callback)))))
@@ -431,7 +518,7 @@ It is called with no arguments.")
   "Open the card back popup buffer for WORD.
 When READ-ONLY-P is non-nil the buffer is read-only; otherwise it is editable.
 CALLBACK, when provided, is called with no arguments after a successful save."
-  (let* ((back (decklet-db--select-card-back word))
+  (let* ((back (decklet-get-card-back word))
          (buf-name (decklet-card-back--buffer-name word))
          (buffer (get-buffer-create buf-name)))
     (with-current-buffer buffer

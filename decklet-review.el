@@ -784,11 +784,14 @@ When current list is empty, re-check for due cards and continue if any exist."
         (goal-was-reached (decklet-review--daily-goal-reached-p)))
     (if (decklet-review--undo-in-progress-p)
         ;; Re-rate: restore pre-meta so FSRS computes from the
-        ;; correct base state, then rate and update the entry.
-        (let ((pre-meta (plist-get (decklet-review--revlog-current-entry)
-                                   :pre-meta)))
+        ;; correct base state, then rate and update the entry.  The
+        ;; grade being replaced is forwarded to `decklet-rate-card' so
+        ;; rated-hook observers can compensate for the prior event.
+        (let* ((entry (decklet-review--revlog-current-entry))
+               (pre-meta (plist-get entry :pre-meta))
+               (prior-grade (plist-get entry :grade)))
           (decklet-db--upsert-card word pre-meta)
-          (decklet-rate-card word grade)
+          (decklet-rate-card word grade prior-grade)
           (decklet-review--revlog-update-entry grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
       (let ((pre-meta (let ((m (decklet--load-card-meta word)))
@@ -822,7 +825,7 @@ original rating remains in the database until the user re-rates."
     (decklet-review--revlog-retreat-pointer)
     (let* ((entry (decklet-review--revlog-current-entry))
            (word (plist-get entry :word)))
-      (if (not (decklet-db--select-card word))
+      (if (not (decklet-card-exists-p word))
           (progn
             (message "Card \"%s\" no longer exists, undo skipped" word)
             (decklet-review-undo))
@@ -919,27 +922,22 @@ original rating remains in the database until the user re-rates."
       (decklet--refresh-counter)
       (decklet-review-next-card))))
 
-;; Keep review UI in sync when a hint is added via the quick add flow.
-;; This runs only in review buffers and only when the last-added word is
-;; the current review word, so other contexts stay unaffected.
-(defun decklet-review--maybe-refresh-after-add-hint (&rest _)
-  "Refresh the review buffer after adding a hint for the current word."
-  (when (and (eq major-mode 'decklet-review-mode)
-             decklet-current-word
-             decklet-last-added-word
-             (string-equal decklet-current-word decklet-last-added-word))
-    (decklet-review--render-buffer t)))
-
-;; Use advice to make the logic less entangled.
-;; This refresh logic is solely for the review mode.
-(advice-add 'decklet-add-hint :after #'decklet-review--maybe-refresh-after-add-hint)
-
 ;; Backup
 (add-hook 'decklet-review-start-hook #'decklet-db-backup)
 (add-hook 'decklet-review-quit-hook #'decklet-db-backup)
 ;; Auto-refresh
 (add-hook 'decklet-review-start-hook #'decklet-review--enable-resize-refresh)
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
+
+;; Refresh the visible review buffer whenever any card field is updated.
+;; This removes the need for callers of `decklet-set-card-hint' or
+;; `decklet-set-card-back' to manage UI refreshes themselves.
+(defun decklet-review--on-field-updated (_word _field)
+  "Refresh the visible review buffer after a card field update."
+  (decklet-review--refresh-visible))
+
+(add-hook 'decklet-card-field-updated-functions
+          #'decklet-review--on-field-updated)
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

@@ -29,7 +29,7 @@ It is built differently from many SRS tools:
   - [Refocus after Lookup](#refocus-after-lookup)
   - [Hidden Cursor](#hidden-cursor)
 - [Features](#features)
-  - [Dictionary](#dictionary)
+  - [Browser Lookup](#browser-lookup)
   - [Hints](#hints)
   - [Card Back](#card-back)
   - [Undo](#undo)
@@ -46,6 +46,7 @@ It is built differently from many SRS tools:
   - [Database](#database)
   - [Hooks](#hooks)
   - [Review UI Components](#review-ui-components)
+- [Writing Extensions](#writing-extensions)
 - [Testing and CI](#testing-and-ci)
 - [License](#license)
 
@@ -294,40 +295,32 @@ Or with `use-package`:
 
 ## Features
 
-### Dictionary
+### Browser Lookup
 
-In Decklet, dictionary lookup takes the place of flipping the card.
+In Decklet, browser-based lookup takes the place of flipping the card. The
+current word is inserted into a website URL template and opened in your
+default browser, letting you read meaning, pronunciation, usage, etymology,
+images, and related results from whichever sources you prefer.
 
-There are three built-in lookup approaches: browser-based lookup (`lookup`),
-in-Emacs dictionary (`define`), and pronunciation audio playback (`speak`).
+- `l` opens your default lookup provider in the browser.
+- `L` lets you pick a provider, then opens it.
+- `M-x decklet-switch-default-provider` changes the default used by `l`.
 
-- `lookup`: Decklet inserts the word into a website URL so you can read
-  meaning, pronunciation, usage, etymology, images, and related results. (In
-  the config, these websites are called `lookup providers`.)
-  - `l` opens your browser and goes to your default dictionary/search website.
-  - `L` lets you choose a dictionary/search website, then opens it.
-  - `M-x decklet-switch-default-provider` lets you quickly switch the default
-    provider used by `l`.
-- `define` (`f`): shows a definition popup inside Emacs. By default, this uses
-  DictionaryAPI (best for English). For other languages, you will likely want to
-  plug in your own define function.
-- `speak` (`s`): plays pronunciation audio for the word. By default, audio is
-  fetched from DictionaryAPI (best for English). For other languages, you will
-  likely want to plug in your own audio function.
+In-Emacs definition popups and audio playback are intentionally out of
+scope for the core package — they are trivially built on top of the public
+API and hooks (see [Writing Extensions](#writing-extensions)).
 
-#### Configuration
+#### Lookup Providers
 
-You can customize browser-based lookup by configuring providers.
+`decklet-lookup-providers` and `decklet-lookup-default-provider` are `nil`
+by default. If you press `l`/`L` before setting providers, Decklet will
+show a message asking you to configure them.
 
-`decklet-lookup-providers` and `decklet-lookup-default-provider` are `nil` by
-default. If you press `l`/`L` before setting providers, Decklet will show a
-message asking you to configure them.
-
-- `decklet-lookup-providers`: list of `(NAME . URL)` providers. `URL` must
-  include one `%s` placeholder.
+- `decklet-lookup-providers`: alist of `(NAME . URL)`. `URL` must include
+  one `%s` placeholder for the word.
 - `decklet-lookup-default-provider`: provider name used by `decklet-lookup`.
 
-Example: restore the previous built-in provider set.
+Example:
 
 ```emacs-lisp
 (setq decklet-lookup-providers
@@ -338,31 +331,6 @@ Example: restore the previous built-in provider set.
         ("Wiktionary" . "https://en.wiktionary.org/wiki/%s")))
 (setq decklet-lookup-default-provider "Google")
 ```
-
-For in-Emacs popup definitions and pronunciation audio, customize these two
-functions:
-
-- `decklet-dictionary-define-function`: Returns a string that will be
-  displayed in the popup buffer.
-- `decklet-dictionary-audio-function`: Return a local audio file path to be
-  played.
-
-```emacs-lisp
-(setq decklet-dictionary-define-function
-      (lambda (word)
-        (format "Custom definition for: %s" word)))
-(setq decklet-dictionary-audio-function
-      (lambda (word)
-        "/path/to/word.mp3"))
-```
-
-Cache clearing:
-
-- Use `M-x decklet-clear-api-cache` to clear the in-memory dictionary caches.
-- Use `M-x decklet-clear-audio-cache` to clear the on-disk audio caches.
-
-By default, Decklet calls `decklet-clear-api-cache` when `decklet-edit-quit`
-or `decklet-review-quit` is called.
 
 ### Hints
 
@@ -701,7 +669,7 @@ schema used by the export function, as shown above.
 
 ### Hooks
 
-Decklet provides several hooks for customization:
+Decklet provides several session hooks for customization:
 
 - `decklet-review-start-hook`: runs when a review session starts.
 - `decklet-review-quit-hook`: runs when review mode exits.
@@ -710,7 +678,9 @@ Decklet provides several hooks for customization:
 - `decklet-edit-start-hook`: runs when the edit buffer opens.
 - `decklet-edit-quit-hook`: runs when the edit buffer exits.
 - `decklet-lookup-hook`: runs after browser lookup opens.
-- `decklet-define-hook`: runs after definition content is prepared.
+
+For card-level lifecycle events (added/deleted/renamed/rated/etc.), see
+[Writing Extensions](#writing-extensions).
 
 Gamification with sound effects is a good example of hook usage. Here's an example:
 
@@ -722,8 +692,7 @@ Gamification with sound effects is a good example of hook usage. Here's an examp
   :hook
   (decklet-review-next-card . (lambda () (my/decklet-play-sound "~/.emacs.d/custom/decklet-next-word.mp3")))
   (decklet-review-daily-goal-reached . (lambda () (my/decklet-play-sound "~/.emacs.d/custom/decklet-goal-reached.mp3")))
-  (decklet-lookup . (lambda () (my/decklet-play-sound "~/.emacs.d/custom/decklet-lookup-word.mp3")))
-  (decklet-define . (lambda () (my/decklet-play-sound "~/.emacs.d/custom/decklet-lookup-word.mp3"))))
+  (decklet-lookup . (lambda () (my/decklet-play-sound "~/.emacs.d/custom/decklet-lookup-word.mp3"))))
 ```
 
 ### Review UI Components
@@ -773,6 +742,113 @@ Example: customize text width.
 ```emacs-lisp
 (setq decklet-review-fill-column 56)
 ```
+
+## Writing Extensions
+
+Decklet exposes a small public API and a set of card lifecycle hooks so
+you can build sidecar packages (audio, images, definitions, annotations,
+analytics, ...) without touching Decklet internals.
+
+### Public API
+
+#### Reading cards
+
+| Function | Returns |
+|---|---|
+| `(decklet-card-exists-p WORD)` | non-nil if WORD is in the deck |
+| `(decklet-get-card WORD)` | plist `(:word :hint :back :meta)` or nil |
+| `(decklet-get-card-hint WORD)` | hint string or nil |
+| `(decklet-get-card-back WORD)` | card back content or nil |
+| `(decklet-get-card-meta WORD)` | `decklet-card-meta` struct or nil |
+| `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all`, `review`, `learning`, or `archived` |
+
+#### Mutating cards
+
+| Function | Effect |
+|---|---|
+| `(decklet-set-card-hint WORD HINT)` | update hint; fires field-updated hook |
+| `(decklet-set-card-back WORD CONTENT)` | update card back; fires field-updated hook |
+| `(decklet-rename-word OLD NEW)` | rename a word; fires renamed hook |
+| `(decklet-delete-card WORD)` | delete a card; fires deleted hook |
+| `(decklet-archive-card WORD)` / `(decklet-unarchive-card WORD)` | fire archived/unarchived hooks |
+| `(decklet-rate-card WORD GRADE &optional PRIOR-GRADE)` | grade a card; fires rated hook |
+
+#### Context helpers
+
+- `decklet-current-word` — the word currently displayed in review
+  (nil outside review).
+- `(decklet-prompt-word &optional PROMPT)` — resolve the word from an
+  active region, the current review word, the word on the current edit
+  line, or the minibuffer.
+
+### Lifecycle hooks
+
+All card lifecycle hooks are abnormal hooks: use `add-hook` and your
+handler is called with the arguments shown below.
+
+| Hook | Arguments | Fires when |
+|---|---|---|
+| `decklet-card-added-functions` | `(WORD)` | a new card is stored (including imports) |
+| `decklet-card-deleted-functions` | `(WORD)` | a card is removed from the deck |
+| `decklet-card-renamed-functions` | `(OLD-WORD NEW-WORD)` | a card's word key changes |
+| `decklet-card-archived-functions` | `(WORD)` | a card is archived |
+| `decklet-card-unarchived-functions` | `(WORD)` | a card is unarchived |
+| `decklet-card-field-updated-functions` | `(WORD FIELD)` | hint or back is updated; `FIELD` is `hint` or `back` |
+| `decklet-card-rated-functions` | `(WORD OLD-META GRADE NEW-META PRIOR-GRADE)` | a card is rated in review or edit mode |
+
+#### About the rated hook
+
+The `decklet-card-rated-functions` hook fires for every completed
+grading action, in both review and edit modes.
+
+- `PRIOR-GRADE` is nil for fresh ratings.
+- When the user undoes a rating and re-rates with a different grade
+  within the same session, `PRIOR-GRADE` is the grade being replaced.
+  Extensions that track per-grade statistics should decrement the
+  `PRIOR-GRADE` counter to compensate for the original event.
+- Undo alone does not fire this hook (no DB change).
+- Confirming an undone rating (`n` on an undone card) does not fire
+  the hook either — the original event already reflects the final state.
+
+### Example: per-word image sidecar
+
+A complete example of a sidecar that stores a PNG per word in a folder,
+keeps it in sync with the deck, and shows an `[IMG]` indicator in the
+review UI:
+
+```emacs-lisp
+(defvar my/decklet-image-dir "~/decklet-images/"
+  "Directory where per-word PNG files live.")
+
+(defun my/decklet-image-path (word)
+  (expand-file-name (concat word ".png") my/decklet-image-dir))
+
+(defun my/decklet-image-delete (word)
+  (let ((path (my/decklet-image-path word)))
+    (when (file-exists-p path) (delete-file path))))
+
+(defun my/decklet-image-rename (old-word new-word)
+  (let ((old (my/decklet-image-path old-word))
+        (new (my/decklet-image-path new-word)))
+    (when (file-exists-p old)
+      (rename-file old new t))))
+
+(defun my/decklet-image-indicator ()
+  "Review UI component showing [IMG] when the current word has an image."
+  (when (and decklet-current-word
+             (file-exists-p (my/decklet-image-path decklet-current-word)))
+    (decklet-center-text
+     (propertize "[IMG]" 'face 'decklet-card-back-indicator-face))))
+
+(add-hook 'decklet-card-deleted-functions #'my/decklet-image-delete)
+(add-hook 'decklet-card-renamed-functions #'my/decklet-image-rename)
+(add-to-list 'decklet-review-floating-components #'my/decklet-image-indicator)
+```
+
+No drift patrol needed: the sidecar is kept in sync automatically
+because the core broadcasts the events. Calls to `decklet-set-card-*`
+from extensions also trigger review/edit UI refreshes via the
+field-updated hook, so you don't need to manage refresh yourself.
 
 ## Testing and CI
 

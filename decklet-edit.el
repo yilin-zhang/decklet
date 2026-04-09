@@ -628,6 +628,19 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (add-hook 'decklet-edit-start-hook #'decklet-db-backup)
 (add-hook 'decklet-edit-quit-hook #'decklet-db-backup)
 
+;; Refresh the edit table whenever any card field is updated.  This
+;; keeps extensions that call `decklet-set-card-hint' or
+;; `decklet-set-card-back' from needing to manage UI refreshes.
+(defun decklet-edit--on-field-updated (_word _field)
+  "Refresh the edit buffer after a card field update."
+  (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
+    (with-current-buffer buffer
+      (when (derived-mode-p 'decklet-edit-mode)
+        (decklet-edit-refresh)))))
+
+(add-hook 'decklet-card-field-updated-functions
+          #'decklet-edit--on-field-updated)
+
 (defvar decklet-edit-mode-map
   (define-keymap
     :parent tabulated-list-mode-map

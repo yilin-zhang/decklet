@@ -277,7 +277,8 @@
               ((symbol-function 'decklet-db--upsert-card)
                (lambda (word meta) (setq upserted (list word meta))))
               ((symbol-function 'decklet-rate-card)
-               (lambda (word grade) (setq rated (list word grade))))
+               (lambda (word grade &optional prior-grade)
+                 (setq rated (list word grade prior-grade))))
               ((symbol-function 'decklet-review--advance)
                (lambda () nil)))
       (decklet-review--handle-grade 1))
@@ -285,8 +286,9 @@
     ;; Pre-meta should have been written to DB before rating.
     (should (equal "jelly" (car upserted)))
     (should (equal pre (cadr upserted)))
-    ;; Then rate-card was called with the new grade.
-    (should (equal '("jelly" 1) rated))
+    ;; Then rate-card was called with the new grade and the replaced
+    ;; grade forwarded as PRIOR-GRADE.
+    (should (equal '("jelly" 1 3) rated))
     (let ((entry (nth 0 decklet-review--revlog-queue)))
       (should (= 1 (plist-get entry :grade))))))
 
