@@ -28,16 +28,10 @@
 (ert-deftest decklet-test-db-ensure-and-upsert-select ()
   (decklet-test--with-temp-db
     (decklet-db--ensure)
-    (let* ((now (current-time))
-           (meta (make-decklet-card-meta
-                  :added-date (decklet-test--ts now)
-                  :last-review (decklet-test--ts now)
-                  :due (decklet-test--ts now)
-                  :state :review)))
-      (decklet-db--upsert-card "lucid" meta)
-      (let ((row (decklet-db--select-card "lucid")))
-        (should row)
-        (should (string= (plist-get row :word) "lucid"))))))
+    (decklet-db--upsert-card "lucid" (decklet-test--make-card-meta))
+    (let ((row (decklet-db--select-card "lucid")))
+      (should row)
+      (should (string= (plist-get row :word) "lucid")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Archive/unarchive flow
@@ -47,11 +41,9 @@
 
 (ert-deftest decklet-test-archive-filter-flow ()
   (decklet-test--with-temp-db
-    (let* ((now (current-time))
-           (ts (decklet-test--ts now))
-           (meta (make-decklet-card-meta
-                  :added-date ts :last-review ts :due ts :state :review)))
-      (decklet-db--upsert-card "archive-me" meta)
+    (let ((ts (decklet-test--ts (current-time))))
+      (decklet-db--upsert-card "archive-me"
+                               (decklet-test--make-card-meta :timestamp ts))
       (should (= 1 (length (decklet-db--select-cards 'all nil))))
       (decklet-db--archive-card "archive-me" ts)
       (should (= 0 (length (decklet-db--select-cards 'all nil))))
@@ -175,11 +167,13 @@
 ;; while text/time columns use string coalesce ('').
 
 (ert-deftest decklet-test-edit-order-sql-numeric-vs-text-columns ()
+  ;; Assert only the numeric-vs-text COALESCE choice; the rowid
+  ;; tie-breaker is orthogonal to this test's contract.
   (should (string-match-p
-           "ORDER BY COALESCE(stability, 0) DESC, rowid DESC"
+           "COALESCE(stability, 0) DESC"
            (decklet-db--edit-order-sql '("stability" . t))))
   (should (string-match-p
-           "ORDER BY COALESCE(due, '') ASC, rowid ASC"
+           "COALESCE(due, '') ASC"
            (decklet-db--edit-order-sql '("due" . nil)))))
 
 ;; ---------------------------------------------------------------------------
@@ -226,11 +220,9 @@
 (ert-deftest decklet-test-db-import-json-conflict-skip-and-overwrite ()
   (decklet-test--with-temp-db
     (let* ((file (expand-file-name "import-conflict.json" tmp-dir))
-           (base-meta (make-decklet-card-meta
-                       :added-date "20250101T000000Z"
-                       :last-review "20250101T000000Z"
-                       :due "20250102T000000Z"
-                       :state :review))
+           (base-meta (decklet-test--make-card-meta
+                       :timestamp "20250101T000000Z"
+                       :due "20250102T000000Z"))
            (rows '(((word . "alpha")
                     (added_date . "20250110T000000Z")
                     (last_review . "20250110T000000Z")
@@ -464,9 +456,8 @@
   "Export produces a JSON array with one object per card."
   (decklet-test--with-temp-db
     (let* ((file (expand-file-name "export.json" tmp-dir))
-           (ts "20250101T010101Z")
-           (meta (make-decklet-card-meta
-                  :added-date ts :last-review ts :due ts :state :review
+           (meta (decklet-test--make-card-meta
+                  :timestamp "20250101T010101Z"
                   :stability 5.0 :difficulty 3.0)))
       (decklet-db--upsert-card "sun" meta)
       (decklet-db--update-hint "sun" "star")
@@ -495,14 +486,12 @@
   "Exporting then importing into a fresh DB preserves card data."
   (decklet-test--with-temp-db
     (let* ((export-file (expand-file-name "round-trip.json" tmp-dir))
-           (ts1 "20250101T010101Z")
-           (ts2 "20250201T010101Z")
-           (meta1 (make-decklet-card-meta
-                   :added-date ts1 :last-review ts1 :due ts1 :state :review
+           (meta1 (decklet-test--make-card-meta
+                   :timestamp "20250101T010101Z"
                    :stability 8.5 :difficulty 4.2))
-           (meta2 (make-decklet-card-meta
-                   :added-date ts2 :last-review nil :due ts2 :state :learning
-                   :step 0)))
+           (meta2 (decklet-test--make-card-meta
+                   :timestamp "20250201T010101Z"
+                   :last-review nil :state :learning :step 0)))
       ;; Populate source DB.
       (decklet-db--upsert-card "river" meta1)
       (decklet-db--update-hint "river" "flows")

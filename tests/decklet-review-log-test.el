@@ -247,5 +247,47 @@ Returns nil when the file does not exist or is empty."
         (should (not (= first-id second-id)))
         (should (> second-id first-id))))))
 
+;; ---------------------------------------------------------------------------
+;; Writer failure path
+;; ---------------------------------------------------------------------------
+;; `decklet-review-log--append-line' catches any error raised during
+;; the actual write and returns nil.  The public appenders forward
+;; that nil upwards, and `decklet-rate-card' must still succeed
+;; despite a log-write failure — a dropped log record is preferable
+;; to a lost rating.
+
+(ert-deftest decklet-test-review-log-append-line-returns-nil-on-write-failure ()
+  (decklet-test--with-temp-db
+    (cl-letf (((symbol-function 'write-region)
+               (lambda (&rest _) (error "simulated disk full"))))
+      (should-not (decklet-review-log--append-line
+                   (list :kind "void" :voids 1 :t (decklet--now)))))))
+
+(ert-deftest decklet-test-review-log-append-rated-returns-nil-on-write-failure ()
+  (decklet-test--with-temp-db
+    (let* ((old (make-decklet-card-meta :card-id 1 :state :review
+                                        :stability 3.0 :difficulty 5.0))
+           (new (copy-decklet-card-meta old)))
+      (cl-letf (((symbol-function 'write-region)
+                 (lambda (&rest _) (error "simulated disk full"))))
+        (should-not (decklet-review-log-append-rated "boom" 1 3 old new))))))
+
+(ert-deftest decklet-test-rate-card-survives-log-write-failure ()
+  "A log-write failure must not abort `decklet-rate-card'.
+The card's FSRS state still advances and gets persisted to the DB;
+the log id is nil because the writer reported failure."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet--add-card "resilient")
+    (let ((log-id
+           (cl-letf (((symbol-function 'write-region)
+                      (lambda (&rest _) (error "simulated disk full"))))
+             (decklet-rate-card "resilient" 3))))
+      (should-not log-id))
+    ;; Card state was advanced by FSRS despite the log failure:
+    ;; `last-review' is now set.
+    (let ((meta (decklet--load-card-meta "resilient")))
+      (should (decklet-card-meta-last-review meta)))))
+
 (provide 'decklet-review-log-test)
 ;;; decklet-review-log-test.el ends here

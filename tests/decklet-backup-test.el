@@ -198,10 +198,7 @@
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     ;; Create a real DB change so first backup has content.
-    (let* ((now (decklet-test--ts (current-time)))
-           (meta (make-decklet-card-meta
-                  :added-date now :last-review now :due now :state :review)))
-      (decklet-db--upsert-card "backup-word" meta))
+    (decklet-db--upsert-card "backup-word" (decklet-test--make-card-meta))
     (decklet-db-backup)
     (let ((count-1 (length (decklet-db--backup-files))))
       (should (= 1 count-1))
@@ -236,6 +233,87 @@
       (should (equal (plist-get captured :choices) '("a" "b")))
       (should (equal (plist-get captured :default) "a"))
       (should (eq (plist-get captured :require-match) t)))))
+
+;; ---------------------------------------------------------------------------
+;; Post-backup hook + auxiliary-file backup
+;; ---------------------------------------------------------------------------
+;; `decklet-db-post-backup-functions' is an abnormal hook that
+;; extensions/core modules use to back up their own files alongside
+;; the SQLite snapshot.  The review log subscribes to it on load so
+;; `review-log.jsonl' rides in the same backup rotation.
+
+(ert-deftest decklet-test-db-post-backup-hook-fires-after-backup ()
+  "`decklet-db-post-backup-functions' runs after a successful backup.
+Handlers receive (BACKUP-DIR TIMESTAMP) where TIMESTAMP matches
+the `YYYYMMDDTHHMMSSZ' form used by the backup filenames."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-db--upsert-card "hook-probe" (decklet-test--make-card-meta))
+    (let* ((captured nil)
+           ;; Shadow the global hook so only our probe runs.  `let*'
+           ;; is required so the lambda closes over `captured'.
+           (decklet-db-post-backup-functions
+            (list (lambda (backup-dir timestamp)
+                    (setq captured (list :dir backup-dir :ts timestamp))))))
+      (decklet-db-backup)
+      (should captured)
+      (should (stringp (plist-get captured :dir)))
+      (should (file-directory-p (plist-get captured :dir)))
+      (should (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}Z\\'"
+                              (plist-get captured :ts))))))
+
+(ert-deftest decklet-test-backup-auxiliary-file-copies-with-timestamp ()
+  "`decklet-db-backup-auxiliary-file' writes a timestamped sibling."
+  (decklet-test--with-temp-db
+    (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
+           (source-file (expand-file-name "extra.jsonl" tmp-dir))
+           (timestamp "20260410T120000Z")
+           (expected (expand-file-name
+                      (format "extra-%s.jsonl" timestamp) backup-dir)))
+      (with-temp-file source-file (insert "line-one\n"))
+      (make-directory backup-dir t)
+      (decklet-db-backup-auxiliary-file source-file backup-dir timestamp)
+      (should (file-exists-p expected))
+      (should (equal (with-temp-buffer
+                       (insert-file-contents expected)
+                       (buffer-string))
+                     "line-one\n")))))
+
+(ert-deftest decklet-test-backup-auxiliary-file-missing-source-noop ()
+  "`decklet-db-backup-auxiliary-file' is a silent no-op on missing source."
+  (decklet-test--with-temp-db
+    (let ((backup-dir (file-name-as-directory decklet-backup-directory))
+          (missing (expand-file-name "absent.jsonl" tmp-dir))
+          (timestamp "20260410T120000Z"))
+      (make-directory backup-dir t)
+      (decklet-db-backup-auxiliary-file missing backup-dir timestamp)
+      (should-not (file-exists-p
+                   (expand-file-name (format "absent-%s.jsonl" timestamp)
+                                     backup-dir)))
+      ;; Nothing else should have been created either.
+      (should-not (directory-files backup-dir nil "absent")))))
+
+(ert-deftest decklet-test-review-log-backed-up-with-db ()
+  "`decklet-db-backup' fires the post-backup hook and the review log
+subscriber copies `review-log.jsonl' into the backup directory
+with a matching timestamp."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-db--upsert-card "backed-up" (decklet-test--make-card-meta))
+    (decklet-review-log-append-void 42)
+    (should (file-exists-p decklet-review-log-file))
+    (decklet-db-backup)
+    (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
+           (log-backups (directory-files backup-dir t
+                                         "\\`review-log-[0-9]+T[0-9]+Z\\(-[0-9]+\\)?\\.jsonl\\'")))
+      (should (= 1 (length log-backups)))
+      ;; Content matches the source.
+      (should (equal (with-temp-buffer
+                       (insert-file-contents (car log-backups))
+                       (buffer-string))
+                     (with-temp-buffer
+                       (insert-file-contents decklet-review-log-file)
+                       (buffer-string)))))))
 
 (provide 'decklet-backup-test)
 ;;; decklet-backup-test.el ends here

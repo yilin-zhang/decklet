@@ -15,4 +15,5 @@ emacs --batch -L "$FSRS_DIR" -L . -L tests \
   -l tests/decklet-deck-test.el \
   -l tests/decklet-backup-test.el \
   -l tests/decklet-review-log-test.el \
+  -l tests/decklet-scheduler-test.el \
   -f ert-run-tests-batch-and-exit
