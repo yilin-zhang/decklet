@@ -232,24 +232,17 @@ card's stable identity is preserved across rating updates."
     (sqlite-execute conn "UPDATE cards SET archived_at = NULL WHERE word = ?;"
                     (list word))))
 
-(defun decklet-db--max-card-id ()
-  "Return the current `MAX(card_id)' in the cards table, or 0."
-  (or (caar (sqlite-select (decklet-db--ensure)
-                           "SELECT COALESCE(MAX(card_id), 0) FROM cards;"))
-      0))
-
 (defun decklet-db--mint-card-id ()
   "Return a fresh unique card id.
-First call after Emacs start seeds from `MAX(card_id)' in the DB,
-then each call returns `(max (1+ previous) (current-microsecond))' so
-ids are strictly monotonic and never collide — even under batch
-imports where two mint calls can land in the same microsecond."
-  (unless decklet-db--last-card-id
-    (setq decklet-db--last-card-id (decklet-db--max-card-id)))
-  (let ((now (truncate (* (float-time) 1e6))))
-    (setq decklet-db--last-card-id
-          (max (1+ decklet-db--last-card-id) now)))
-  decklet-db--last-card-id)
+Seeds lazily from `MAX(card_id)' in the DB so ids stay monotonic
+across Emacs sessions; see `decklet--mint-monotonic-id'."
+  (decklet--mint-monotonic-id
+   'decklet-db--last-card-id
+   (lambda ()
+     (or (caar (sqlite-select
+                (decklet-db--ensure)
+                "SELECT COALESCE(MAX(card_id), 0) FROM cards;"))
+         0))))
 
 (defun decklet-db--update-word (old-word new-word)
   "Rename OLD-WORD to NEW-WORD in the database, return normalized new word."

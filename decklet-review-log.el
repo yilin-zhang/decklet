@@ -58,46 +58,56 @@ treat the file as append-only and parse it one JSON object per line."
 
 (defvar decklet-review-log--next-record-id nil
   "In-memory monotonic counter for review log record ids.
-Seeded lazily on the first call to `decklet-review-log--mint-record-id'
-from the current microsecond timestamp; cross-session monotonicity
-holds as long as the system clock advances.")
+Seeded lazily on the first mint; cross-session monotonicity holds
+as long as the system clock advances.")
+
+(defvar decklet-review-log--dir-ensured nil
+  "Non-nil once the review log directory has been created this session.
+Skips a `make-directory' stat on every subsequent append.")
 
 (defun decklet-review-log--mint-record-id ()
   "Return a fresh monotonic microsecond record id."
-  (let ((now (truncate (* (float-time) 1e6))))
-    (setq decklet-review-log--next-record-id
-          (if decklet-review-log--next-record-id
-              (max (1+ decklet-review-log--next-record-id) now)
-            now)))
-  decklet-review-log--next-record-id)
+  (decklet--mint-monotonic-id 'decklet-review-log--next-record-id))
 
 ;; Low-level writer
 
 (defun decklet-review-log--ensure-directory ()
-  "Ensure the directory for `decklet-review-log-file' exists."
-  (let ((dir (file-name-directory decklet-review-log-file)))
-    (when dir
-      (make-directory dir t))))
+  "Ensure the directory for `decklet-review-log-file' exists, once per session."
+  (unless decklet-review-log--dir-ensured
+    (let ((dir (file-name-directory decklet-review-log-file)))
+      (when dir
+        (make-directory dir t)))
+    (setq decklet-review-log--dir-ensured t)))
 
 (defun decklet-review-log--append-line (record)
   "Append RECORD plist as one JSONL line to `decklet-review-log-file'.
-RECORD nil values are serialised as JSON null."
-  (decklet-review-log--ensure-directory)
-  (let ((json (json-serialize record :null-object nil)))
-    (with-temp-buffer
-      (insert json "\n")
-      (let ((coding-system-for-write 'utf-8-unix))
-        (write-region (point-min) (point-max)
-                      decklet-review-log-file t 'no-message)))))
+RECORD nil values are serialised as JSON null.  Errors are caught
+and reported via `message'; the function returns non-nil on a
+successful write, nil on failure."
+  (condition-case err
+      (progn
+        (decklet-review-log--ensure-directory)
+        (let ((json (json-serialize record :null-object nil)))
+          (with-temp-buffer
+            (insert json "\n")
+            (let ((coding-system-for-write 'utf-8-unix))
+              (write-region (point-min) (point-max)
+                            decklet-review-log-file t 'no-message))))
+        t)
+    (error
+     (message "Decklet: failed to write review log: %s"
+              (error-message-string err))
+     nil)))
 
 ;; Public append API
 
 (defun decklet-review-log-append-rated (word card-id grade old-meta new-meta)
-  "Append a rated event to the review log and return the new record id.
+  "Append a rated event to the review log.
 WORD is the card's word at the time of rating.  CARD-ID is its
 stable card id (`decklet-card-meta-card-id').  GRADE is the rating,
 1-4.  OLD-META is the card meta before this rating; NEW-META is the
-meta after FSRS scheduled the rating."
+meta after FSRS scheduled the rating.  Returns the new record id on
+success, nil on write failure."
   (let* ((now-str (decklet--now))
          (record-id (decklet-review-log--mint-record-id))
          (elapsed-days (decklet--elapsed-days-since
@@ -118,8 +128,8 @@ meta after FSRS scheduled the rating."
                        :post_stability (decklet-card-meta-stability new-meta)
                        :post_difficulty (decklet-card-meta-difficulty new-meta)
                        :elapsed_days elapsed-days)))
-    (decklet-review-log--append-line record)
-    record-id))
+    (and (decklet-review-log--append-line record)
+         record-id)))
 
 (defun decklet-review-log-append-void (voided-record-id)
   "Append a void event that nullifies VOIDED-RECORD-ID.

@@ -125,5 +125,20 @@ This hook does NOT fire on:
      (message "%s: %s" context (error-message-string err))
      nil)))
 
+(defun decklet--mint-monotonic-id (counter-sym &optional seed-fn)
+  "Return the next strictly monotonic microsecond id stored in COUNTER-SYM.
+When the counter is nil, it is seeded from SEED-FN (a zero-arg
+function returning an integer) or from the current microsecond
+timestamp.  Each subsequent call returns
+\(max (1+ previous) current-microsecond) and stores it back.
+This yields ids that are dense in time, never collide even under
+sub-microsecond bursts, and remain monotonic across Emacs sessions
+as long as the system clock advances."
+  (unless (symbol-value counter-sym)
+    (set counter-sym (if seed-fn (funcall seed-fn) 0)))
+  (let ((now (truncate (* (float-time) 1e6))))
+    (set counter-sym (max (1+ (symbol-value counter-sym)) now)))
+  (symbol-value counter-sym))
+
 (provide 'decklet-core)
 ;;; decklet-core.el ends here

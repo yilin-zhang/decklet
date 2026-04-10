@@ -66,6 +66,21 @@ Set to nil to disable relearning steps."
   :type 'integer
   :group 'decklet-scheduler)
 
+(defcustom decklet-fsrs-parameters nil
+  "Optional override for the FSRS parameter weight vector.
+When non-nil, must be a vector of 21 floats passed as the
+`:parameters' argument to `fsrs-make-scheduler'.  When nil, the
+FSRS library's built-in defaults are used.
+
+Typically set by an external tuner after fine-tuning on the
+persistent review log."
+  :type '(choice (const :tag "FSRS library defaults" nil)
+                 (vector :tag "Custom 21-float parameters"))
+  :set (lambda (symbol value)
+         (set-default symbol value)
+         (setq decklet--fsrs-scheduler nil))
+  :group 'decklet-scheduler)
+
 (defvar decklet--counter '(:reviewed 0 :due-review 0 :due-learning 0 :new 0)
   "Counter for reviewed, due-review, due-learning, and new cards.")
 
@@ -110,11 +125,13 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
   "Return a configured FSRS scheduler for Decklet."
   (or decklet--fsrs-scheduler
       (setq decklet--fsrs-scheduler
-            (fsrs-make-scheduler
-             :desired-retention decklet-desired-retention
-             :learning-steps decklet-learning-steps
-             :relearning-steps decklet-relearning-steps
-             :enable-fuzzing-p nil))))
+            (apply #'fsrs-make-scheduler
+                   :desired-retention decklet-desired-retention
+                   :learning-steps decklet-learning-steps
+                   :relearning-steps decklet-relearning-steps
+                   :enable-fuzzing-p nil
+                   (when decklet-fsrs-parameters
+                     (list :parameters decklet-fsrs-parameters))))))
 
 (defun decklet--normalize-fsrs-state (state)
   "Normalize STATE into an FSRS keyword."

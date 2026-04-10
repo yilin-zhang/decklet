@@ -787,11 +787,7 @@ When current list is empty, re-check for due cards and continue if any exist."
                (prior-log-id (plist-get entry :log-id)))
           (decklet-db--upsert-card word pre-meta)
           (when prior-log-id
-            (condition-case err
-                (decklet-review-log-append-void prior-log-id)
-              (error
-               (message "Decklet: failed to void prior review log entry: %s"
-                        (error-message-string err)))))
+            (decklet-review-log-append-void prior-log-id))
           (let ((new-log-id (decklet-rate-card word grade prior-grade)))
             (plist-put entry :log-id new-log-id))
           (decklet-review--trail-update-entry grade))
@@ -942,16 +938,8 @@ original rating remains in the database until the user re-rates."
 (add-hook 'decklet-card-field-updated-functions
           #'decklet-review--on-field-updated)
 
-(defun decklet-review--on-card-renamed (old-word new-word)
-  "Propagate a card rename into the session trail."
-  (decklet-review--trail-rename old-word new-word))
-
-(defun decklet-review--on-card-deleted (word)
-  "Remove WORD from the session trail after a card deletion."
-  (decklet-review--trail-delete word))
-
-(add-hook 'decklet-card-renamed-functions #'decklet-review--on-card-renamed)
-(add-hook 'decklet-card-deleted-functions #'decklet-review--on-card-deleted)
+(add-hook 'decklet-card-renamed-functions #'decklet-review--trail-rename)
+(add-hook 'decklet-card-deleted-functions #'decklet-review--trail-delete)
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

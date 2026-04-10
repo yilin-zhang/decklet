@@ -186,9 +186,10 @@ optional PROMPT, defaulting to the word at point."
 ;; Public API — card mutations
 ;;
 ;; Each mutation broadcasts a lifecycle event so extensions can stay
-;; in sync without scanning state.  UI refresh for field updates is
-;; handled by core subscribers registered in `decklet-review.el' and
-;; `decklet-edit.el'.
+;; in sync without scanning state.  Rating and rename also append a
+;; record to the persistent review log.  UI refresh for field updates
+;; is handled by core subscribers registered in `decklet-review.el'
+;; and `decklet-edit.el'.
 
 (defun decklet-rate-card (word grade &optional prior-grade)
   "Update the card for WORD with review GRADE (1-4).
@@ -201,19 +202,12 @@ when the log write failed — log errors never abort the rating)."
   (let* ((row (decklet--require-card word))
          (old-meta (decklet-db--row->card-meta row))
          (new-meta (decklet--update-card-with-grade word old-meta grade))
-         (card-id (decklet-card-meta-card-id new-meta))
-         (log-id nil))
+         (card-id (decklet-card-meta-card-id new-meta)))
     (decklet-db--upsert-card word new-meta)
     (decklet--refresh-counter)
-    (condition-case err
-        (setq log-id (decklet-review-log-append-rated
-                      word card-id grade old-meta new-meta))
-      (error
-       (message "Decklet: failed to write review log: %s"
-                (error-message-string err))))
-    (run-hook-with-args 'decklet-card-rated-functions
-                        word old-meta grade new-meta prior-grade)
-    log-id))
+    (prog1 (decklet-review-log-append-rated word card-id grade old-meta new-meta)
+      (run-hook-with-args 'decklet-card-rated-functions
+                          word old-meta grade new-meta prior-grade))))
 
 (defun decklet-rename-word (old-word new-word)
   "Rename OLD-WORD to NEW-WORD and return the normalized new value.
@@ -232,11 +226,7 @@ stored word."
             (cl-substitute normalized old-word decklet-due-words :test #'string=)))
     (unless (string-equal old-word normalized)
       (when card-id
-        (condition-case err
-            (decklet-review-log-append-rename card-id old-word normalized)
-          (error
-           (message "Decklet: failed to write rename to review log: %s"
-                    (error-message-string err)))))
+        (decklet-review-log-append-rename card-id old-word normalized))
       (run-hook-with-args 'decklet-card-renamed-functions old-word normalized))
     normalized))
 
