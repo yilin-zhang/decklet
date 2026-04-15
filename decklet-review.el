@@ -732,7 +732,7 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 (defun decklet-review--trail-skip ()
   "Append a skip entry for the current word to the trail."
   (when decklet-current-word
-    (let ((meta (decklet--load-card-meta decklet-current-word)))
+    (let ((meta (decklet-get-card-meta decklet-current-word)))
       (when meta
         (decklet-review--trail-append
          (list :word decklet-current-word
@@ -792,7 +792,7 @@ When current list is empty, re-check for due cards and continue if any exist."
             (plist-put entry :log-id new-log-id))
           (decklet-review--trail-update-entry grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
-      (let* ((pre-meta (let ((m (decklet--load-card-meta word)))
+      (let* ((pre-meta (let ((m (decklet-get-card-meta word)))
                          (when m (copy-decklet-card-meta m))))
              (new-log-id (decklet-rate-card word grade)))
         (decklet-review--trail-append

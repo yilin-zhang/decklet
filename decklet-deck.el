@@ -68,12 +68,6 @@ Lines starting with `#' are highlighted as comment-style hint lines."
   "Refresh due words list if review session is active."
   (setq decklet-due-words (decklet-db--select-due-words)))
 
-(defun decklet--load-card-meta (word)
-  "Return card metadata for WORD, or nil if not found."
-  (let ((row (decklet-db--select-card word)))
-    (when row
-      (decklet-db--row->card-meta row))))
-
 (defun decklet--load-card-full (word)
   "Return a plist with :meta, :hint, and :back for WORD from a single query.
 Return nil if the card does not exist."
@@ -166,7 +160,9 @@ The plist has keys `:word', `:hint', `:back', and `:meta'."
 
 (defun decklet-get-card-meta (word)
   "Return the `decklet-card-meta' struct for WORD, or nil when absent."
-  (decklet--load-card-meta word))
+  (let ((row (decklet-db--select-card word)))
+    (when row
+      (decklet-db--row->card-meta row))))
 
 (defun decklet-list-words (&optional filter)
   "Return all words in the deck as a list, optionally filtered.
@@ -214,7 +210,7 @@ when the log write failed — log errors never abort the rating)."
 Fires `decklet-card-renamed-functions' and appends a `rename' record
 to the persistent review log when the rename actually changes the
 stored word."
-  (let* ((card-meta (decklet--load-card-meta old-word))
+  (let* ((card-meta (decklet-get-card-meta old-word))
          (card-id (and card-meta (decklet-card-meta-card-id card-meta)))
          (normalized (decklet-db--update-word old-word new-word)))
     (when (and decklet-current-word (string-equal old-word decklet-current-word))
@@ -303,7 +299,7 @@ A brand-new row is also assigned a fresh `card-id' via
 `decklet-db--mint-card-id'.  Refreshing an existing new card
 preserves its existing `card-id'."
   (setq word (decklet-db--normalize-word word))
-  (let* ((meta (decklet--load-card-meta word))
+  (let* ((meta (decklet-get-card-meta word))
          (was-absent (null meta))
          (is-new (and meta (decklet-card-meta-is-new meta))))
     (setq decklet-last-added-word word)

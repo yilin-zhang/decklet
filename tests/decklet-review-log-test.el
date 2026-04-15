@@ -194,7 +194,7 @@ Returns nil when the file does not exist or is empty."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet--add-card "colour")
-    (let* ((meta (decklet--load-card-meta "colour"))
+    (let* ((meta (decklet-get-card-meta "colour"))
            (card-id (decklet-card-meta-card-id meta)))
       (decklet-rename-word "colour" "color")
       (let ((rec (car (decklet-test--read-log))))
@@ -211,7 +211,7 @@ Returns nil when the file does not exist or is empty."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet--add-card "alpha")
-    (let* ((meta (decklet--load-card-meta "alpha"))
+    (let* ((meta (decklet-get-card-meta "alpha"))
            (id (decklet-card-meta-card-id meta)))
       (should (integerp id))
       (should (> id 0)))))
@@ -224,10 +224,10 @@ Returns nil when the file does not exist or is empty."
       (decklet-db--ensure)
       (decklet--add-card "alpha")
       (let* ((first-id (decklet-card-meta-card-id
-                        (decklet--load-card-meta "alpha"))))
+                        (decklet-get-card-meta "alpha"))))
         (decklet--add-card "alpha")
         (let* ((second-id (decklet-card-meta-card-id
-                           (decklet--load-card-meta "alpha"))))
+                           (decklet-get-card-meta "alpha"))))
           (should (= first-id second-id)))))))
 
 (ert-deftest decklet-test-add-card-delete-re-add-mints-new-card-id ()
@@ -238,11 +238,11 @@ Returns nil when the file does not exist or is empty."
     (decklet-db--ensure)
     (decklet--add-card "beta")
     (let ((first-id (decklet-card-meta-card-id
-                     (decklet--load-card-meta "beta"))))
+                     (decklet-get-card-meta "beta"))))
       (decklet-delete-card "beta")
       (decklet--add-card "beta")
       (let ((second-id (decklet-card-meta-card-id
-                        (decklet--load-card-meta "beta"))))
+                        (decklet-get-card-meta "beta"))))
         (should (integerp second-id))
         (should (not (= first-id second-id)))
         (should (> second-id first-id))))))
@@ -286,7 +286,7 @@ the log id is nil because the writer reported failure."
       (should-not log-id))
     ;; Card state was advanced by FSRS despite the log failure:
     ;; `last-review' is now set.
-    (let ((meta (decklet--load-card-meta "resilient")))
+    (let ((meta (decklet-get-card-meta "resilient")))
       (should (decklet-card-meta-last-review meta)))))
 
 (provide 'decklet-review-log-test)
