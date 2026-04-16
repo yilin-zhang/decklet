@@ -529,20 +529,22 @@ CALLBACK, when provided, is called with no arguments after a successful save."
   (let* ((back (decklet-get-card-back word))
          (buf-name (decklet-card-back--buffer-name word))
          (buffer (get-buffer-create buf-name)))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (funcall decklet-card-back-buffer-major-mode)
-        (setq-local decklet-card-back--word word)
-        (setq-local decklet-card-back--callback callback)
-        (when back
-          (insert back))
-        (goto-char (point-min))
-        (setq buffer-read-only read-only-p))
-      (if read-only-p
-          (decklet-card-back-view-mode 1)
-        (decklet-card-back-edit-mode 1)))
-    (pop-to-buffer buffer)))
+    (if (and read-only-p (not back))
+        (user-error "No card back for \"%s\"" word)
+      (with-current-buffer buffer
+        (let ((inhibit-read-only t))
+          (erase-buffer)
+          (funcall decklet-card-back-buffer-major-mode)
+          (setq-local decklet-card-back--word word)
+          (setq-local decklet-card-back--callback callback)
+          (when back
+            (insert back))
+          (goto-char (point-min))
+          (setq buffer-read-only read-only-p))
+        (if read-only-p
+            (decklet-card-back-view-mode 1)
+          (decklet-card-back-edit-mode 1)))
+      (pop-to-buffer buffer))))
 
 (defun decklet-card-back-show (word &optional callback)
   "Show the card back for WORD in a read-only popup buffer.
