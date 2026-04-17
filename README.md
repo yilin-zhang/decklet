@@ -838,7 +838,7 @@ review UI:
   (when (and decklet-current-word
              (file-exists-p (my/decklet-image-path decklet-current-word)))
     (decklet-center-text
-     (propertize "[IMG]" 'face 'decklet-card-back-indicator-face))))
+     (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face))))
 
 (add-hook 'decklet-card-deleted-functions #'my/decklet-image-delete)
 (add-hook 'decklet-card-renamed-functions #'my/decklet-image-rename)

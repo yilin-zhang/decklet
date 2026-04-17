@@ -27,7 +27,8 @@
 ;; Faces
 
 (defface decklet-edit-word-face
-  '((t :inherit decklet-word-face))
+  `((t :foreground ,(face-attribute 'decklet-word-color :foreground)
+       :weight bold))
   "Face for displaying the word in edit lists."
   :group 'decklet-edit)
 
@@ -38,7 +39,7 @@
   :group 'decklet-edit)
 
 (defface decklet-edit-hint-face
-  `((t :inherit shadow))
+  `((t :foreground ,(face-attribute 'decklet-hint-color :foreground)))
   "Face for displaying the hint in edit lists."
   :group 'decklet-edit)
 
@@ -70,6 +71,30 @@
 (defface decklet-edit-difficulty-face
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
   "Face for displaying difficulty values in edit lists."
+  :group 'decklet-edit)
+
+(defface decklet-edit-state-new-face
+  `((t :foreground ,(face-attribute 'decklet-state-new-color :foreground)
+       :weight bold))
+  "Face for new-card state labels in edit lists."
+  :group 'decklet-edit)
+
+(defface decklet-edit-state-learning-face
+  `((t :foreground ,(face-attribute 'decklet-state-learning-color :foreground)
+       :weight bold))
+  "Face for learning-card state labels in edit lists."
+  :group 'decklet-edit)
+
+(defface decklet-edit-state-review-face
+  `((t :foreground ,(face-attribute 'decklet-state-review-color :foreground)
+       :weight bold))
+  "Face for review-card state labels in edit lists."
+  :group 'decklet-edit)
+
+(defface decklet-edit-card-back-indicator-face
+  `((t :foreground ,(face-attribute 'decklet-card-back-indicator-color :foreground)
+       :weight bold))
+  "Face for the back indicator in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-mark-face
@@ -326,9 +351,9 @@ WORDS can be a single word string or a list of words."
                            'decklet-edit-word-archived-face
                          'decklet-edit-word-face))
             (state-face (pcase display-state
-                          (:new 'decklet-state-new-face)
-                          ((or :learning :relearning) 'decklet-state-learning-face)
-                          (:review 'decklet-state-review-face)
+                          (:new 'decklet-edit-state-new-face)
+                          ((or :learning :relearning) 'decklet-edit-state-learning-face)
+                          (:review 'decklet-edit-state-review-face)
                           (_ 'decklet-edit-state-face)))
             (state-text (or (decklet--fsrs-state-string display-state) ""))
             (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
@@ -339,7 +364,7 @@ WORDS can be a single word string or a list of words."
              (vector
               (propertize display-word 'face word-face)
               (propertize hint 'face 'decklet-edit-hint-face)
-              (if back (propertize "*" 'face 'decklet-card-back-indicator-face) "")
+              (if back (propertize "*" 'face 'decklet-edit-card-back-indicator-face) "")
               (propertize state-text 'face state-face)
               (propertize (decklet-edit--format-timestamp added)
                           'face 'decklet-edit-added-face

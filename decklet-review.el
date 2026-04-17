@@ -87,47 +87,56 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 ;; Faces
 
 (defface decklet-review-word-face
-  '((((type graphic))
-     :inherit decklet-word-face
+  `((((type graphic))
+     :foreground ,(face-attribute 'decklet-word-color :foreground)
+     :weight bold
      :height 1.5)
     (((type tty))
-     :inherit decklet-word-face
+     :foreground ,(face-attribute 'decklet-word-color :foreground)
+     :weight bold
      :height 1.0))
   "Face for displaying the current word."
   :group 'decklet-review)
 
 (defface decklet-review-state-new-face
-  '((((type graphic))
-     :inherit decklet-state-new-face
+  `((((type graphic))
+     :foreground ,(face-attribute 'decklet-state-new-color :foreground)
+     :weight bold
      :height 1.2)
     (((type tty))
-     :inherit decklet-state-new-face
+     :foreground ,(face-attribute 'decklet-state-new-color :foreground)
+     :weight bold
      :height 1.0))
   "Face for displaying the `NEW WORD' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-learning-face
-  '((((type graphic))
-     :inherit decklet-state-learning-face
+  `((((type graphic))
+     :foreground ,(face-attribute 'decklet-state-learning-color :foreground)
+     :weight bold
      :height 1.2)
     (((type tty))
-     :inherit decklet-state-learning-face
+     :foreground ,(face-attribute 'decklet-state-learning-color :foreground)
+     :weight bold
      :height 1.0))
   "Face for displaying the `LEARNING' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-review-face
-  '((((type graphic))
-     :inherit decklet-state-review-face
+  `((((type graphic))
+     :foreground ,(face-attribute 'decklet-state-review-color :foreground)
+     :weight bold
      :height 1.2)
     (((type tty))
-     :inherit decklet-state-review-face
+     :foreground ,(face-attribute 'decklet-state-review-color :foreground)
+     :weight bold
      :height 1.0))
   "Face for displaying the `REVIEWING' status."
   :group 'decklet-review)
 
 (defface decklet-review-counter-new-face
-  '((t :inherit decklet-state-new-face
+  `((t :foreground ,(face-attribute 'decklet-state-new-color :foreground)
+       :weight bold
        :underline t))
   "Face for displaying the number of new words."
   :group 'decklet-review)
@@ -140,19 +149,21 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   :group 'decklet-review)
 
 (defface decklet-review-counter-review-face
-  '((t :inherit decklet-state-review-face
+  `((t :foreground ,(face-attribute 'decklet-state-review-color :foreground)
+       :weight bold
        :underline t))
   "Face for displaying review-due numbers."
   :group 'decklet-review)
 
 (defface decklet-review-counter-due-face
-  '((t :inherit decklet-state-learning-face
+  `((t :foreground ,(face-attribute 'decklet-state-learning-color :foreground)
+       :weight bold
        :underline t))
   "Face for displaying learning-due numbers."
   :group 'decklet-review)
 
 (defface decklet-review-state-goal-face
-  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
+  `((t :foreground ,(face-attribute 'decklet-state-review-color :foreground)
        :weight bold))
   "Face for displaying the `DAILY GOAL REACHED' status."
   :group 'decklet-review)
@@ -163,18 +174,26 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   :group 'decklet-review)
 
 (defface decklet-review-hint-placeholder-face
-  `((t :inherit shadow :weight bold))
+  `((t :foreground ,(face-attribute 'decklet-hint-color :foreground)
+       :weight bold))
   "Face for displaying the hint placeholder."
   :group 'decklet-review)
 
 (defface decklet-review-rating-interval-face
-  `((t :inherit shadow))
+  `((t :foreground ,(face-attribute 'decklet-hint-color :foreground)))
   "Face for displaying rating interval hints."
   :group 'decklet-review)
 
 (defface decklet-review-separator-face
-  `((t :inherit shadow :weight bold))
+  `((t :foreground ,(face-attribute 'decklet-hint-color :foreground)
+       :weight bold))
   "Face for horizontal separators."
+  :group 'decklet-review)
+
+(defface decklet-review-card-back-indicator-face
+  `((t :foreground ,(face-attribute 'decklet-card-back-indicator-color :foreground)
+       :weight bold))
+  "Face for the [BACK] indicator in the review UI."
   :group 'decklet-review)
 
 (defface decklet-review-undo-highlight-face
@@ -610,7 +629,7 @@ When reviewing an undone card, the previous rating is highlighted."
   "Return a centered [BACK] indicator when the current card has a back."
   (when decklet-review--render-has-back
     (decklet-center-text
-     (propertize "[BACK]" 'face 'decklet-card-back-indicator-face))))
+     (propertize "[BACK]" 'face 'decklet-review-card-back-indicator-face))))
 
 (defun decklet-review--hide-cursor ()
   "Hide the cursor and hl-line in the review buffer window."
