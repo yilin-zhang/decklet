@@ -138,9 +138,18 @@ One of: all, review, learning, archived.")
 (defvar decklet-edit--inhibit-callback-refresh nil
   "When it is non-nil, inhibit refresh during bulk processing")
 
-(defconst decklet-edit--columns
+(defvar decklet-edit-sidecar-columns nil
+  "Additional sidecar column descriptors for the edit table.
+Each descriptor is a plist with keys:
+`:name'   column header string
+`:width'  tabulated-list column width
+`:value'  function of one ROW plist returning a display cell or nil.
+
+Sidecar columns are inserted after the built-in `Back' column.")
+
+(defconst decklet-edit--base-columns
   '("Word" "Hint" "Back" "State" "Added" "Last Review" "Due" "Stability" "Difficulty")
-  "Column names for the edit table.")
+  "Built-in column names for the edit table.")
 
 (defconst decklet-edit--numeric-columns
   '("Stability" "Difficulty")
@@ -160,13 +169,19 @@ One of: all, review, learning, archived.")
     ("Difficulty" . "difficulty"))
   "Mapping of edit table column names to database column names.")
 
-(defconst decklet-edit--column-indices
+(defun decklet-edit--columns ()
+  "Return ordered edit table column names, including sidecar columns."
+  (append '("Word" "Hint" "Back")
+          (mapcar (lambda (column) (plist-get column :name)) decklet-edit-sidecar-columns)
+          '("State" "Added" "Last Review" "Due" "Stability" "Difficulty")))
+
+(defun decklet-edit--column-indices ()
+  "Return an alist mapping edit table column names to indices."
   (let ((index 0)
         (table nil))
-    (dolist (name decklet-edit--columns (nreverse table))
+    (dolist (name (decklet-edit--columns) (nreverse table))
       (push (cons name index) table)
-      (setq index (1+ index))))
-  "Alist mapping edit table column names to indices.")
+      (setq index (1+ index)))))
 
 ;; Edit table formatting and sorting
 
@@ -255,10 +270,36 @@ If multiple words are equally near point, prefer a following line."
           (forward-line 1))
         line))))
 
+(defun decklet-edit--sidecar-column-cells (row)
+  "Return sidecar column cells for ROW."
+  (mapcar (lambda (column)
+            (or (funcall (plist-get column :value) row) ""))
+          decklet-edit-sidecar-columns))
+
+(defun decklet-edit--tabulated-list-format ()
+  "Return the current tabulated-list format for the edit buffer."
+  (vconcat
+   (list
+    (list "Word" 24 (decklet-edit--column-sorter "Word"))
+    (list "Hint" 40 t)
+    (list "Back" 5 nil))
+   (mapcar (lambda (column)
+             (list (plist-get column :name)
+                   (or (plist-get column :width) 5)
+                   nil))
+           decklet-edit-sidecar-columns)
+   (list
+    (list "State" 10 t)
+    (list "Added" 20 (decklet-edit--column-sorter "Added"))
+    (list "Last Review" 20 (decklet-edit--column-sorter "Last Review"))
+    (list "Due" 20 (decklet-edit--column-sorter "Due"))
+    (list "Stability" 10 (decklet-edit--column-sorter "Stability"))
+    (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty")))))
+
 (defmacro decklet-edit--column-sorter (column)
   "Return a sorter lambda for COLUMN."
   `(lambda (a b)
-     (let ((index (alist-get ,column decklet-edit--column-indices nil nil #'string=)))
+     (let ((index (alist-get ,column (decklet-edit--column-indices) nil nil #'string=)))
        (if (member ,column decklet-edit--numeric-columns)
            (< (decklet-edit--entry-sort-number a index)
               (decklet-edit--entry-sort-number b index))
@@ -369,32 +410,37 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                       (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
                     "")))
        (list card-id
-             (vector
-              (propertize display-word 'face word-face)
-              (propertize hint 'face 'decklet-edit-hint-face)
-              (if back (propertize "♦" 'face 'decklet-edit-card-back-indicator-face) "")
-              (propertize state-text 'face state-face)
-              (propertize (decklet-edit--format-timestamp added)
-                          'face 'decklet-edit-added-face
-                          'decklet-sort-key added)
-              (propertize (decklet-edit--format-timestamp last-review)
-                          'face 'decklet-edit-last-review-face
-                          'decklet-sort-key last-review)
-              (propertize (decklet-edit--format-timestamp due)
-                          'face 'decklet-edit-due-face
-                          'decklet-sort-key due)
-              (propertize (if stability (format "%.3f" stability) "")
-                          'face 'decklet-edit-stability-face
-                          'decklet-sort-number (or stability 0))
-              (propertize (if difficulty (format "%.3f" difficulty) "")
-                          'face 'decklet-edit-difficulty-face
-                          'decklet-sort-number (or difficulty 0))))))
+             (vconcat
+              (vector
+               (propertize display-word 'face word-face)
+               (propertize hint 'face 'decklet-edit-hint-face)
+               (if back (propertize "♦" 'face 'decklet-edit-card-back-indicator-face) ""))
+              (apply #'vector (decklet-edit--sidecar-column-cells row))
+              (vector
+               (propertize state-text 'face state-face)
+               (propertize (decklet-edit--format-timestamp added)
+                           'face 'decklet-edit-added-face
+                           'decklet-sort-key added)
+               (propertize (decklet-edit--format-timestamp last-review)
+                           'face 'decklet-edit-last-review-face
+                           'decklet-sort-key last-review)
+               (propertize (decklet-edit--format-timestamp due)
+                           'face 'decklet-edit-due-face
+                           'decklet-sort-key due)
+               (propertize (if stability (format "%.3f" stability) "")
+                           'face 'decklet-edit-stability-face
+                           'decklet-sort-number (or stability 0))
+               (propertize (if difficulty (format "%.3f" difficulty) "")
+                           'face 'decklet-edit-difficulty-face
+                           'decklet-sort-number (or difficulty 0)))))))
    (decklet-db--select-cards decklet-edit--filter
                              (decklet-edit--db-sort-key tabulated-list-sort-key))))
 
 (defun decklet-edit-refresh ()
   "Refresh the card list buffer."
   (interactive)
+  (setq tabulated-list-format (decklet-edit--tabulated-list-format))
+  (tabulated-list-init-header)
   (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
   (tabulated-list-print t)
   (decklet-edit--apply-marks))
@@ -702,17 +748,7 @@ Accepts any hook signature; arguments are ignored."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
-  (setq tabulated-list-format
-        (vector
-         (list "Word" 24 (decklet-edit--column-sorter "Word"))
-         (list "Hint" 40 t)
-         (list "Back" 5 nil)
-         (list "State" 10 t)
-         (list "Added" 20 (decklet-edit--column-sorter "Added"))
-         (list "Last Review" 20 (decklet-edit--column-sorter "Last Review"))
-         (list "Due" 20 (decklet-edit--column-sorter "Due"))
-         (list "Stability" 10 (decklet-edit--column-sorter "Stability"))
-         (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty"))))
+  (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header))
 

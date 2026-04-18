@@ -797,7 +797,7 @@ handler is called with the arguments shown below.
 | `decklet-card-renamed-functions` | `(CARD-ID OLD-WORD NEW-WORD)` | a card's word key changes |
 | `decklet-card-archived-functions` | `(CARD-ID)` | a card is archived |
 | `decklet-card-unarchived-functions` | `(CARD-ID)` | a card is unarchived |
-| `decklet-card-field-updated-functions` | `(CARD-ID FIELD)` | hint or back is updated; `FIELD` is `hint` or `back` |
+| `decklet-card-field-updated-functions` | `(CARD-ID FIELD)` | hint/back changes, or extension-owned sidecar changes signaled with an extension-defined `FIELD` such as `image` |
 | `decklet-card-rated-functions` | `(CARD-ID OLD-META GRADE NEW-META PRIOR-GRADE)` | a card is rated in review or edit mode |
 
 #### About the rated hook

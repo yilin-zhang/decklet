@@ -120,12 +120,25 @@
                            :state "learning" :step nil :stability nil
                            :difficulty nil :hint "hint1\nhint2" :back nil)))))
     (let* ((decklet-edit--filter 'all)
+           (decklet-edit-sidecar-columns
+            (list (list :name "Image"
+                        :width 5
+                        :value (lambda (_row) "♣"))))
            (tabulated-list-sort-key nil)
            (entry (car (decklet-edit--entries)))
            (columns (cadr entry)))
       (should (= (car entry) 42))
       (should (string= (aref columns 0) "line1↵line2"))
-      (should (string= (aref columns 1) "hint1↵hint2")))))
+      (should (string= (aref columns 1) "hint1↵hint2"))
+      (should (string= (aref columns 3) "♣")))))
+
+(ert-deftest decklet-test-edit-tabulated-list-format-includes-sidecar-columns ()
+  (let* ((decklet-edit-sidecar-columns
+          (list (list :name "Image" :width 5 :value (lambda (_row) nil))))
+         (format (decklet-edit--tabulated-list-format)))
+    (should (equal "Back" (car (aref format 2))))
+    (should (equal "Image" (car (aref format 3))))
+    (should (equal "State" (car (aref format 4))))))
 
 (ert-deftest decklet-test-edit-delete-without-marks-delegates-to-single-delete ()
   (let ((delegated nil))
