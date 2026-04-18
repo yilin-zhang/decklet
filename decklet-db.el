@@ -706,7 +706,7 @@ Return a plist with :added, :overwritten, and :skipped."
       ;; sidecar extensions only see successful imports.  One batched
       ;; event per successful import.
       (when added-card-ids
-        (run-hook-with-args 'decklet-cards-added-functions
+        (decklet-run-cards-hook 'decklet-cards-added-functions
                             (mapcar (lambda (card-id) (list :card-id card-id))
                                     (nreverse added-card-ids))))
       (list :added added :overwritten overwritten :skipped skipped))))

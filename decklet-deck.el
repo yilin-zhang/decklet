@@ -204,7 +204,7 @@ optional PROMPT, defaulting to the word at point."
     (decklet-db--upsert-card word new-meta)
     (decklet--refresh-counter)
     (prog1 (decklet-review-log-append-rated word card-id grade old-meta new-meta)
-      (run-hook-with-args 'decklet-cards-rated-functions
+      (decklet-run-cards-hook 'decklet-cards-rated-functions
                           (list (list :card-id card-id
                                       :old-meta old-meta
                                       :grade grade
@@ -219,7 +219,7 @@ optional PROMPT, defaulting to the word at point."
       (setq decklet-last-added-word normalized))
     (unless (string-equal old-word normalized)
       (decklet-review-log-append-rename card-id old-word normalized)
-      (run-hook-with-args 'decklet-cards-renamed-functions
+      (decklet-run-cards-hook 'decklet-cards-renamed-functions
                           (list (list :card-id card-id
                                       :old-word old-word
                                       :new-word normalized))))
@@ -229,14 +229,14 @@ optional PROMPT, defaulting to the word at point."
   "Update CARD-ID's card hint to HINT."
   (decklet--require-card-by-id card-id)
   (decklet-db--update-hint-by-id card-id hint)
-  (run-hook-with-args 'decklet-cards-field-updated-functions
+  (decklet-run-cards-hook 'decklet-cards-field-updated-functions
                       (list (list :card-id card-id :field 'hint))))
 
 (defun decklet-set-card-back (card-id content)
   "Update CARD-ID's card back to CONTENT."
   (decklet--require-card-by-id card-id)
   (decklet-db--update-back-by-id card-id content)
-  (run-hook-with-args 'decklet-cards-field-updated-functions
+  (decklet-run-cards-hook 'decklet-cards-field-updated-functions
                       (list (list :card-id card-id :field 'back))))
 
 (defun decklet-delete-card (card-id)
@@ -248,7 +248,7 @@ optional PROMPT, defaulting to the word at point."
     (when decklet-due-card-ids
       (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
     (decklet--refresh-counter)
-    (run-hook-with-args 'decklet-cards-deleted-functions
+    (decklet-run-cards-hook 'decklet-cards-deleted-functions
                         (list (list :card-id card-id :card card)))))
 
 (defun decklet-archive-card (card-id)
@@ -258,7 +258,7 @@ optional PROMPT, defaulting to the word at point."
   (when decklet-due-card-ids
     (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
   (decklet--refresh-counter)
-  (run-hook-with-args 'decklet-cards-archived-functions
+  (decklet-run-cards-hook 'decklet-cards-archived-functions
                       (list (list :card-id card-id))))
 
 (defun decklet-unarchive-card (card-id)
@@ -266,7 +266,7 @@ optional PROMPT, defaulting to the word at point."
   (decklet--require-card-by-id card-id)
   (decklet-db--unarchive-card-by-id card-id)
   (decklet--refresh-counter)
-  (run-hook-with-args 'decklet-cards-unarchived-functions
+  (decklet-run-cards-hook 'decklet-cards-unarchived-functions
                       (list (list :card-id card-id))))
 
 (defun decklet-prompt-edit-card-fields (card-id &optional edit-word edit-hint)
@@ -322,7 +322,7 @@ preserves its existing `card-id'."
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--upsert-card word meta)
         (let ((card-id (decklet-card-meta-card-id meta)))
-          (run-hook-with-args 'decklet-cards-added-functions
+          (decklet-run-cards-hook 'decklet-cards-added-functions
                               (list (list :card-id card-id)))
           (list :card-id card-id
                 :status 'added
@@ -449,10 +449,10 @@ import, carrying all events from this batch."
        (sqlite-execute conn "ROLLBACK;")
        (signal (car err) (cdr err))))
     (when added-events
-      (run-hook-with-args 'decklet-cards-added-functions
+      (decklet-run-cards-hook 'decklet-cards-added-functions
                           (nreverse added-events)))
     (when hint-events
-      (run-hook-with-args 'decklet-cards-field-updated-functions
+      (decklet-run-cards-hook 'decklet-cards-field-updated-functions
                           (nreverse hint-events)))
     (message "Imported %d words" (length cards))
     (when (functionp decklet-add-card-batch--on-confirm)
