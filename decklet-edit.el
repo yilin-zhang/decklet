@@ -588,8 +588,12 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (message "Filter: %s" decklet-edit--filter))
 
 (defun decklet-edit--edit-card-at-point (edit-word edit-hint)
-  "Edit the card at point using EDIT-WORD and EDIT-HINT flags."
-  (let* ((card (decklet-edit--card-at-point t))
+  "Edit the card at point using EDIT-WORD and EDIT-HINT flags.
+Field edits (word, hint) are allowed on the current review card:
+`decklet-cards-field-updated-functions' and
+`decklet-cards-renamed-functions' carry the change to the review
+buffer, which refreshes if the edited card is on screen."
+  (let* ((card (decklet-edit--card-at-point))
          (card-id (plist-get card :card-id)))
     (message "Updated \"%s\""
              (decklet-prompt-edit-card-fields card-id edit-word edit-hint))))

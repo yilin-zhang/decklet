@@ -950,8 +950,11 @@ original rating remains in the database until the user re-rates."
 (add-hook 'decklet-review-start-hook #'decklet-review--enable-resize-refresh)
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
 
-;; Refresh the visible review buffer whenever the current card is updated.
-(defun decklet-review--on-cards-field-updated (events)
+;; Refresh the visible review buffer whenever the current card changes.
+;; Used for both field updates (hint / back / extension-owned fields)
+;; and word renames — in both cases the review UI needs to re-render if
+;; the affected card is on screen.
+(defun decklet-review--on-current-card-changed (events)
   "Refresh the visible review buffer when the current card is in EVENTS."
   (when (cl-some (lambda (ev) (eql (plist-get ev :card-id)
                                    decklet-current-card-id))
@@ -959,7 +962,9 @@ original rating remains in the database until the user re-rates."
     (decklet-review--refresh-visible)))
 
 (add-hook 'decklet-cards-field-updated-functions
-          #'decklet-review--on-cards-field-updated)
+          #'decklet-review--on-current-card-changed)
+(add-hook 'decklet-cards-renamed-functions
+          #'decklet-review--on-current-card-changed)
 
 (add-hook 'decklet-cards-deleted-functions
           (lambda (events)
