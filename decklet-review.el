@@ -378,7 +378,7 @@ separators are skipped so rendering won't stack separator lines."
           (unless (or last-was-sep (null items))
             (push (cons "" t) items)
             (setq last-was-sep t))
-        (when-let ((text (funcall fn)))
+        (when-let* ((text (funcall fn)))
           (push (cons text nil) items)
           (setq last-was-sep nil))))
     (cons (nreverse items) last-was-sep)))
@@ -465,7 +465,7 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
 
 (defun decklet-review--refresh-visible (&rest _args)
   "Refresh the review buffer if it is visible in a window."
-  (when-let ((window (get-buffer-window decklet-review-buffer-name 'visible)))
+  (when-let* ((window (get-buffer-window decklet-review-buffer-name 'visible)))
     (with-current-buffer (window-buffer window)
       (when (eq major-mode 'decklet-review-mode)
         (decklet-review--render-buffer t)))))
@@ -757,7 +757,7 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 (defun decklet-review--trail-skip ()
   "Append a skip entry for the current card to the trail."
   (when decklet-current-card-id
-    (when-let ((meta (decklet-get-card-meta decklet-current-card-id)))
+    (when-let* ((meta (decklet-get-card-meta decklet-current-card-id)))
       (decklet-review--trail-append
        (list :card-id decklet-current-card-id
              :grade nil
@@ -792,7 +792,7 @@ When current list is empty, re-check for due cards and continue if any exist."
   "Quit Decklet review."
   (interactive)
   (decklet-review--clean-up)
-  (when-let ((buffer (get-buffer decklet-review-buffer-name)))
+  (when-let* ((buffer (get-buffer decklet-review-buffer-name)))
     (kill-buffer buffer))
   (run-hooks 'decklet-review-quit-hook)
   (decklet-db--disconnect-if-idle)

@@ -493,7 +493,7 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
 
 (defun decklet-edit--add-mark-overlay (card-id)
   "Add a mark overlay for CARD-ID on the current line."
-  (when-let ((ovs (gethash card-id decklet-edit--mark-overlays)))
+  (when-let* ((ovs (gethash card-id decklet-edit--mark-overlays)))
     ;; remove overlays to avoid duplication
     (decklet-edit--delete-overlay-cons ovs))
   (let ((ov (make-overlay (line-beginning-position) (line-end-position)))
@@ -518,7 +518,7 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
       (goto-char start)
       (beginning-of-line)
       (while (<= (line-beginning-position) finish)
-        (when-let ((card-id (tabulated-list-get-id)))
+        (when-let* ((card-id (tabulated-list-get-id)))
           (puthash card-id t decklet-edit--marked)
           (decklet-edit--add-mark-overlay card-id))
         (forward-line 1)))))
@@ -546,7 +546,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (let ((card-id (decklet-edit--card-id-at-point)))
     (remhash card-id decklet-edit--marked)
-    (when-let ((ovs (gethash card-id decklet-edit--mark-overlays)))
+    (when-let* ((ovs (gethash card-id decklet-edit--mark-overlays)))
       (decklet-edit--delete-overlay-cons ovs)
       (remhash card-id decklet-edit--mark-overlays))
     (forward-line 1)))
@@ -632,7 +632,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
             (decklet-edit--with-deferred-refresh
              (decklet-edit--unmark-all)
              (mapc #'decklet-delete-card marked))
-            (when-let ((target-line (decklet-edit--line-of-card-id target-card-id)))
+            (when-let* ((target-line (decklet-edit--line-of-card-id target-card-id)))
               (decklet-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
       (decklet-edit-delete-card))))
@@ -672,7 +672,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
             (decklet-edit--with-deferred-refresh
              (decklet-edit--unmark-all)
              (mapc action marked))
-            (when-let ((target-line (decklet-edit--line-of-card-id target-card-id)))
+            (when-let* ((target-line (decklet-edit--line-of-card-id target-card-id)))
               (decklet-edit--restore-position target-line win-line))
             (message "%s %d cards" done-verb (length marked))))
       (if (eq decklet-edit--filter 'archived)
@@ -696,7 +696,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   "Quit the edit buffer."
   (interactive)
   (decklet-edit--clean-up)
-  (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
+  (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
     (kill-buffer buffer))
   (run-hooks 'decklet-edit-quit-hook)
   (decklet-db--disconnect-if-idle))
@@ -713,7 +713,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   "Refresh the edit buffer after a card change.
 Accepts any hook signature; arguments are ignored."
   (unless decklet-edit--inhibit-callback-refresh
-    (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
+    (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
       (with-current-buffer buffer
         (when (derived-mode-p 'decklet-edit-mode)
           (decklet-edit-refresh))))))

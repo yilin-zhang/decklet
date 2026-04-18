@@ -143,7 +143,7 @@ ROWS should be a list of (STEM WORD USAGE)."
   (interactive "fKindle vocab.db file: ")
   (setq db-file (expand-file-name db-file))
   (unless (file-exists-p db-file)
-    (error "Database file does not exist: %s" db-file))
+    (user-error "Database file does not exist: %s" db-file))
   (decklet-import--ensure-sqlite)
   (let* ((lines (decklet-import-kindle--rows->batch-lines
                  (decklet-import-kindle--read-rows db-file)))
@@ -163,7 +163,7 @@ ROWS should be a list of (STEM WORD USAGE)."
   (interactive "fKoboReader.sqlite file: ")
   (setq db-file (expand-file-name db-file))
   (unless (file-exists-p db-file)
-    (error "Database file does not exist: %s" db-file))
+    (user-error "Database file does not exist: %s" db-file))
   (decklet-import--ensure-sqlite)
   (let* ((words (decklet-import-kobo--read-words db-file))
          (message-prefix (format "Extracted %d unique words." (length words))))

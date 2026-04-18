@@ -99,7 +99,7 @@ Dates follow the review day defined by `decklet-day-rollover-hour'."
     ;; Rows are grouped by local date; add each to the calendar hash.
     (dolist (row rows)
       (pcase-let ((`(,date-string ,count) row))
-        (when-let ((date (decklet-calendar--date-string-to-date date-string)))
+        (when-let* ((date (decklet-calendar--date-string-to-date date-string)))
           (decklet-calendar--hash-inc due-counts date count))))
     ;; Overdue cards are shown on today so they remain visible.
     (when (> overdue-count 0)

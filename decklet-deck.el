@@ -205,11 +205,11 @@ optional PROMPT, defaulting to the word at point."
     (decklet--refresh-counter)
     (prog1 (decklet-review-log-append-rated word card-id grade old-meta new-meta)
       (decklet-run-cards-hook 'decklet-cards-rated-functions
-                          (list (list :card-id card-id
-                                      :old-meta old-meta
-                                      :grade grade
-                                      :new-meta new-meta
-                                      :prior-grade prior-grade))))))
+                              (list (list :card-id card-id
+					  :old-meta old-meta
+					  :grade grade
+					  :new-meta new-meta
+					  :prior-grade prior-grade))))))
 
 (defun decklet-rename-card (card-id new-word)
   "Rename CARD-ID to NEW-WORD and return the normalized new value."
@@ -220,9 +220,9 @@ optional PROMPT, defaulting to the word at point."
     (unless (string-equal old-word normalized)
       (decklet-review-log-append-rename card-id old-word normalized)
       (decklet-run-cards-hook 'decklet-cards-renamed-functions
-                          (list (list :card-id card-id
-                                      :old-word old-word
-                                      :new-word normalized))))
+                              (list (list :card-id card-id
+					  :old-word old-word
+					  :new-word normalized))))
     normalized))
 
 (defun decklet-set-card-hint (card-id hint)
@@ -230,14 +230,14 @@ optional PROMPT, defaulting to the word at point."
   (decklet--require-card-by-id card-id)
   (decklet-db--update-hint-by-id card-id hint)
   (decklet-run-cards-hook 'decklet-cards-field-updated-functions
-                      (list (list :card-id card-id :field 'hint))))
+			  (list (list :card-id card-id :field 'hint))))
 
 (defun decklet-set-card-back (card-id content)
   "Update CARD-ID's card back to CONTENT."
   (decklet--require-card-by-id card-id)
   (decklet-db--update-back-by-id card-id content)
   (decklet-run-cards-hook 'decklet-cards-field-updated-functions
-                      (list (list :card-id card-id :field 'back))))
+			  (list (list :card-id card-id :field 'back))))
 
 (defun decklet-delete-card (card-id)
   "Delete CARD-ID from the deck."
@@ -249,7 +249,7 @@ optional PROMPT, defaulting to the word at point."
       (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
     (decklet--refresh-counter)
     (decklet-run-cards-hook 'decklet-cards-deleted-functions
-                        (list (list :card-id card-id :card card)))))
+                            (list (list :card-id card-id :card card)))))
 
 (defun decklet-archive-card (card-id)
   "Archive CARD-ID without deleting it."
@@ -259,7 +259,7 @@ optional PROMPT, defaulting to the word at point."
     (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
   (decklet--refresh-counter)
   (decklet-run-cards-hook 'decklet-cards-archived-functions
-                      (list (list :card-id card-id))))
+			  (list (list :card-id card-id))))
 
 (defun decklet-unarchive-card (card-id)
   "Unarchive CARD-ID and return it to the active deck."
@@ -267,7 +267,7 @@ optional PROMPT, defaulting to the word at point."
   (decklet-db--unarchive-card-by-id card-id)
   (decklet--refresh-counter)
   (decklet-run-cards-hook 'decklet-cards-unarchived-functions
-                      (list (list :card-id card-id))))
+			  (list (list :card-id card-id))))
 
 (defun decklet-prompt-edit-card-fields (card-id &optional edit-word edit-hint)
   "Edit CARD-ID fields based on EDIT-WORD and EDIT-HINT flags.
@@ -323,7 +323,7 @@ preserves its existing `card-id'."
         (decklet-db--upsert-card word meta)
         (let ((card-id (decklet-card-meta-card-id meta)))
           (decklet-run-cards-hook 'decklet-cards-added-functions
-                              (list (list :card-id card-id)))
+				  (list (list :card-id card-id)))
           (list :card-id card-id
                 :status 'added
                 :message (format "Added \"%s\" to the deck. " word)))))

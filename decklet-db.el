@@ -55,7 +55,7 @@ review log JSONL) alongside the DB snapshot.")
   (let* ((trimmed (string-trim (or word "")))
          (single-line (replace-regexp-in-string "[\r\n]+" " " trimmed)))
     (if (string-empty-p single-line)
-        (error "Word cannot be empty")
+        (user-error "Word cannot be empty")
       single-line)))
 
 (defun decklet-db--normalize-optional-text (text)
@@ -580,7 +580,7 @@ Return a plist with keys:
 (defun decklet-db--import-record->card (record)
   "Convert JSON RECORD alist to (WORD META ARCHIVED-AT)."
   (unless (listp record)
-    (error "Invalid JSON record: expected object, got %S" record))
+    (user-error "Invalid JSON record: expected object, got %S" record))
   (let* ((now (decklet--now))
          (word (decklet-db--normalize-word
                 (decklet-db--json-alist-get record 'word)))
@@ -661,7 +661,7 @@ Return a plist with :added, :overwritten, and :skipped."
                                       :null-object nil
                                       :false-object nil))))
     (unless (listp records)
-      (error "Import JSON must be an array of card objects"))
+      (user-error "Import JSON must be an array of card objects"))
     ;; Resolve all conflict decisions before opening a transaction so
     ;; interactive prompts don't block inside a write transaction.
     (let* ((global-conflict-action nil)
@@ -707,8 +707,8 @@ Return a plist with :added, :overwritten, and :skipped."
       ;; event per successful import.
       (when added-card-ids
         (decklet-run-cards-hook 'decklet-cards-added-functions
-                            (mapcar (lambda (card-id) (list :card-id card-id))
-                                    (nreverse added-card-ids))))
+				(mapcar (lambda (card-id) (list :card-id card-id))
+					(nreverse added-card-ids))))
       (list :added added :overwritten overwritten :skipped skipped))))
 
 ;;;###autoload
