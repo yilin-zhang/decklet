@@ -27,7 +27,7 @@
 ;; Faces
 
 (defface decklet-edit-word-face
-  `((t :foreground ,(face-attribute 'decklet-word-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
        :weight bold))
   "Face for displaying the word in edit lists."
   :group 'decklet-edit)
@@ -39,7 +39,7 @@
   :group 'decklet-edit)
 
 (defface decklet-edit-hint-face
-  `((t :foreground ,(face-attribute 'decklet-hint-color :foreground)))
+  `((t :foreground ,(face-attribute 'decklet-color-hint :foreground)))
   "Face for displaying the hint in edit lists."
   :group 'decklet-edit)
 
@@ -74,25 +74,25 @@
   :group 'decklet-edit)
 
 (defface decklet-edit-state-new-face
-  `((t :foreground ,(face-attribute 'decklet-state-new-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-color-state-new :foreground)
        :weight bold))
   "Face for new-card state labels in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-state-learning-face
-  `((t :foreground ,(face-attribute 'decklet-state-learning-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
        :weight bold))
   "Face for learning-card state labels in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-state-review-face
-  `((t :foreground ,(face-attribute 'decklet-state-review-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
        :weight bold))
   "Face for review-card state labels in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-card-back-indicator-face
-  `((t :foreground ,(face-attribute 'decklet-card-back-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-color-card-back :foreground)
        :weight bold))
   "Face for the back indicator in edit lists."
   :group 'decklet-edit)
@@ -101,6 +101,11 @@
   '((((background dark)) (:background "DarkGoldenrod4"))
     (t (:background "LightYellow1")))
   "Face for marked rows in the edit table."
+  :group 'decklet-edit)
+
+(defface decklet-edit-mark-indicator-face
+  `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
+  "Face for the mark indicator character."
   :group 'decklet-edit)
 
 ;; Hooks
@@ -129,6 +134,9 @@
 (defvar decklet-edit--filter 'all
   "Current filter for the edit table.
 One of: all, review, learning, archived.")
+
+(defvar decklet-edit--inhibit-callback-refresh nil
+  "When it is non-nil, inhibit refresh during bulk processing")
 
 (defconst decklet-edit--columns
   '("Word" "Hint" "Back" "State" "Added" "Last Review" "Due" "Stability" "Difficulty")
@@ -380,6 +388,15 @@ WORDS can be a single word string or a list of words."
   (tabulated-list-print t)
   (decklet-edit--apply-marks))
 
+(defmacro decklet-edit--with-deferred-refresh (&rest body)
+  "Run BODY as one bulk edit operation with callback refreshes suppressed.
+Card-change callbacks triggered inside BODY do not refresh the edit
+buffer immediately.  Instead, the edit buffer is refreshed once on exit."
+  `(let ((decklet-edit--inhibit-callback-refresh t))
+     (unwind-protect
+         (progn ,@body)
+       (decklet-edit-refresh))))
+
 (defun decklet-edit--apply-marks ()
   "Apply marked-row faces to the edit buffer."
   (decklet-edit--clear-mark-overlays)
@@ -388,7 +405,7 @@ WORDS can be a single word string or a list of words."
     (forward-line 1)
     (while (not (eobp))
       (let ((word (tabulated-list-get-id)))
-        (when (and word (gethash word decklet-edit--marked))
+        (when (gethash word decklet-edit--marked)
           (decklet-edit--add-mark-overlay word)))
       (forward-line 1))))
 
@@ -402,23 +419,29 @@ WORDS can be a single word string or a list of words."
   "Clear all mark in the edit view."
   (clrhash decklet-edit--marked))
 
+(defun decklet-edit--delete-overlay-cons (overlay-cons)
+  "Delete overlays in OVERLAY-CONS."
+  (delete-overlay (car overlay-cons))
+  (delete-overlay (cdr overlay-cons)))
+
 (defun decklet-edit--clear-mark-overlays ()
   "Remove all mark overlays in the edit view."
-  (maphash (lambda (_word ov)
-             (when (overlayp ov)
-               (delete-overlay ov)))
+  (maphash (lambda (_word ovs)
+             (decklet-edit--delete-overlay-cons ovs))
            decklet-edit--mark-overlays)
   (clrhash decklet-edit--mark-overlays))
 
 (defun decklet-edit--add-mark-overlay (word)
   "Add a mark overlay for WORD on the current line."
-  (when-let ((existing (gethash word decklet-edit--mark-overlays)))
-    (when (overlayp existing)
-      (delete-overlay existing)))
-  (let ((ov (make-overlay (line-beginning-position) (line-end-position))))
+  (when-let ((ovs (gethash word decklet-edit--mark-overlays)))
+    ;; remove overlays to avoid duplication
+    (decklet-edit--delete-overlay-cons ovs))
+  (let ((ov (make-overlay (line-beginning-position) (line-end-position)))
+        (mark-ov (make-overlay (line-beginning-position)
+                               (1+ (line-beginning-position)))))
     (overlay-put ov 'face 'decklet-edit-mark-face)
-    (overlay-put ov 'decklet-edit-mark t)
-    (puthash word ov decklet-edit--mark-overlays)))
+    (overlay-put mark-ov 'display (propertize "*" 'face 'decklet-edit-mark-indicator-face))
+    (puthash word (cons ov mark-ov) decklet-edit--mark-overlays)))
 
 (defun decklet-edit--mark-region (beg end)
   "Mark all cards between BEG and END lines in the current edit table."
@@ -440,7 +463,7 @@ WORDS can be a single word string or a list of words."
           (decklet-edit--add-mark-overlay word))
         (forward-line 1)))))
 
-(defun decklet-edit-mark ()
+(defun decklet-edit-mark-at-point ()
   "Mark card(s) at point.
 If a region is active, mark all selected rows and move to the line after the
 selection.  Otherwise, mark the card at point and move to the next line."
@@ -458,21 +481,25 @@ selection.  Otherwise, mark the card at point and move to the next line."
       (decklet-edit--add-mark-overlay word)
       (forward-line 1))))
 
-(defun decklet-edit-unmark ()
+(defun decklet-edit-unmark-at-point ()
   "Unmark the card at point and move to the next line."
   (interactive)
   (let ((word (decklet-edit--word-at-point)))
     (remhash word decklet-edit--marked)
-    (when-let ((ov (gethash word decklet-edit--mark-overlays)))
-      (delete-overlay ov)
+    (when-let ((ovs (gethash word decklet-edit--mark-overlays)))
+      (decklet-edit--delete-overlay-cons ovs)
       (remhash word decklet-edit--mark-overlays))
     (forward-line 1)))
+
+(defun decklet-edit--unmark-all ()
+  "Clear all mark in the edit view."
+  (clrhash decklet-edit--marked)
+  (decklet-edit--clear-mark-overlays))
 
 (defun decklet-edit-unmark-all ()
   "Clear all mark in the edit view."
   (interactive)
-  (decklet-edit--clear-marks)
-  (decklet-edit--clear-mark-overlays)
+  (decklet-edit--unmark-all)
   (message "Cleared all marks"))
 
 (defun decklet-edit-filter-review ()
@@ -536,13 +563,14 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (let ((marked (decklet-edit--marked-words)))
     (if marked
+        ;; bulk processing
         (let* ((win-line (count-screen-lines (window-start) (point)))
                (target-word (decklet-edit--nearest-surviving-word marked)))
           (decklet-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "Delete %d marked cards? " (length marked)))
-            (dolist (word marked)
-              (decklet-delete-card word))
-            (decklet-edit--clear-marks)
+            (decklet-edit--with-deferred-refresh
+             (decklet-edit--unmark-all)
+             (mapc #'decklet-delete-card marked))
             (when-let ((target-line (decklet-edit--line-of-word target-word)))
               (decklet-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
@@ -570,6 +598,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (let ((marked (decklet-edit--marked-words)))
     (if marked
+        ;; bulk processing
         (let* ((unarchive-p (eq decklet-edit--filter 'archived))
                (verb (if unarchive-p "Unarchive" "Archive"))
                (done-verb (if unarchive-p "Unarchived" "Archived"))
@@ -578,9 +607,9 @@ selection.  Otherwise, mark the card at point and move to the next line."
                (target-word (decklet-edit--nearest-surviving-word marked)))
           (decklet-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "%s %d marked cards? " verb (length marked)))
-            (dolist (word marked)
-              (funcall action word))
-            (decklet-edit--clear-marks)
+            (decklet-edit--with-deferred-refresh
+             (decklet-edit--unmark-all)
+             (mapc action marked))
             (when-let ((target-line (decklet-edit--line-of-word target-word)))
               (decklet-edit--restore-position target-line win-line))
             (message "%s %d cards" done-verb (length marked))))
@@ -621,10 +650,11 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit--on-card-change (&rest _)
   "Refresh the edit buffer after a card change.
 Accepts any hook signature; arguments are ignored."
-  (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
-    (with-current-buffer buffer
-      (when (derived-mode-p 'decklet-edit-mode)
-        (decklet-edit-refresh)))))
+  (unless decklet-edit--inhibit-callback-refresh
+    (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
+      (with-current-buffer buffer
+        (when (derived-mode-p 'decklet-edit-mode)
+          (decklet-edit-refresh))))))
 
 (dolist (hook '(decklet-card-added-functions
                 decklet-card-deleted-functions
@@ -653,8 +683,8 @@ Accepts any hook signature; arguments are ignored."
     "; f" (decklet-edit--column-sort-command "Difficulty")
     "R" #'decklet-edit-rate-card
     "A" #'decklet-edit-archive
-    "m" #'decklet-edit-mark
-    "u" #'decklet-edit-unmark
+    "m" #'decklet-edit-mark-at-point
+    "u" #'decklet-edit-unmark-at-point
     "U" #'decklet-edit-unmark-all
     "<remap> <tabulated-list-sort>" #'decklet-edit-refresh
     "g" #'decklet-edit-refresh

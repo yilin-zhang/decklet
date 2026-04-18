@@ -28,40 +28,40 @@
 ;; background via `face-attribute' and layer on whatever weight or
 ;; height they need for their context.
 
-(defface decklet-word-color
+(defface decklet-color-word
   `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
        :background ,(face-attribute 'ansi-color-red :foreground)))
-  "Shared color (red) for words."
+  "Shared color for words."
   :group 'decklet)
 
-(defface decklet-state-new-color
+(defface decklet-color-state-new
   `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)
        :background ,(face-attribute 'ansi-color-magenta :foreground)))
-  "Shared color (magenta) for new-card state indicators."
+  "Shared color for new-card state indicators."
   :group 'decklet)
 
-(defface decklet-state-learning-color
+(defface decklet-color-state-learning
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)
        :background ,(face-attribute 'ansi-color-yellow :foreground)))
-  "Shared color (yellow) for learning-card state indicators."
+  "Shared color for learning-card state indicators."
   :group 'decklet)
 
-(defface decklet-state-review-color
+(defface decklet-color-state-review
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
        :background ,(face-attribute 'ansi-color-green :foreground)))
-  "Shared color (green) for review-card state indicators."
+  "Shared color for review-card state indicators."
   :group 'decklet)
 
-(defface decklet-hint-color
-  `((t :foreground ,(face-attribute 'shadow :foreground nil t)
-       :background ,(face-attribute 'shadow :foreground nil t)))
-  "Shared color (from the `shadow' face) for hint-like elements."
+(defface decklet-color-hint
+  `((t :foreground ,(face-attribute 'shadow :foreground)
+       :background ,(face-attribute 'shadow :foreground)))
+  "Shared color for hint-like elements."
   :group 'decklet)
 
-(defface decklet-card-back-color
+(defface decklet-color-card-back
   `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)
        :background ,(face-attribute 'ansi-color-bright-blue :foreground)))
-  "Shared color (bright blue) for card-back indicators."
+  "Shared color for card-back indicators."
   :group 'decklet)
 
 ;; Lifecycle hooks for extensions
