@@ -92,7 +92,7 @@
   :group 'decklet-edit)
 
 (defface decklet-edit-card-back-indicator-face
-  `((t :foreground ,(face-attribute 'decklet-card-back-indicator-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-card-back-color :foreground)
        :weight bold))
   "Face for the back indicator in edit lists."
   :group 'decklet-edit)
@@ -169,33 +169,18 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
     (let ((db-col (cdr (assoc-string (car sort-key) decklet-edit--db-sort-columns))))
       (cons (or db-col "word") (cdr sort-key)))))
 
-(defmacro decklet-edit--with-position-restore (&rest body)
-  "Execute BODY, then refresh and restore cursor position."
-  (declare (indent 0) (debug t))
-  `(let ((decklet-edit--saved-line (line-number-at-pos))
-         (decklet-edit--saved-win-line (count-screen-lines (window-start) (point))))
-     ,@body
-     (decklet-edit-refresh)
-     (decklet-edit--restore-position decklet-edit--saved-line
-                                     decklet-edit--saved-win-line)))
-
 (defun decklet-edit--clean-up ()
   "Clear edit session state."
   (setq decklet-edit--marked (make-hash-table :test 'equal))
   (setq decklet-edit--mark-overlays (make-hash-table :test 'equal))
   (setq decklet-edit--filter 'all))
 
-(defun decklet--parse-iso-date (date-string)
-  "Parse DATE-STRING as ISO 8601 date to internal time format."
-  (when date-string
-    (parse-iso8601-time-string date-string)))
-
 (defun decklet-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."
   (if (string-empty-p (or timestamp ""))
       ""
     (format-time-string "%Y-%m-%d %H:%M"
-                        (decklet--parse-iso-date timestamp))))
+                        (parse-iso8601-time-string timestamp))))
 
 (defun decklet-edit--entry-sort-string (entry column)
   "Return sortable string for ENTRY at COLUMN."
@@ -297,6 +282,12 @@ If multiple words are equally near point, prefer a following line."
 
 ;; Lightweight ratings from the edit table
 
+(defun decklet-edit--word-at-point ()
+  "Return the word for the card on the current line.
+Signal a `user-error' if point is not on a card row."
+  (or (tabulated-list-get-id)
+      (user-error "No card on this line")))
+
 (defun decklet-edit--ensure-not-current (words)
   "Signal an error if WORDS include the current review word.
 WORDS can be a single word string or a list of words."
@@ -314,8 +305,7 @@ WORDS can be a single word string or a list of words."
   (interactive)
   (when (get-buffer decklet-review-buffer-name)
     (user-error "Rating is disabled while a review session is active"))
-  (let* ((word (or (tabulated-list-get-id)
-                   (user-error "No card on this line")))
+  (let* ((word (decklet-edit--word-at-point))
          (grade-options '((1 . "Again") (2 . "Hard") (3 . "Good") (4 . "Easy")))
          (prompt (concat (format "Rate \"%s\" " word)
                          (mapconcat (lambda (g)
@@ -325,10 +315,9 @@ WORDS can be a single word string or a list of words."
          (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
          (label (alist-get grade grade-options "" nil #'=)))
     (decklet-edit--ensure-not-current word)
-    (decklet-edit--with-position-restore
-      (when (eq decklet-edit--filter 'archived)
-        (decklet-unarchive-card word))
-      (decklet-rate-card word grade))
+    (when (eq decklet-edit--filter 'archived)
+      (decklet-unarchive-card word))
+    (decklet-rate-card word grade)
     (message "Rated \"%s\" as %s" word label)))
 
 ;; Edit table mode and commands
@@ -364,7 +353,7 @@ WORDS can be a single word string or a list of words."
              (vector
               (propertize display-word 'face word-face)
               (propertize hint 'face 'decklet-edit-hint-face)
-              (if back (propertize "*" 'face 'decklet-edit-card-back-indicator-face) "")
+              (if back (propertize "♦" 'face 'decklet-edit-card-back-indicator-face) "")
               (propertize state-text 'face state-face)
               (propertize (decklet-edit--format-timestamp added)
                           'face 'decklet-edit-added-face
@@ -382,7 +371,7 @@ WORDS can be a single word string or a list of words."
                           'face 'decklet-edit-difficulty-face
                           'decklet-sort-number (or difficulty 0))))))
    (decklet-db--select-cards decklet-edit--filter
-                            (decklet-edit--db-sort-key tabulated-list-sort-key))))
+                             (decklet-edit--db-sort-key tabulated-list-sort-key))))
 
 (defun decklet-edit-refresh ()
   "Refresh the card list buffer."
@@ -464,9 +453,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
         (goto-char (max beg end))
         (beginning-of-line)
         (forward-line 1))
-    (let ((word (tabulated-list-get-id)))
-      (unless word
-        (user-error "No card on this line"))
+    (let ((word (decklet-edit--word-at-point)))
       (puthash word t decklet-edit--marked)
       (decklet-edit--add-mark-overlay word)
       (forward-line 1))))
@@ -474,9 +461,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-unmark ()
   "Unmark the card at point and move to the next line."
   (interactive)
-  (let ((word (tabulated-list-get-id)))
-    (unless word
-      (user-error "No card on this line"))
+  (let ((word (decklet-edit--word-at-point)))
     (remhash word decklet-edit--marked)
     (when-let ((ov (gethash word decklet-edit--mark-overlays)))
       (delete-overlay ov)
@@ -517,12 +502,9 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit--edit-card-at-point (edit-word edit-hint)
   "Edit the card at point using EDIT-WORD and EDIT-HINT flags."
-  (let ((word (tabulated-list-get-id)))
-    (unless word
-      (user-error "No card on this line"))
+  (let ((word (decklet-edit--word-at-point)))
     (decklet-edit--ensure-not-current word)
-    (decklet-edit--with-position-restore
-      (setq word (decklet-prompt-edit-card-fields word edit-word edit-hint)))
+    (setq word (decklet-prompt-edit-card-fields word edit-word edit-hint))
     (message "Updated \"%s\"" word)))
 
 (defun decklet-edit-word ()
@@ -538,27 +520,15 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
   (interactive)
-  (let ((word (or (tabulated-list-get-id)
-                  (user-error "No card on this line"))))
-    (decklet-card-back-show word (lambda () (decklet-edit-refresh)))))
-
-(defun decklet-edit-edit-card-back ()
-  "Open the card back for the card at point in an editable popup."
-  (interactive)
-  (let ((word (or (tabulated-list-get-id)
-                  (user-error "No card on this line"))))
-    (decklet-card-back-edit word (lambda () (decklet-edit-refresh)))))
+  (decklet-card-back-show (decklet-edit--word-at-point)))
 
 (defun decklet-edit-delete-card ()
   "Delete the card at point from the deck."
   (interactive)
-  (let ((word (tabulated-list-get-id)))
-    (unless word
-      (user-error "No card on this line"))
+  (let ((word (decklet-edit--word-at-point)))
     (decklet-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Delete \"%s\" from the deck? " word))
-      (decklet-edit--with-position-restore
-        (decklet-delete-card word))
+      (decklet-delete-card word)
       (message "Deleted \"%s\"" word))))
 
 (defun decklet-edit-delete ()
@@ -573,7 +543,6 @@ selection.  Otherwise, mark the card at point and move to the next line."
             (dolist (word marked)
               (decklet-delete-card word))
             (decklet-edit--clear-marks)
-            (decklet-edit-refresh)
             (when-let ((target-line (decklet-edit--line-of-word target-word)))
               (decklet-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
@@ -582,24 +551,18 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-archive-card ()
   "Archive the card at point."
   (interactive)
-  (let ((word (tabulated-list-get-id)))
-    (unless word
-      (user-error "No card on this line"))
+  (let ((word (decklet-edit--word-at-point)))
     (decklet-edit--ensure-not-current word)
     (when (yes-or-no-p (format "Archive \"%s\" from review? " word))
-      (decklet-edit--with-position-restore
-        (decklet-archive-card word))
+      (decklet-archive-card word)
       (message "Archived \"%s\"" word))))
 
 (defun decklet-edit-unarchive-card ()
   "Unarchive the card at point."
   (interactive)
-  (let ((word (tabulated-list-get-id)))
-    (unless word
-      (user-error "No card on this line"))
+  (let ((word (decklet-edit--word-at-point)))
     (decklet-edit--ensure-not-current word)
-    (decklet-edit--with-position-restore
-      (decklet-unarchive-card word))
+    (decklet-unarchive-card word)
     (message "Unarchived \"%s\"" word)))
 
 (defun decklet-edit-archive ()
@@ -618,7 +581,6 @@ selection.  Otherwise, mark the card at point and move to the next line."
             (dolist (word marked)
               (funcall action word))
             (decklet-edit--clear-marks)
-            (decklet-edit-refresh)
             (when-let ((target-line (decklet-edit--line-of-word target-word)))
               (decklet-edit--restore-position target-line win-line))
             (message "%s %d cards" done-verb (length marked))))
@@ -652,18 +614,26 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (add-hook 'decklet-edit-start-hook #'decklet-db-backup)
 (add-hook 'decklet-edit-quit-hook #'decklet-db-backup)
 
-;; Refresh the edit table whenever any card field is updated.  This
-;; keeps extensions that call `decklet-set-card-hint' or
-;; `decklet-set-card-back' from needing to manage UI refreshes.
-(defun decklet-edit--on-field-updated (_word _field)
-  "Refresh the edit buffer after a card field update."
+;; Refresh the edit table whenever a card changes.  Each mutation in
+;; `decklet-deck.el' fires one of these hooks, so the edit buffer stays
+;; in sync without its own commands needing to call `decklet-edit-refresh'
+;; directly.
+(defun decklet-edit--on-card-change (&rest _)
+  "Refresh the edit buffer after a card change.
+Accepts any hook signature; arguments are ignored."
   (when-let ((buffer (get-buffer decklet-edit-buffer-name)))
     (with-current-buffer buffer
       (when (derived-mode-p 'decklet-edit-mode)
         (decklet-edit-refresh)))))
 
-(add-hook 'decklet-card-field-updated-functions
-          #'decklet-edit--on-field-updated)
+(dolist (hook '(decklet-card-added-functions
+                decklet-card-deleted-functions
+                decklet-card-renamed-functions
+                decklet-card-archived-functions
+                decklet-card-unarchived-functions
+                decklet-card-field-updated-functions
+                decklet-card-rated-functions))
+  (add-hook hook #'decklet-edit--on-card-change))
 
 (defvar decklet-edit-mode-map
   (define-keymap
@@ -671,7 +641,6 @@ selection.  Otherwise, mark the card at point and move to the next line."
     "e" #'decklet-edit-word
     "t" #'decklet-edit-hint
     "b" #'decklet-edit-show-card-back
-    "B" #'decklet-edit-edit-card-back
     "D" #'decklet-edit-delete
     "/ r" #'decklet-edit-filter-review
     "/ l" #'decklet-edit-filter-learning

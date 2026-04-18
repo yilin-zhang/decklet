@@ -151,8 +151,7 @@ cards just like most flashcard apps.
 | `g` | Refresh review buffer               |
 | `e` | Edit current word                   |
 | `t` | Edit current hint                   |
-| `b` | Show card back (read-only)          |
-| `B` | Edit card back                      |
+| `b` | Show or edit card back              |
 | `D` | Delete current card                 |
 | `q` | Quit review                         |
 | `l` | Look up word with default provider  |
@@ -178,8 +177,7 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `D`   | Delete current or marked cards            |
 | `e`   | Edit word at point                        |
 | `t`   | Edit hint at point                        |
-| `b`   | Show card back (read-only)                |
-| `B`   | Edit card back                            |
+| `b`   | Show or edit card back                    |
 | `+`   | Quick add card                            |
 | `/ r` | Filter review cards                       |
 | `/ l` | Filter learning cards                     |
@@ -371,9 +369,13 @@ In edit mode, the `Back` column shows `*` for cards that have a back.
 
 Key bindings (available in both review and edit modes):
 
-- `b`: open the card back in a read-only popup. Press `q` to close.
-- `B`: open the card back in an editable popup. `C-c C-c` saves,
-  `C-c C-k` cancels.
+- `b`: open the card back popup. If the card already has a back, the buffer
+  is read-only — press `q` to close. If the card has no back yet, the buffer
+  is editable — type the content and save with `C-x C-s`.
+
+  To modify an existing card back, open it with `b` and toggle the buffer
+  editable with `M-x read-only-mode` (or `C-x C-q`), edit as usual, and save
+  with `C-x C-s`.
 
 The card back buffer uses `org-mode` by default. You can change the major mode
 with `decklet-card-back-buffer-major-mode`:

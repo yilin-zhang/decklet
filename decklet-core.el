@@ -52,16 +52,16 @@
   "Shared color (green) for review-card state indicators."
   :group 'decklet)
 
-(defface decklet-card-back-indicator-color
-  `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)
-       :background ,(face-attribute 'ansi-color-bright-blue :foreground)))
-  "Shared color (bright blue) for card-back indicators."
-  :group 'decklet)
-
 (defface decklet-hint-color
   `((t :foreground ,(face-attribute 'shadow :foreground nil t)
        :background ,(face-attribute 'shadow :foreground nil t)))
   "Shared color (from the `shadow' face) for hint-like elements."
+  :group 'decklet)
+
+(defface decklet-card-back-color
+  `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)
+       :background ,(face-attribute 'ansi-color-bright-blue :foreground)))
+  "Shared color (bright blue) for card-back indicators."
   :group 'decklet)
 
 ;; Lifecycle hooks for extensions

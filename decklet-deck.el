@@ -469,10 +469,6 @@ and :message-prefix."
 (defvar-local decklet-card-back--word nil
   "Word associated with the current card back buffer.")
 
-(defvar-local decklet-card-back--callback nil
-  "Callback invoked after saving the card back.
-It is called with no arguments.")
-
 (defun decklet-card-back--buffer-name (word)
   "Return the buffer name for the card back of WORD."
   (format "*Decklet Card Back: %s*" word))
@@ -480,85 +476,51 @@ It is called with no arguments.")
 (defun decklet-card-back--kill-buffers ()
   "Kill all Decklet card back popup buffers."
   (dolist (buffer (buffer-list))
-    (when (string-prefix-p "*Decklet Card Back:" (buffer-name buffer))
-      (kill-buffer buffer))))
+    (with-current-buffer buffer
+      (when (bound-and-true-p decklet-card-back-mode)
+        (kill-buffer buffer)))))
 
+;; Card back save is not supposed to work after db disconnection.
 (add-hook 'decklet-db-pre-disconnect-hook #'decklet-card-back--kill-buffers)
 
 (defun decklet-card-back-save ()
-  "Save the card back content, close its window, and kill the buffer."
+  "Save the card back content to db."
   (interactive)
-  (let ((word decklet-card-back--word)
-        (callback decklet-card-back--callback))
+  (let ((word decklet-card-back--word))
     (unless word
       (user-error "No word associated with this buffer"))
     (let ((content (buffer-substring-no-properties (point-min) (point-max))))
       (decklet-set-card-back word content)
-      (quit-window t)
-      (when (functionp callback)
-        (funcall callback)))))
+      (message "Wrote card back of word \"%s\"" word))))
 
-(defun decklet-card-back-cancel ()
-  "Close the card back window and kill the buffer without saving."
-  (interactive)
-  (quit-window t))
-
-(defvar-keymap decklet-card-back-view-mode-map
-  :doc "Keymap for `decklet-card-back-view-mode'."
-  "q" #'decklet-card-back-cancel)
-
-(define-minor-mode decklet-card-back-view-mode
-  "Minor mode for viewing a Decklet card back in a read-only popup."
-  :lighter " DeckletView"
-  :keymap decklet-card-back-view-mode-map)
-
-(defvar-keymap decklet-card-back-edit-mode-map
-  :doc "Keymap for `decklet-card-back-edit-mode'."
-  "C-c C-c" #'decklet-card-back-save
-  "C-c C-k" #'decklet-card-back-cancel)
-
-(define-minor-mode decklet-card-back-edit-mode
+(define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
   :lighter " DeckletEdit"
-  :keymap decklet-card-back-edit-mode-map)
+  (when decklet-card-back-mode
+    (add-hook 'write-contents-functions
+              (lambda () (decklet-card-back-save) t))))
 
-(defun decklet-card-back--open (word read-only-p &optional callback)
-  "Open the card back popup buffer for WORD.
-When READ-ONLY-P is non-nil the buffer is read-only; otherwise it is editable.
-CALLBACK, when provided, is called with no arguments after a successful save."
+(defun decklet-card-back-show (word)
+  "Open the card back popup buffer for WORD."
+  (interactive (list (decklet--resolve-word nil "Word: ")))
+  (decklet--require-card word)
   (let* ((back (decklet-get-card-back word))
          (buf-name (decklet-card-back--buffer-name word))
          (buffer (get-buffer-create buf-name)))
-    (if (and read-only-p (not back))
-        (user-error "No card back for \"%s\"" word)
-      (with-current-buffer buffer
-        (let ((inhibit-read-only t))
-          (erase-buffer)
-          (funcall decklet-card-back-buffer-major-mode)
-          (setq-local decklet-card-back--word word)
-          (setq-local decklet-card-back--callback callback)
-          (when back
-            (insert back))
-          (goto-char (point-min))
-          (setq buffer-read-only read-only-p))
-        (if read-only-p
-            (decklet-card-back-view-mode 1)
-          (decklet-card-back-edit-mode 1)))
-      (pop-to-buffer buffer))))
-
-(defun decklet-card-back-show (word &optional callback)
-  "Show the card back for WORD in a read-only popup buffer.
-CALLBACK, when provided, is called with no arguments after a successful save."
-  (interactive (list (decklet--resolve-word nil "Word: ")))
-  (decklet--require-card word)
-  (decklet-card-back--open word t callback))
-
-(defun decklet-card-back-edit (word &optional callback)
-  "Open the card back for WORD in an editable popup buffer.
-CALLBACK, when provided, is called with no arguments after a successful save."
-  (interactive (list (decklet--resolve-word nil "Word: ")))
-  (decklet--require-card word)
-  (decklet-card-back--open word nil callback))
+    (with-current-buffer buffer
+      ;; insert buffer content
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (funcall decklet-card-back-buffer-major-mode)
+        (setq-local decklet-card-back--word word)
+        (when back
+          (insert back))
+        (goto-char (point-min)))
+      ;; read-only by default
+      (when back
+        (setq buffer-read-only t))
+      (decklet-card-back-mode 1))
+    (pop-to-buffer buffer)))
 
 (provide 'decklet-deck)
 ;;; decklet-deck.el ends here

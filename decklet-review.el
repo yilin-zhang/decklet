@@ -46,6 +46,16 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   :type 'boolean
   :group 'decklet-review)
 
+(defcustom decklet-review-hint-indicator "[HINT]"
+  "Indicator string used by `decklet-review-component-hint'."
+  :type 'string
+  :group 'decklet-review)
+
+(defcustom decklet-review-card-back-indicator "♦"
+  "Indicator string used by `decklet-review-component-card-back-indicator'."
+  :type 'string
+  :group 'decklet-review)
+
 ;; UI components
 
 (defcustom decklet-review-fixed-components
@@ -191,9 +201,9 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   :group 'decklet-review)
 
 (defface decklet-review-card-back-indicator-face
-  `((t :foreground ,(face-attribute 'decklet-card-back-indicator-color :foreground)
+  `((t :foreground ,(face-attribute 'decklet-card-back-color :foreground)
        :weight bold))
-  "Face for the [BACK] indicator in the review UI."
+  "Face for the card back indicator in the review UI."
   :group 'decklet-review)
 
 (defface decklet-review-undo-highlight-face
@@ -271,8 +281,7 @@ Less than the trail length when the user has undone cards.")
     "e" #'decklet-review-edit-word
     "t" #'decklet-review-edit-hint
     "u" #'decklet-review-undo
-    "b" #'decklet-review-show-card-back
-    "B" #'decklet-review-edit-card-back)
+    "b" #'decklet-review-show-card-back)
   "Keymap for `decklet-review-mode'.")
 
 ;; Format helpers
@@ -623,13 +632,13 @@ When reviewing an undone card, the previous rating is highlighted."
     (if decklet-review--state-display-hint
         (decklet-fill-and-center-text decklet-review--render-hint decklet-review-fill-column)
       (decklet-center-text
-       (propertize "[HINT]" 'face 'decklet-review-hint-placeholder-face)))))
+       (propertize decklet-review-hint-indicator 'face 'decklet-review-hint-placeholder-face)))))
 
 (defun decklet-review-component-card-back-indicator ()
-  "Return a centered [BACK] indicator when the current card has a back."
+  "Return a centered card back indicator when the current card has a back."
   (when decklet-review--render-has-back
     (decklet-center-text
-     (propertize "[BACK]" 'face 'decklet-review-card-back-indicator-face))))
+     (propertize decklet-review-card-back-indicator 'face 'decklet-review-card-back-indicator-face))))
 
 (defun decklet-review--hide-cursor ()
   "Hide the cursor and hl-line in the review buffer window."
@@ -912,15 +921,7 @@ original rating remains in the database until the user re-rates."
   "Show the card back for the current word in a read-only popup."
   (interactive)
   (let ((word (decklet--require-current-word "show card back for")))
-    (decklet-card-back-show word
-                            (lambda () (decklet-review--render-buffer t)))))
-
-(defun decklet-review-edit-card-back ()
-  "Open the card back for the current word in an editable popup."
-  (interactive)
-  (let ((word (decklet--require-current-word "edit card back for")))
-    (decklet-card-back-edit word
-                            (lambda () (decklet-review--render-buffer t)))))
+    (decklet-card-back-show word)))
 
 ;; Review mode setup
 
