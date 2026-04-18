@@ -422,12 +422,18 @@ for the most recent word.  Hint lines are joined with newlines."
   "Confirm batch import for the current buffer.
 Fires `decklet-cards-added-functions' and
 `decklet-cards-field-updated-functions' once each at the end of the
-import, carrying all events from this batch."
+import, carrying all events from this batch.
+
+Reports an `added/refreshed/exists' breakdown after import, matching
+the granularity of `decklet--add-card's status result."
   (interactive)
   (let* ((cards (decklet--batch-collect-cards))
          (conn (decklet-db--ensure))
          (added-events nil)
-         (hint-events nil))
+         (hint-events nil)
+         (added 0)
+         (refreshed 0)
+         (exists 0))
     (sqlite-execute conn "BEGIN;")
     (condition-case err
         ;; Suppress per-card hook fires inside the loop; we fire one
@@ -439,8 +445,11 @@ import, carrying all events from this batch."
                    (hint (plist-get card :hint))
                    (result (decklet--add-card word))
                    (card-id (plist-get result :card-id)))
-              (when (eq (plist-get result :status) 'added)
-                (push (list :card-id card-id) added-events))
+              (pcase (plist-get result :status)
+                ('added     (cl-incf added)
+                            (push (list :card-id card-id) added-events))
+                ('refreshed (cl-incf refreshed))
+                ('exists    (cl-incf exists)))
               (when hint
                 (decklet-set-card-hint card-id hint)
                 (push (list :card-id card-id :field 'hint) hint-events))))
@@ -450,11 +459,12 @@ import, carrying all events from this batch."
        (signal (car err) (cdr err))))
     (when added-events
       (decklet-run-cards-hook 'decklet-cards-added-functions
-                          (nreverse added-events)))
+                              (nreverse added-events)))
     (when hint-events
       (decklet-run-cards-hook 'decklet-cards-field-updated-functions
-                          (nreverse hint-events)))
-    (message "Imported %d words" (length cards))
+                              (nreverse hint-events)))
+    (message "Imported %d: %d added, %d refreshed, %d already existed"
+             (length cards) added refreshed exists)
     (when (functionp decklet-add-card-batch--on-confirm)
       (funcall decklet-add-card-batch--on-confirm
                (mapcar (lambda (card) (plist-get card :word)) cards))))
@@ -512,6 +522,10 @@ and :message-prefix."
 
 (defun decklet-card-back--kill-buffers ()
   "Kill all Decklet card back popup buffers."
+  ;; TODO: silent data-loss path — unsaved card-back buffers are killed
+  ;; without confirmation when the DB disconnects.  Consider prompting
+  ;; via `kill-buffer-query-functions' or offering save-before-kill for
+  ;; buffers that have unsaved edits.
   (dolist (buffer (buffer-list))
     (with-current-buffer buffer
       (when (bound-and-true-p decklet-card-back-mode)

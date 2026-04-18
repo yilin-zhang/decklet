@@ -296,10 +296,15 @@ If multiple words are equally near point, prefer a following line."
     (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty")))))
 
 (defmacro decklet-edit--column-sorter (column)
-  "Return a sorter lambda for COLUMN."
-  `(lambda (a b)
-     (let ((index (alist-get ,column (decklet-edit--column-indices) nil nil #'string=)))
-       (if (member ,column decklet-edit--numeric-columns)
+  "Return a sorter lambda for COLUMN.
+Column index and numeric-ness are captured once when the lambda is
+constructed, not per comparison — a fresh closure is built on each
+`decklet-edit--tabulated-list-format' refresh, so sidecar column
+changes propagate through the next format rebuild."
+  `(let ((index (alist-get ,column (decklet-edit--column-indices) nil nil #'string=))
+         (numeric-p (member ,column decklet-edit--numeric-columns)))
+     (lambda (a b)
+       (if numeric-p
            (< (decklet-edit--entry-sort-number a index)
               (decklet-edit--entry-sort-number b index))
          (string< (decklet-edit--entry-sort-string a index)
@@ -356,7 +361,10 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
           :word (decklet-card-word-by-id card-id))))
 
 (defun decklet-edit-rate-card ()
-  "Rate the card at point, regardless of its current state."
+  "Rate the card at point, regardless of its current state.
+When the current filter is `archived', the card is unarchived
+first and then rated, so rating from the archived view brings the
+card back into the active deck as a side effect."
   (interactive)
   (when decklet-current-card-id
     (user-error "Rating is disabled while a review session is active"))
