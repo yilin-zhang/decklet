@@ -61,14 +61,14 @@ case-insensitive; otherwise matching is exact case-sensitive."
   "Return Kindle rows as (STEM WORD USAGE) lists from DB-FILE.
 Each row comes from a LEFT JOIN between WORDS and LOOKUPS."
   (let* ((sql
-         (concat
+          (concat
            "SELECT "
            "ifnull(WORDS.stem, '') || char(31) || "
            "ifnull(WORDS.word, '') || char(31) || "
            "replace(ifnull(LOOKUPS.usage, ''), char(10), ' ') "
            "FROM WORDS "
-            "LEFT JOIN LOOKUPS ON LOOKUPS.word_key = WORDS.id "
-            "ORDER BY WORDS.rowid, LOOKUPS.rowid;"))
+           "LEFT JOIN LOOKUPS ON LOOKUPS.word_key = WORDS.id "
+           "ORDER BY WORDS.rowid, LOOKUPS.rowid;"))
          (raw (decklet-import--sqlite-call db-file sql "Failed to query database")))
     (mapcar (lambda (line)
               (let ((parts (split-string line "\\(?:\x1f\\|\\^_\\)" nil)))

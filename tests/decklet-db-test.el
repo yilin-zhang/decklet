@@ -27,11 +27,11 @@
 
 (ert-deftest decklet-test-db-ensure-and-upsert-select ()
   (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-db--upsert-card "lucid" (decklet-test--make-card-meta))
-    (let ((row (decklet-db--select-card "lucid")))
-      (should row)
-      (should (string= (plist-get row :word) "lucid")))))
+   (decklet-db--ensure)
+   (decklet-db--upsert-card "lucid" (decklet-test--make-card-meta))
+   (let ((row (decklet-db--select-card "lucid")))
+     (should row)
+     (should (string= (plist-get row :word) "lucid")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Archive/unarchive flow
@@ -41,15 +41,16 @@
 
 (ert-deftest decklet-test-archive-filter-flow ()
   (decklet-test--with-temp-db
-    (let ((ts (decklet-test--ts (current-time))))
-      (decklet-db--upsert-card "archive-me"
-                               (decklet-test--make-card-meta :timestamp ts))
-      (should (= 1 (length (decklet-db--select-cards 'all nil))))
-      (decklet-db--archive-card "archive-me" ts)
-      (should (= 0 (length (decklet-db--select-cards 'all nil))))
-      (should (= 1 (length (decklet-db--select-cards 'archived nil))))
-      (decklet-db--unarchive-card "archive-me")
-      (should (= 1 (length (decklet-db--select-cards 'all nil)))))))
+   (let ((ts (decklet-test--ts (current-time))))
+     (decklet-db--upsert-card "archive-me"
+                              (decklet-test--make-card-meta :timestamp ts))
+     (let ((card-id (plist-get (decklet-db--select-card "archive-me") :card-id)))
+       (should (= 1 (length (decklet-db--select-cards 'all nil))))
+       (decklet-db--archive-card-by-id card-id ts)
+       (should (= 0 (length (decklet-db--select-cards 'all nil))))
+       (should (= 1 (length (decklet-db--select-cards 'archived nil))))
+       (decklet-db--unarchive-card-by-id card-id)
+       (should (= 1 (length (decklet-db--select-cards 'all nil))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Due-word selection with review-order
@@ -59,45 +60,47 @@
 ;; - new/review due by review-day cutoff,
 ;; - final sequence respects configured review-order steps.
 
-(ert-deftest decklet-test-select-due-words-review-order ()
+(ert-deftest decklet-test-select-due-card-ids-review-order ()
   ;; Bind a specific order to test that the queue sequence matches config,
   ;; independent of whatever the production default happens to be.
   (decklet-test--with-temp-db
-    (let* ((decklet-review-order '((:sort :due :asc :learning)
-                                   (:sort :added :desc :new)
-                                   (:sort :due :asc :review)))
-           (now (current-time))
-           (past-2h (time-subtract now (seconds-to-time (* 2 3600))))
-           (past-1h (time-subtract now (seconds-to-time 3600)))
-           (past-10m (time-subtract now (seconds-to-time 600)))
-           (future-30m (time-add now (seconds-to-time 1800))))
-      ;; Learning due now.
-      (decklet-db--upsert-card
-       "learn-a"
-       (make-decklet-card-meta
-        :added-date (decklet-test--ts past-2h)
-        :last-review (decklet-test--ts past-1h)
-        :due (decklet-test--ts past-10m)
-        :state :learning))
-      ;; New card (last_review nil), due by today's review cutoff.
-      (decklet-db--upsert-card
-       "new-a"
-       (make-decklet-card-meta
-        :added-date (decklet-test--ts now)
-        :last-review nil
-        :due (decklet-test--ts now)
-        :state :learning))
-      ;; Review card due later today (still included in review target).
-      (decklet-db--upsert-card
-       "review-a"
-       (make-decklet-card-meta
-        :added-date (decklet-test--ts past-2h)
-        :last-review (decklet-test--ts past-1h)
-        :due (decklet-test--ts future-30m)
-        :state :review))
+   (let* ((decklet-review-order '((:sort :due :asc :learning)
+                                  (:sort :added :desc :new)
+                                  (:sort :due :asc :review)))
+          (now (current-time))
+          (past-2h (time-subtract now (seconds-to-time (* 2 3600))))
+          (past-1h (time-subtract now (seconds-to-time 3600)))
+          (past-10m (time-subtract now (seconds-to-time 600)))
+          (future-30m (time-add now (seconds-to-time 1800))))
+     ;; Learning due now.
+     (decklet-db--upsert-card
+      "learn-a"
+      (make-decklet-card-meta
+       :added-date (decklet-test--ts past-2h)
+       :last-review (decklet-test--ts past-1h)
+       :due (decklet-test--ts past-10m)
+       :state :learning))
+     ;; New card (last_review nil), due by today's review cutoff.
+     (decklet-db--upsert-card
+      "new-a"
+      (make-decklet-card-meta
+       :added-date (decklet-test--ts now)
+       :last-review nil
+       :due (decklet-test--ts now)
+       :state :learning))
+     ;; Review card due later today (still included in review target).
+     (decklet-db--upsert-card
+      "review-a"
+      (make-decklet-card-meta
+       :added-date (decklet-test--ts past-2h)
+       :last-review (decklet-test--ts past-1h)
+       :due (decklet-test--ts future-30m)
+       :state :review))
 
-      (should (equal (decklet-db--select-due-words)
-                     '("learn-a" "new-a" "review-a"))))))
+     (should (equal (decklet-db--select-due-card-ids)
+                    (mapcar (lambda (word)
+                              (plist-get (decklet-db--select-card word) :card-id))
+                            '("learn-a" "new-a" "review-a")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Review-order validation
@@ -186,74 +189,75 @@
 
 (ert-deftest decklet-test-db-import-json-adds-and-preserves-archive ()
   (decklet-test--with-temp-db
-    (let* ((file (expand-file-name "import.json" tmp-dir))
-           (rows '(((word . "alpha")
-                    (added_date . "20250101T010101Z")
-                    (last_review . nil)
-                    (due . "20250101T010101Z")
-                    (archived_at . nil)
-                    (state . "learning")
-                    (step . 0)
-                    (stability . nil)
-                    (difficulty . nil)
-                    (hint . "first"))
-                   ((word . "beta")
-                    (added_date . "20250102T010101Z")
-                    (last_review . "20250102T010101Z")
-                    (due . "20250103T010101Z")
-                    (archived_at . "20250104T010101Z")
-                    (state . "review")
-                    (step . 0)
-                    (stability . 10.0)
-                    (difficulty . 3.0)
-                    (hint . "second"))))
-           (json-encoding-pretty-print t))
-      (with-temp-file file
-        (insert (json-encode rows)))
-      (let ((stats (decklet-db-import-json file)))
-        (should (= 2 (plist-get stats :added)))
-        (should (= 0 (plist-get stats :overwritten)))
-        (should (= 0 (plist-get stats :skipped))))
-      (should (= 1 (length (decklet-db--select-cards 'all nil))))
-      (should (= 1 (length (decklet-db--select-cards 'archived nil)))))))
+   (let* ((file (expand-file-name "import.json" tmp-dir))
+          (rows '(((word . "alpha")
+                   (added_date . "20250101T010101Z")
+                   (last_review . nil)
+                   (due . "20250101T010101Z")
+                   (archived_at . nil)
+                   (state . "learning")
+                   (step . 0)
+                   (stability . nil)
+                   (difficulty . nil)
+                   (hint . "first"))
+                  ((word . "beta")
+                   (added_date . "20250102T010101Z")
+                   (last_review . "20250102T010101Z")
+                   (due . "20250103T010101Z")
+                   (archived_at . "20250104T010101Z")
+                   (state . "review")
+                   (step . 0)
+                   (stability . 10.0)
+                   (difficulty . 3.0)
+                   (hint . "second"))))
+          (json-encoding-pretty-print t))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (let ((stats (decklet-db-import-json file)))
+       (should (= 2 (plist-get stats :added)))
+       (should (= 0 (plist-get stats :overwritten)))
+       (should (= 0 (plist-get stats :skipped))))
+     (should (= 1 (length (decklet-db--select-cards 'all nil))))
+     (should (= 1 (length (decklet-db--select-cards 'archived nil)))))))
 
 (ert-deftest decklet-test-db-import-json-conflict-skip-and-overwrite ()
   (decklet-test--with-temp-db
-    (let* ((file (expand-file-name "import-conflict.json" tmp-dir))
-           (base-meta (decklet-test--make-card-meta
-                       :timestamp "20250101T000000Z"
-                       :due "20250102T000000Z"))
-           (rows '(((word . "alpha")
-                    (added_date . "20250110T000000Z")
-                    (last_review . "20250110T000000Z")
-                    (due . "20250111T000000Z")
-                    (archived_at . nil)
-                    (state . "review")
-                    (step . 0)
-                    (stability . 1.0)
-                    (difficulty . 1.0)
-                    (hint . "new"))))
-           (json-encoding-pretty-print t))
-      (decklet-db--upsert-card "alpha" base-meta)
-      (decklet-db--update-hint "alpha" "old")
-      (with-temp-file file
-        (insert (json-encode rows)))
-      ;; Conflict => skip
-      (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
-                 (lambda (_word) (cons :skip nil))))
-        (let ((stats (decklet-db-import-json file)))
-          (should (= 0 (plist-get stats :added)))
-          (should (= 0 (plist-get stats :overwritten)))
-          (should (= 1 (plist-get stats :skipped)))))
-      (should (string= "old" (plist-get (decklet-db--select-card "alpha") :hint)))
-      ;; Conflict => overwrite
-      (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
-                 (lambda (_word) (cons :overwrite nil))))
-        (let ((stats (decklet-db-import-json file)))
-          (should (= 0 (plist-get stats :added)))
-          (should (= 1 (plist-get stats :overwritten)))
-          (should (= 0 (plist-get stats :skipped)))))
-      (should (string= "new" (plist-get (decklet-db--select-card "alpha") :hint))))))
+   (let* ((file (expand-file-name "import-conflict.json" tmp-dir))
+          (base-meta (decklet-test--make-card-meta
+                      :timestamp "20250101T000000Z"
+                      :due "20250102T000000Z"))
+          (rows '(((word . "alpha")
+                   (added_date . "20250110T000000Z")
+                   (last_review . "20250110T000000Z")
+                   (due . "20250111T000000Z")
+                   (archived_at . nil)
+                   (state . "review")
+                   (step . 0)
+                   (stability . 1.0)
+                   (difficulty . 1.0)
+                   (hint . "new"))))
+          (json-encoding-pretty-print t))
+     (decklet-db--upsert-card "alpha" base-meta)
+     (decklet-db--update-hint-by-id
+      (plist-get (decklet-db--select-card "alpha") :card-id) "old")
+     (with-temp-file file
+       (insert (json-encode rows)))
+     ;; Conflict => skip
+     (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
+                (lambda (_word) (cons :skip nil))))
+       (let ((stats (decklet-db-import-json file)))
+         (should (= 0 (plist-get stats :added)))
+         (should (= 0 (plist-get stats :overwritten)))
+         (should (= 1 (plist-get stats :skipped)))))
+     (should (string= "old" (plist-get (decklet-db--select-card "alpha") :hint)))
+     ;; Conflict => overwrite
+     (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
+                (lambda (_word) (cons :overwrite nil))))
+       (let ((stats (decklet-db-import-json file)))
+         (should (= 0 (plist-get stats :added)))
+         (should (= 1 (plist-get stats :overwritten)))
+         (should (= 0 (plist-get stats :skipped)))))
+     (should (string= "new" (plist-get (decklet-db--select-card "alpha") :hint))))))
 
 (ert-deftest decklet-test-db-import-read-conflict-choice-global-confirm ()
   ;; Choosing all-overwrite and confirming should return current overwrite action
@@ -308,98 +312,102 @@
 
 (ert-deftest decklet-test-db-counts-correct-per-slot ()
   (decklet-test--with-temp-db
-    (let* ((now (current-time))
-           (ts-now (decklet-test--ts now))
-           ;; Use a fixed old timestamp clearly outside today's review window.
-           (ts-old "20250101T000000Z")
-           (ts-future (decklet-test--ts (time-add now (seconds-to-time 86400)))))
-      ;; Reviewed card: last_review within today's window, due in future.
-      (decklet-db--upsert-card "reviewed"
-                               (make-decklet-card-meta
-                                :added-date ts-old :last-review ts-now
-                                :due ts-future :state :review))
-      ;; Due review card: state=review, last_review in the past, due in the past.
-      (decklet-db--upsert-card "due-review"
-                               (make-decklet-card-meta
-                                :added-date ts-old :last-review ts-old
-                                :due ts-old :state :review))
-      ;; Due learning card: state=learning, last_review in the past, due in the past.
-      (decklet-db--upsert-card "due-learning"
-                               (make-decklet-card-meta
-                                :added-date ts-old :last-review ts-old
-                                :due ts-old :state :learning))
-      ;; New card: no last_review.
-      (decklet-db--upsert-card "new-card"
-                               (make-decklet-card-meta
-                                :added-date ts-old :due ts-old :state :new))
-      (let ((counts (decklet-db--counts)))
-        (should (= 1 (plist-get counts :reviewed)))
-        (should (= 1 (plist-get counts :due-review)))
-        (should (= 1 (plist-get counts :due-learning)))
-        (should (= 1 (plist-get counts :new)))))))
+   (let* ((now (current-time))
+          (ts-now (decklet-test--ts now))
+          ;; Use a fixed old timestamp clearly outside today's review window.
+          (ts-old "20250101T000000Z")
+          (ts-future (decklet-test--ts (time-add now (seconds-to-time 86400)))))
+     ;; Reviewed card: last_review within today's window, due in future.
+     (decklet-db--upsert-card "reviewed"
+                              (make-decklet-card-meta
+                               :added-date ts-old :last-review ts-now
+                               :due ts-future :state :review))
+     ;; Due review card: state=review, last_review in the past, due in the past.
+     (decklet-db--upsert-card "due-review"
+                              (make-decklet-card-meta
+                               :added-date ts-old :last-review ts-old
+                               :due ts-old :state :review))
+     ;; Due learning card: state=learning, last_review in the past, due in the past.
+     (decklet-db--upsert-card "due-learning"
+                              (make-decklet-card-meta
+                               :added-date ts-old :last-review ts-old
+                               :due ts-old :state :learning))
+     ;; New card: no last_review.
+     (decklet-db--upsert-card "new-card"
+                              (make-decklet-card-meta
+                               :added-date ts-old :due ts-old :state :new))
+     (let ((counts (decklet-db--counts)))
+       (should (= 1 (plist-get counts :reviewed)))
+       (should (= 1 (plist-get counts :due-review)))
+       (should (= 1 (plist-get counts :due-learning)))
+       (should (= 1 (plist-get counts :new)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Card back — DB layer
 ;; ---------------------------------------------------------------------------
-;; Covers decklet-db--update-back, decklet-db--select-card-back, and that
+;; Covers back field updates and that
 ;; upsert-card never touches the back field (content/scheduling separation).
 
 (ert-deftest decklet-test-card-back-update-and-select ()
   "update-back stores content and select-card-back retrieves it."
   (decklet-test--with-temp-db
-    (let ((meta (make-decklet-card-meta
-                 :added-date "20250101T000000Z"
-                 :due "20250101T000000Z"
-                 :state :new)))
-      (decklet-db--upsert-card "lucid" meta)
-      (should (null (decklet-db--select-card-back "lucid")))
-      (decklet-db--update-back "lucid" "clear and bright")
-      (should (string= "clear and bright"
-                       (decklet-db--select-card-back "lucid"))))))
+   (let ((meta (make-decklet-card-meta
+                :added-date "20250101T000000Z"
+                :due "20250101T000000Z"
+                :state :new)))
+     (decklet-db--upsert-card "lucid" meta)
+     (let ((card-id (plist-get (decklet-db--select-card "lucid") :card-id)))
+       (should (null (decklet-db--select-card-back-by-id card-id)))
+       (decklet-db--update-back-by-id card-id "clear and bright")
+       (should (string= "clear and bright"
+                        (decklet-db--select-card-back-by-id card-id)))))))
 
 (ert-deftest decklet-test-card-back-select-nil-when-absent ()
   "select-card-back returns nil for a card with no back."
   (decklet-test--with-temp-db
-    (decklet-db--upsert-card "fog"
-                             (make-decklet-card-meta
-                              :added-date "20250101T000000Z"
-                              :due "20250101T000000Z"
-                              :state :new))
-    (should (null (decklet-db--select-card-back "fog")))))
+   (decklet-db--upsert-card "fog"
+                            (make-decklet-card-meta
+                             :added-date "20250101T000000Z"
+                             :due "20250101T000000Z"
+                             :state :new))
+   (should (null (decklet-db--select-card-back-by-id
+                  (plist-get (decklet-db--select-card "fog") :card-id))))))
 
 (ert-deftest decklet-test-card-back-blank-normalizes-to-nil ()
   "Storing a blank back normalizes it to nil."
   (decklet-test--with-temp-db
-    (decklet-db--upsert-card "mist"
-                             (make-decklet-card-meta
-                              :added-date "20250101T000000Z"
-                              :due "20250101T000000Z"
-                              :state :new))
-    (decklet-db--update-back "mist" "   ")
-    (should (null (decklet-db--select-card-back "mist")))))
+   (decklet-db--upsert-card "mist"
+                            (make-decklet-card-meta
+                             :added-date "20250101T000000Z"
+                             :due "20250101T000000Z"
+                             :state :new))
+   (let ((card-id (plist-get (decklet-db--select-card "mist") :card-id)))
+     (decklet-db--update-back-by-id card-id "   ")
+     (should (null (decklet-db--select-card-back-by-id card-id))))))
 
 (ert-deftest decklet-test-card-back-upsert-does-not-touch-back ()
   "upsert-card leaves back untouched; back must be set via update-back."
   (decklet-test--with-temp-db
-    (let ((meta (make-decklet-card-meta
-                 :added-date "20250101T000000Z"
-                 :due "20250101T000000Z"
-                 :state :new)))
-      (decklet-db--upsert-card "vivid" meta)
-      ;; Back is nil after initial upsert.
-      (should (null (decklet-db--select-card-back "vivid")))
-      ;; Set back directly.
-      (decklet-db--update-back "vivid" "example sentence")
-      ;; Scheduling update does not clear it.
-      (decklet-db--upsert-card
-       "vivid"
-       (make-decklet-card-meta
-        :added-date "20250101T000000Z"
-        :last-review "20250102T000000Z"
-        :due "20250110T000000Z"
-        :state :review))
-      (should (string= "example sentence"
-                       (decklet-db--select-card-back "vivid"))))))
+   (let ((meta (make-decklet-card-meta
+                :added-date "20250101T000000Z"
+                :due "20250101T000000Z"
+                :state :new)))
+     (decklet-db--upsert-card "vivid" meta)
+     ;; Back is nil after initial upsert.
+     (let ((card-id (plist-get (decklet-db--select-card "vivid") :card-id)))
+       (should (null (decklet-db--select-card-back-by-id card-id)))
+       ;; Set back directly.
+       (decklet-db--update-back-by-id card-id "example sentence")
+       ;; Scheduling update does not clear it.
+       (decklet-db--upsert-card
+        "vivid"
+        (make-decklet-card-meta
+         :added-date "20250101T000000Z"
+         :last-review "20250102T000000Z"
+         :due "20250110T000000Z"
+         :state :review))
+       (should (string= "example sentence"
+                        (decklet-db--select-card-back-by-id card-id)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Card back — JSON import/export
@@ -408,45 +416,47 @@
 (ert-deftest decklet-test-card-back-json-import-reads-back-field ()
   "JSON import populates the `back' field from the record."
   (decklet-test--with-temp-db
-    (let* ((file (expand-file-name "import-back.json" tmp-dir))
-           (rows '(((word . "crisp")
-                    (added_date . "20250101T010101Z")
-                    (last_review . nil)
-                    (due . "20250101T010101Z")
-                    (archived_at . nil)
-                    (state . "new")
-                    (step . 0)
-                    (stability . nil)
-                    (difficulty . nil)
-                    (hint . nil)
-                    (back . "fresh and clear"))))
-           (json-encoding-pretty-print t))
-      (with-temp-file file
-        (insert (json-encode rows)))
-      (decklet-db-import-json file)
-      (should (string= "fresh and clear"
-                       (decklet-db--select-card-back "crisp"))))))
+   (let* ((file (expand-file-name "import-back.json" tmp-dir))
+          (rows '(((word . "crisp")
+                   (added_date . "20250101T010101Z")
+                   (last_review . nil)
+                   (due . "20250101T010101Z")
+                   (archived_at . nil)
+                   (state . "new")
+                   (step . 0)
+                   (stability . nil)
+                   (difficulty . nil)
+                   (hint . nil)
+                   (back . "fresh and clear"))))
+          (json-encoding-pretty-print t))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (decklet-db-import-json file)
+     (should (string= "fresh and clear"
+                      (decklet-db--select-card-back-by-id
+                       (plist-get (decklet-db--select-card "crisp") :card-id)))))))
 
 (ert-deftest decklet-test-card-back-json-import-nil-back ()
   "JSON import with null back leaves back as nil."
   (decklet-test--with-temp-db
-    (let* ((file (expand-file-name "import-no-back.json" tmp-dir))
-           (rows '(((word . "dim")
-                    (added_date . "20250101T010101Z")
-                    (last_review . nil)
-                    (due . "20250101T010101Z")
-                    (archived_at . nil)
-                    (state . "new")
-                    (step . 0)
-                    (stability . nil)
-                    (difficulty . nil)
-                    (hint . nil)
-                    (back . nil))))
-           (json-encoding-pretty-print t))
-      (with-temp-file file
-        (insert (json-encode rows)))
-      (decklet-db-import-json file)
-      (should (null (decklet-db--select-card-back "dim"))))))
+   (let* ((file (expand-file-name "import-no-back.json" tmp-dir))
+          (rows '(((word . "dim")
+                   (added_date . "20250101T010101Z")
+                   (last_review . nil)
+                   (due . "20250101T010101Z")
+                   (archived_at . nil)
+                   (state . "new")
+                   (step . 0)
+                   (stability . nil)
+                   (difficulty . nil)
+                   (hint . nil)
+                   (back . nil))))
+          (json-encoding-pretty-print t))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (decklet-db-import-json file)
+     (should (null (decklet-db--select-card-back-by-id
+                    (plist-get (decklet-db--select-card "dim") :card-id)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON export
@@ -455,28 +465,29 @@
 (ert-deftest decklet-test-db-export-json-writes-all-cards ()
   "Export produces a JSON array with one object per card."
   (decklet-test--with-temp-db
-    (let* ((file (expand-file-name "export.json" tmp-dir))
-           (meta (decklet-test--make-card-meta
-                  :timestamp "20250101T010101Z"
-                  :stability 5.0 :difficulty 3.0)))
-      (decklet-db--upsert-card "sun" meta)
-      (decklet-db--update-hint "sun" "star")
-      (decklet-db--update-back "sun" "notes about sun")
-      (decklet-db--upsert-card "moon" meta)
-      (decklet-db-export-json file)
-      (let* ((data (with-temp-buffer
-                     (insert-file-contents file)
-                     (json-parse-buffer :object-type 'alist
-                                        :array-type 'list)))
-             (words (mapcar (lambda (r) (alist-get 'word r)) data)))
-        (should (= 2 (length data)))
-        ;; Cards are ordered by added_date ASC, word ASC.
-        (should (equal words '("moon" "sun")))
-        ;; Verify fields on a card with all content populated.
-        (let ((sun (cl-find "sun" data :key (lambda (r) (alist-get 'word r)) :test #'equal)))
-          (should (equal (alist-get 'hint sun) "star"))
-          (should (equal (alist-get 'back sun) "notes about sun"))
-          (should (equal (alist-get 'state sun) "review")))))))
+   (let* ((file (expand-file-name "export.json" tmp-dir))
+          (meta (decklet-test--make-card-meta
+                 :timestamp "20250101T010101Z"
+                 :stability 5.0 :difficulty 3.0)))
+     (decklet-db--upsert-card "sun" meta)
+     (let ((sun-id (plist-get (decklet-db--select-card "sun") :card-id)))
+       (decklet-db--update-hint-by-id sun-id "star")
+       (decklet-db--update-back-by-id sun-id "notes about sun"))
+     (decklet-db--upsert-card "moon" meta)
+     (decklet-db-export-json file)
+     (let* ((data (with-temp-buffer
+                    (insert-file-contents file)
+                    (json-parse-buffer :object-type 'alist
+                                       :array-type 'list)))
+            (words (mapcar (lambda (r) (alist-get 'word r)) data)))
+       (should (= 2 (length data)))
+       ;; Cards are ordered by added_date ASC, word ASC.
+       (should (equal words '("moon" "sun")))
+       ;; Verify fields on a card with all content populated.
+       (let ((sun (cl-find "sun" data :key (lambda (r) (alist-get 'word r)) :test #'equal)))
+         (should (equal (alist-get 'hint sun) "star"))
+         (should (equal (alist-get 'back sun) "notes about sun"))
+         (should (equal (alist-get 'state sun) "review")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON round-trip (export → import)
@@ -485,41 +496,43 @@
 (ert-deftest decklet-test-db-export-import-round-trip ()
   "Exporting then importing into a fresh DB preserves card data."
   (decklet-test--with-temp-db
-    (let* ((export-file (expand-file-name "round-trip.json" tmp-dir))
-           (meta1 (decklet-test--make-card-meta
-                   :timestamp "20250101T010101Z"
-                   :stability 8.5 :difficulty 4.2))
-           (meta2 (decklet-test--make-card-meta
-                   :timestamp "20250201T010101Z"
-                   :last-review nil :state :learning :step 0)))
-      ;; Populate source DB.
-      (decklet-db--upsert-card "river" meta1)
-      (decklet-db--update-hint "river" "flows")
-      (decklet-db--update-back "river" "water body")
-      (decklet-db--upsert-card "lake" meta2)
-      (decklet-db--update-hint "lake" "still")
-      (decklet-archive-card "lake")
-      ;; Export.
-      (decklet-db-export-json export-file)
-      ;; Clear all cards to simulate a fresh DB.
-      (sqlite-execute (decklet-db--ensure) "DELETE FROM cards;")
-      ;; Import into the empty DB.
-      (let ((stats (decklet-db-import-json export-file)))
-        (should (= 2 (plist-get stats :added))))
-      ;; Verify river (active, reviewed card with back and scheduling data).
-      (let ((row (decklet-db--select-card "river")))
-        (should row)
-        (should (equal (plist-get row :hint) "flows"))
-        (should (equal (plist-get row :back) "water body"))
-        (should (equal (plist-get row :state) "review"))
-        (should (= (plist-get row :stability) 8.5))
-        (should (= (plist-get row :difficulty) 4.2)))
-      ;; Verify lake (archived, new card without scheduling data).
-      (should (= 1 (length (decklet-db--select-cards 'archived nil))))
-      (let ((row (decklet-db--select-card "lake")))
-        (should row)
-        (should (equal (plist-get row :hint) "still"))
-        (should (equal (plist-get row :step) 0))))))
+   (let* ((export-file (expand-file-name "round-trip.json" tmp-dir))
+          (meta1 (decklet-test--make-card-meta
+                  :timestamp "20250101T010101Z"
+                  :stability 8.5 :difficulty 4.2))
+          (meta2 (decklet-test--make-card-meta
+                  :timestamp "20250201T010101Z"
+                  :last-review nil :state :learning :step 0)))
+     ;; Populate source DB.
+     (decklet-db--upsert-card "river" meta1)
+     (let ((river-id (plist-get (decklet-db--select-card "river") :card-id)))
+       (decklet-db--update-hint-by-id river-id "flows")
+       (decklet-db--update-back-by-id river-id "water body"))
+     (decklet-db--upsert-card "lake" meta2)
+     (decklet-db--update-hint-by-id
+      (plist-get (decklet-db--select-card "lake") :card-id) "still")
+     (decklet-archive-card (plist-get (decklet-db--select-card "lake") :card-id))
+     ;; Export.
+     (decklet-db-export-json export-file)
+     ;; Clear all cards to simulate a fresh DB.
+     (sqlite-execute (decklet-db--ensure) "DELETE FROM cards;")
+     ;; Import into the empty DB.
+     (let ((stats (decklet-db-import-json export-file)))
+       (should (= 2 (plist-get stats :added))))
+     ;; Verify river (active, reviewed card with back and scheduling data).
+     (let ((row (decklet-db--select-card "river")))
+       (should row)
+       (should (equal (plist-get row :hint) "flows"))
+       (should (equal (plist-get row :back) "water body"))
+       (should (equal (plist-get row :state) "review"))
+       (should (= (plist-get row :stability) 8.5))
+       (should (= (plist-get row :difficulty) 4.2)))
+     ;; Verify lake (archived, new card without scheduling data).
+     (should (= 1 (length (decklet-db--select-cards 'archived nil))))
+     (let ((row (decklet-db--select-card "lake")))
+       (should row)
+       (should (equal (plist-get row :hint) "still"))
+       (should (equal (plist-get row :step) 0))))))
 
 (provide 'decklet-db-test)
 ;;; decklet-db-test.el ends here

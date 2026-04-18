@@ -22,7 +22,7 @@
   (should
    (eq (decklet-card-meta-display-state
         (make-decklet-card-meta :state :learning
-                                 :last-review "2025-01-01T00:00:00Z"))
+                                :last-review "2025-01-01T00:00:00Z"))
        :learning)))
 
 ;; ---------------------------------------------------------------------------
@@ -61,43 +61,45 @@
 (ert-deftest decklet-test-card-back-show-creates-readonly-buffer-with-content ()
   "decklet-card-back-show opens a read-only buffer with the stored back content."
   (decklet-test--with-temp-db
-    (decklet-db--upsert-card "bright"
-                             (make-decklet-card-meta
-                              :added-date "20250101T000000Z"
-                              :due "20250101T000000Z"
-                              :state :new))
-    (decklet-db--update-back "bright" "shining example")
-    ;; Mock pop-to-buffer to avoid needing a live window during tests.
-    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-      (decklet-card-back-show "bright"))
-    (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
-      (unwind-protect
-          (progn
-            (should (buffer-live-p buf))
-            (with-current-buffer buf
-              (should (string= "shining example"
-                               (buffer-substring-no-properties
-                                (point-min) (point-max))))
-              (should buffer-read-only)))
-        (when (buffer-live-p buf)
-          (kill-buffer buf))))))
+   (decklet-db--upsert-card "bright"
+                            (make-decklet-card-meta
+                             :added-date "20250101T000000Z"
+                             :due "20250101T000000Z"
+                             :state :new))
+   (decklet-db--update-back-by-id
+    (plist-get (decklet-db--select-card "bright") :card-id)
+    "shining example")
+   ;; Mock pop-to-buffer to avoid needing a live window during tests.
+   (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
+     (decklet-card-back-show "bright"))
+   (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
+     (unwind-protect
+         (progn
+           (should (buffer-live-p buf))
+           (with-current-buffer buf
+             (should (string= "shining example"
+                              (buffer-substring-no-properties
+                               (point-min) (point-max))))
+             (should buffer-read-only)))
+       (when (buffer-live-p buf)
+         (kill-buffer buf))))))
 
 (ert-deftest decklet-test-card-back-show-editable-when-back-absent ()
   "decklet-card-back-show opens an editable buffer when the card has no back."
   (decklet-test--with-temp-db
-    (decklet-db--upsert-card "glow"
-                             (make-decklet-card-meta
-                              :added-date "20250101T000000Z"
-                              :due "20250101T000000Z"
-                              :state :new))
-    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-      (decklet-card-back-show "glow"))
-    (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
-      (unwind-protect
-          (with-current-buffer buf
-            (should-not buffer-read-only))
-        (when (buffer-live-p buf)
-          (kill-buffer buf))))))
+   (decklet-db--upsert-card "glow"
+                            (make-decklet-card-meta
+                             :added-date "20250101T000000Z"
+                             :due "20250101T000000Z"
+                             :state :new))
+   (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
+     (decklet-card-back-show "glow"))
+   (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
+     (unwind-protect
+         (with-current-buffer buf
+           (should-not buffer-read-only))
+       (when (buffer-live-p buf)
+         (kill-buffer buf))))))
 
 (ert-deftest decklet-test-card-back-save-errors-when-read-only ()
   "decklet-card-back-save signals user-error when buffer is read-only."
@@ -126,7 +128,8 @@
 ;;             (insert "a vivid glow")
 ;;             (decklet-card-back-save)
 ;;             (should (string= "a vivid glow"
-;;                              (decklet-db--select-card-back "radiant")))
+;;                              (decklet-db--select-card-back-by-id
+;;                               (plist-get (decklet-db--select-card "radiant") :card-id))))
 ;;             (should on-save-called))
 ;;         (when (buffer-live-p buf)
 ;;           (kill-buffer buf))))))

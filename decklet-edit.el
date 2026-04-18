@@ -217,19 +217,19 @@ WIN-LINE is the point's screen-line offset from window start, used by
   (when (and win-line (numberp win-line))
     (recenter win-line)))
 
-(defun decklet-edit--nearest-surviving-word (deleted-words)
-  "Return the nearest table word not listed in DELETED-WORDS.
+(defun decklet-edit--nearest-surviving-card-id (deleted-card-ids)
+  "Return the nearest table card id not listed in DELETED-CARD-IDS.
 If multiple words are equally near point, prefer a following line."
   (let* ((origin-line (line-number-at-pos))
-         (best-word nil)
+         (best-card-id nil)
          (best-distance nil)
          (best-forward nil))
     (save-excursion
       (goto-char (point-min))
       (while (< (point) (point-max))
-        (let ((word (tabulated-list-get-id)))
-          (when (and word
-                     (not (member word deleted-words)))
+        (let ((card-id (tabulated-list-get-id)))
+          (when (and card-id
+                     (not (member card-id deleted-card-ids)))
             (let* ((line (line-number-at-pos))
                    (delta (abs (- line origin-line)))
                    (forward (>= line origin-line)))
@@ -237,21 +237,20 @@ If multiple words are equally near point, prefer a following line."
                         (< delta best-distance)
                         (and (= delta best-distance)
                              (and forward (not best-forward))))
-                (setq best-word word
+                (setq best-card-id card-id
                       best-distance delta
                       best-forward forward)))))
         (forward-line 1)))
-    best-word))
+    best-card-id))
 
-(defun decklet-edit--line-of-word (word)
-  "Return line number of WORD in current edit table, or nil if not found."
-  (when word
+(defun decklet-edit--line-of-card-id (card-id)
+  "Return line number of CARD-ID in current edit table, or nil if not found."
+  (when card-id
     (save-excursion
       (goto-char (point-min))
       (let (line)
         (while (and (not line) (< (point) (point-max)))
-          (when (let ((row-word (tabulated-list-get-id)))
-                  (and row-word (string-equal row-word word)))
+          (when (eql (tabulated-list-get-id) card-id)
             (setq line (line-number-at-pos)))
           (forward-line 1))
         line))))
@@ -290,30 +289,40 @@ If multiple words are equally near point, prefer a following line."
 
 ;; Lightweight ratings from the edit table
 
-(defun decklet-edit--word-at-point ()
-  "Return the word for the card on the current line.
+(defun decklet-edit--card-id-at-point ()
+  "Return the card id for the card on the current line.
 Signal a `user-error' if point is not on a card row."
   (or (tabulated-list-get-id)
       (user-error "No card on this line")))
 
-(defun decklet-edit--ensure-not-current (words)
-  "Signal an error if WORDS include the current review word.
-WORDS can be a single word string or a list of words."
-  (let ((current decklet-current-word))
+(defun decklet-edit--ensure-not-current (card-ids)
+  "Signal an error if CARD-IDS include the current review card.
+CARD-IDS can be a single card id or a list of card ids."
+  (let ((current decklet-current-card-id))
     (when (and current
-               (if (listp words)
-                   (seq-find (lambda (word)
-                               (string-equal word current))
-                             words)
-                 (string-equal words current)))
-      (user-error "Current review word \"%s\" can only be modified in review mode" current))))
+               (if (listp card-ids)
+                   (memq current card-ids)
+                 (eql card-ids current)))
+      (user-error "Current review word \"%s\" can only be modified in review mode"
+                  (decklet-card-word-by-id current)))))
+
+(defun decklet-edit--card-at-point (&optional ensure-not-current)
+  "Return the current edit-row card as a plist with `:card-id' and `:word'.
+When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
+  (let ((card-id (decklet-edit--card-id-at-point)))
+    (when ensure-not-current
+      (decklet-edit--ensure-not-current card-id))
+    (list :card-id card-id
+          :word (decklet-card-word-by-id card-id))))
 
 (defun decklet-edit-rate-card ()
   "Rate the card at point, regardless of its current state."
   (interactive)
-  (when (get-buffer decklet-review-buffer-name)
+  (when decklet-current-card-id
     (user-error "Rating is disabled while a review session is active"))
-  (let* ((word (decklet-edit--word-at-point))
+  (let* ((card (decklet-edit--card-at-point t))
+         (card-id (plist-get card :card-id))
+         (word (plist-get card :word))
          (grade-options '((1 . "Again") (2 . "Hard") (3 . "Good") (4 . "Easy")))
          (prompt (concat (format "Rate \"%s\" " word)
                          (mapconcat (lambda (g)
@@ -322,10 +331,11 @@ WORDS can be a single word string or a list of words."
                          ": "))
          (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
          (label (alist-get grade grade-options "" nil #'=)))
-    (decklet-edit--ensure-not-current word)
-    (when (eq decklet-edit--filter 'archived)
-      (decklet-unarchive-card word))
-    (decklet-rate-card word grade)
+    (if (eq decklet-edit--filter 'archived)
+        (decklet-edit--with-deferred-refresh
+         (decklet-unarchive-card card-id)
+         (decklet-rate-card card-id grade))
+      (decklet-rate-card card-id grade))
     (message "Rated \"%s\" as %s" word label)))
 
 ;; Edit table mode and commands
@@ -335,6 +345,7 @@ WORDS can be a single word string or a list of words."
   (mapcar
    (lambda (row)
      (let* ((word (plist-get row :word))
+            (card-id (plist-get row :card-id))
             (added (or (plist-get row :added) ""))
             (last-review (or (plist-get row :last-review) ""))
             (due (or (plist-get row :due) ""))
@@ -357,7 +368,7 @@ WORDS can be a single word string or a list of words."
             (hint (if hint
                       (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
                     "")))
-       (list word
+       (list card-id
              (vector
               (propertize display-word 'face word-face)
               (propertize hint 'face 'decklet-edit-hint-face)
@@ -404,20 +415,16 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
     (goto-char (point-min))
     (forward-line 1)
     (while (not (eobp))
-      (let ((word (tabulated-list-get-id)))
-        (when (gethash word decklet-edit--marked)
-          (decklet-edit--add-mark-overlay word)))
+      (let ((card-id (tabulated-list-get-id)))
+        (when (gethash card-id decklet-edit--marked)
+          (decklet-edit--add-mark-overlay card-id)))
       (forward-line 1))))
 
-(defun decklet-edit--marked-words ()
-  "Return a list of marked words."
-  (let (words)
-    (maphash (lambda (word _value) (push word words)) decklet-edit--marked)
-    (nreverse words)))
-
-(defun decklet-edit--clear-marks ()
-  "Clear all mark in the edit view."
-  (clrhash decklet-edit--marked))
+(defun decklet-edit--marked-card-ids ()
+  "Return a list of marked card ids."
+  (let (card-ids)
+    (maphash (lambda (card-id _value) (push card-id card-ids)) decklet-edit--marked)
+    (nreverse card-ids)))
 
 (defun decklet-edit--delete-overlay-cons (overlay-cons)
   "Delete overlays in OVERLAY-CONS."
@@ -431,9 +438,9 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
            decklet-edit--mark-overlays)
   (clrhash decklet-edit--mark-overlays))
 
-(defun decklet-edit--add-mark-overlay (word)
-  "Add a mark overlay for WORD on the current line."
-  (when-let ((ovs (gethash word decklet-edit--mark-overlays)))
+(defun decklet-edit--add-mark-overlay (card-id)
+  "Add a mark overlay for CARD-ID on the current line."
+  (when-let ((ovs (gethash card-id decklet-edit--mark-overlays)))
     ;; remove overlays to avoid duplication
     (decklet-edit--delete-overlay-cons ovs))
   (let ((ov (make-overlay (line-beginning-position) (line-end-position)))
@@ -441,7 +448,7 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
                                (1+ (line-beginning-position)))))
     (overlay-put ov 'face 'decklet-edit-mark-face)
     (overlay-put mark-ov 'display (propertize "*" 'face 'decklet-edit-mark-indicator-face))
-    (puthash word (cons ov mark-ov) decklet-edit--mark-overlays)))
+    (puthash card-id (cons ov mark-ov) decklet-edit--mark-overlays)))
 
 (defun decklet-edit--mark-region (beg end)
   "Mark all cards between BEG and END lines in the current edit table."
@@ -458,9 +465,9 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
       (goto-char start)
       (beginning-of-line)
       (while (<= (line-beginning-position) finish)
-        (when-let ((word (tabulated-list-get-id)))
-          (puthash word t decklet-edit--marked)
-          (decklet-edit--add-mark-overlay word))
+        (when-let ((card-id (tabulated-list-get-id)))
+          (puthash card-id t decklet-edit--marked)
+          (decklet-edit--add-mark-overlay card-id))
         (forward-line 1)))))
 
 (defun decklet-edit-mark-at-point ()
@@ -476,19 +483,19 @@ selection.  Otherwise, mark the card at point and move to the next line."
         (goto-char (max beg end))
         (beginning-of-line)
         (forward-line 1))
-    (let ((word (decklet-edit--word-at-point)))
-      (puthash word t decklet-edit--marked)
-      (decklet-edit--add-mark-overlay word)
+    (let ((card-id (decklet-edit--card-id-at-point)))
+      (puthash card-id t decklet-edit--marked)
+      (decklet-edit--add-mark-overlay card-id)
       (forward-line 1))))
 
 (defun decklet-edit-unmark-at-point ()
   "Unmark the card at point and move to the next line."
   (interactive)
-  (let ((word (decklet-edit--word-at-point)))
-    (remhash word decklet-edit--marked)
-    (when-let ((ovs (gethash word decklet-edit--mark-overlays)))
+  (let ((card-id (decklet-edit--card-id-at-point)))
+    (remhash card-id decklet-edit--marked)
+    (when-let ((ovs (gethash card-id decklet-edit--mark-overlays)))
       (decklet-edit--delete-overlay-cons ovs)
-      (remhash word decklet-edit--mark-overlays))
+      (remhash card-id decklet-edit--mark-overlays))
     (forward-line 1)))
 
 (defun decklet-edit--unmark-all ()
@@ -529,10 +536,10 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit--edit-card-at-point (edit-word edit-hint)
   "Edit the card at point using EDIT-WORD and EDIT-HINT flags."
-  (let ((word (decklet-edit--word-at-point)))
-    (decklet-edit--ensure-not-current word)
-    (setq word (decklet-prompt-edit-card-fields word edit-word edit-hint))
-    (message "Updated \"%s\"" word)))
+  (let* ((card (decklet-edit--card-at-point t))
+         (card-id (plist-get card :card-id)))
+    (message "Updated \"%s\""
+             (decklet-prompt-edit-card-fields card-id edit-word edit-hint))))
 
 (defun decklet-edit-word ()
   "Edit the word at point."
@@ -547,31 +554,32 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
   (interactive)
-  (decklet-card-back-show (decklet-edit--word-at-point)))
+  (decklet-card-back-show (plist-get (decklet-edit--card-at-point) :word)))
 
 (defun decklet-edit-delete-card ()
   "Delete the card at point from the deck."
   (interactive)
-  (let ((word (decklet-edit--word-at-point)))
-    (decklet-edit--ensure-not-current word)
+  (let* ((card (decklet-edit--card-at-point t))
+         (card-id (plist-get card :card-id))
+         (word (plist-get card :word)))
     (when (yes-or-no-p (format "Delete \"%s\" from the deck? " word))
-      (decklet-delete-card word)
+      (decklet-delete-card card-id)
       (message "Deleted \"%s\"" word))))
 
 (defun decklet-edit-delete ()
   "Delete marked cards, or the card at point."
   (interactive)
-  (let ((marked (decklet-edit--marked-words)))
+  (let ((marked (decklet-edit--marked-card-ids)))
     (if marked
         ;; bulk processing
         (let* ((win-line (count-screen-lines (window-start) (point)))
-               (target-word (decklet-edit--nearest-surviving-word marked)))
+               (target-card-id (decklet-edit--nearest-surviving-card-id marked)))
           (decklet-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "Delete %d marked cards? " (length marked)))
             (decklet-edit--with-deferred-refresh
              (decklet-edit--unmark-all)
              (mapc #'decklet-delete-card marked))
-            (when-let ((target-line (decklet-edit--line-of-word target-word)))
+            (when-let ((target-line (decklet-edit--line-of-card-id target-card-id)))
               (decklet-edit--restore-position target-line win-line))
             (message "Deleted %d cards" (length marked))))
       (decklet-edit-delete-card))))
@@ -579,24 +587,25 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-archive-card ()
   "Archive the card at point."
   (interactive)
-  (let ((word (decklet-edit--word-at-point)))
-    (decklet-edit--ensure-not-current word)
+  (let* ((card (decklet-edit--card-at-point t))
+         (card-id (plist-get card :card-id))
+         (word (plist-get card :word)))
     (when (yes-or-no-p (format "Archive \"%s\" from review? " word))
-      (decklet-archive-card word)
+      (decklet-archive-card card-id)
       (message "Archived \"%s\"" word))))
 
 (defun decklet-edit-unarchive-card ()
   "Unarchive the card at point."
   (interactive)
-  (let ((word (decklet-edit--word-at-point)))
-    (decklet-edit--ensure-not-current word)
-    (decklet-unarchive-card word)
-    (message "Unarchived \"%s\"" word)))
+  (let* ((card (decklet-edit--card-at-point t))
+         (card-id (plist-get card :card-id)))
+    (decklet-unarchive-card card-id)
+    (message "Unarchived \"%s\"" (plist-get card :word))))
 
 (defun decklet-edit-archive ()
   "Archive or unarchive marked cards, or the card at point."
   (interactive)
-  (let ((marked (decklet-edit--marked-words)))
+  (let ((marked (decklet-edit--marked-card-ids)))
     (if marked
         ;; bulk processing
         (let* ((unarchive-p (eq decklet-edit--filter 'archived))
@@ -604,13 +613,13 @@ selection.  Otherwise, mark the card at point and move to the next line."
                (done-verb (if unarchive-p "Unarchived" "Archived"))
                (action (if unarchive-p #'decklet-unarchive-card #'decklet-archive-card))
                (win-line (count-screen-lines (window-start) (point)))
-               (target-word (decklet-edit--nearest-surviving-word marked)))
+               (target-card-id (decklet-edit--nearest-surviving-card-id marked)))
           (decklet-edit--ensure-not-current marked)
           (when (yes-or-no-p (format "%s %d marked cards? " verb (length marked)))
             (decklet-edit--with-deferred-refresh
              (decklet-edit--unmark-all)
              (mapc action marked))
-            (when-let ((target-line (decklet-edit--line-of-word target-word)))
+            (when-let ((target-line (decklet-edit--line-of-card-id target-card-id)))
               (decklet-edit--restore-position target-line win-line))
             (message "%s %d cards" done-verb (length marked))))
       (if (eq decklet-edit--filter 'archived)

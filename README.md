@@ -757,27 +757,29 @@ analytics, ...) without touching Decklet internals.
 
 | Function | Returns |
 |---|---|
-| `(decklet-card-exists-p WORD)` | non-nil if WORD is in the deck |
-| `(decklet-get-card WORD)` | plist `(:word :hint :back :meta)` or nil |
-| `(decklet-get-card-hint WORD)` | hint string or nil |
-| `(decklet-get-card-back WORD)` | card back content or nil |
-| `(decklet-get-card-meta WORD)` | `decklet-card-meta` struct or nil |
+| `(decklet-card-exists-p CARD-ID)` | non-nil if `CARD-ID` is in the deck |
+| `(decklet-get-card CARD-ID)` | plist `(:card-id :word :hint :back :meta)` or nil |
+| `(decklet-get-card-hint CARD-ID)` | hint string or nil |
+| `(decklet-get-card-back CARD-ID)` | card back content or nil |
+| `(decklet-get-card-meta CARD-ID)` | `decklet-card-meta` struct or nil |
+| `(decklet-card-word-by-id CARD-ID)` | current word string or nil |
+| `(decklet-card-id-for-word WORD)` | card id or nil |
 | `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all`, `review`, `learning`, or `archived` |
 
 #### Mutating cards
 
 | Function | Effect |
 |---|---|
-| `(decklet-set-card-hint WORD HINT)` | update hint; fires field-updated hook |
-| `(decklet-set-card-back WORD CONTENT)` | update card back; fires field-updated hook |
-| `(decklet-rename-word OLD NEW)` | rename a word; fires renamed hook |
-| `(decklet-delete-card WORD)` | delete a card; fires deleted hook |
-| `(decklet-archive-card WORD)` / `(decklet-unarchive-card WORD)` | fire archived/unarchived hooks |
-| `(decklet-rate-card WORD GRADE &optional PRIOR-GRADE)` | grade a card; fires rated hook |
+| `(decklet-set-card-hint CARD-ID HINT)` | update hint; fires field-updated hook |
+| `(decklet-set-card-back CARD-ID CONTENT)` | update card back; fires field-updated hook |
+| `(decklet-rename-card CARD-ID NEW-WORD)` | rename a card's word; fires renamed hook |
+| `(decklet-delete-card CARD-ID)` | delete a card; fires deleted hook |
+| `(decklet-archive-card CARD-ID)` / `(decklet-unarchive-card CARD-ID)` | fire archived/unarchived hooks |
+| `(decklet-rate-card CARD-ID GRADE &optional PRIOR-GRADE)` | grade a card; fires rated hook |
 
 #### Context helpers
 
-- `decklet-current-word` — the word currently displayed in review
+- `decklet-current-card-id` — the card id currently displayed in review
   (nil outside review).
 - `(decklet-prompt-word &optional PROMPT)` — resolve the word from an
   active region, the current review word, the word on the current edit
@@ -790,13 +792,13 @@ handler is called with the arguments shown below.
 
 | Hook | Arguments | Fires when |
 |---|---|---|
-| `decklet-card-added-functions` | `(WORD)` | a new card is stored (including imports) |
-| `decklet-card-deleted-functions` | `(WORD)` | a card is removed from the deck |
-| `decklet-card-renamed-functions` | `(OLD-WORD NEW-WORD)` | a card's word key changes |
-| `decklet-card-archived-functions` | `(WORD)` | a card is archived |
-| `decklet-card-unarchived-functions` | `(WORD)` | a card is unarchived |
-| `decklet-card-field-updated-functions` | `(WORD FIELD)` | hint or back is updated; `FIELD` is `hint` or `back` |
-| `decklet-card-rated-functions` | `(WORD OLD-META GRADE NEW-META PRIOR-GRADE)` | a card is rated in review or edit mode |
+| `decklet-card-added-functions` | `(CARD-ID)` | a new card is stored (including imports) |
+| `decklet-card-deleted-functions` | `(CARD-ID CARD)` | a card is removed from the deck; `CARD` is the pre-delete plist snapshot |
+| `decklet-card-renamed-functions` | `(CARD-ID OLD-WORD NEW-WORD)` | a card's word key changes |
+| `decklet-card-archived-functions` | `(CARD-ID)` | a card is archived |
+| `decklet-card-unarchived-functions` | `(CARD-ID)` | a card is unarchived |
+| `decklet-card-field-updated-functions` | `(CARD-ID FIELD)` | hint or back is updated; `FIELD` is `hint` or `back` |
+| `decklet-card-rated-functions` | `(CARD-ID OLD-META GRADE NEW-META PRIOR-GRADE)` | a card is rated in review or edit mode |
 
 #### About the rated hook
 
@@ -825,11 +827,11 @@ review UI:
 (defun my/decklet-image-path (word)
   (expand-file-name (concat word ".png") my/decklet-image-dir))
 
-(defun my/decklet-image-delete (word)
-  (let ((path (my/decklet-image-path word)))
+(defun my/decklet-image-delete (_card-id card)
+  (let ((path (my/decklet-image-path (plist-get card :word))))
     (when (file-exists-p path) (delete-file path))))
 
-(defun my/decklet-image-rename (old-word new-word)
+(defun my/decklet-image-rename (_card-id old-word new-word)
   (let ((old (my/decklet-image-path old-word))
         (new (my/decklet-image-path new-word)))
     (when (file-exists-p old)
@@ -837,10 +839,11 @@ review UI:
 
 (defun my/decklet-image-indicator ()
   "Review UI component showing [IMG] when the current word has an image."
-  (when (and decklet-current-word
-             (file-exists-p (my/decklet-image-path decklet-current-word)))
-    (decklet-center-text
-     (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face))))
+  (when-let ((word (and decklet-current-card-id
+                        (decklet-card-word-by-id decklet-current-card-id))))
+    (when (file-exists-p (my/decklet-image-path word))
+      (decklet-center-text
+       (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face)))))
 
 (add-hook 'decklet-card-deleted-functions #'my/decklet-image-delete)
 (add-hook 'decklet-card-renamed-functions #'my/decklet-image-rename)
@@ -861,11 +864,12 @@ Decklet keeps local checks and CI aligned through one entrypoint:
 This script runs checks in order:
 
 1. Parentheses check
-2. Byte-compile
-3. Remove generated `.elc`
-4. Checkdoc
-5. Package lint
-6. ERT tests
+2. Indentation check
+3. Byte-compile
+4. Remove generated `.elc`
+5. Checkdoc
+6. Package lint
+7. ERT tests
 
 Individual scripts are available under `scripts/`:
 

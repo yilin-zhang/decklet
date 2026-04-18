@@ -32,13 +32,13 @@
     (should
      (equal (decklet-import-kindle--rows->batch-lines
              '(("lucid" "lucid" "A lucid dream")
-                ("lucid" "lucid" "Lucid writing")
-                ("dirt" "dirt" "Dirt road")))
-             '("lucid"
-               "# A *lucid* dream"
-               "# *Lucid* writing"
-               "dirt"
-               "# *Dirt* road")))))
+               ("lucid" "lucid" "Lucid writing")
+               ("dirt" "dirt" "Dirt road")))
+            '("lucid"
+              "# A *lucid* dream"
+              "# *Lucid* writing"
+              "dirt"
+              "# *Dirt* road")))))
 
 (ert-deftest decklet-test-import-kindle-rows-to-batch-lines-without-usage ()
   (let ((decklet-import-kindle-usage nil))

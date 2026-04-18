@@ -34,9 +34,9 @@ on exit."
           ;; Use the real production default so config regressions are caught.
           (decklet-review-order (default-value 'decklet-review-order))
           ;; Reset UI state to prevent cross-test pollution.
-          (decklet-current-word nil)
+          (decklet-current-card-id nil)
           (decklet-last-added-word nil)
-          (decklet-due-words nil)
+          (decklet-due-card-ids nil)
           (decklet--counter '(:reviewed 0 :due-review 0 :due-learning 0 :new 0)))
      (unwind-protect
          (progn ,@body)

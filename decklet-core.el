@@ -71,32 +71,34 @@
 ;; arguments matching the event's natural shape — see the docstrings.
 
 (defvar decklet-card-added-functions nil
-  "Abnormal hook called with (WORD) after a new card is added.")
+  "Abnormal hook called with (CARD-ID) after a new card is added.")
 
 (defvar decklet-card-deleted-functions nil
-  "Abnormal hook called with (WORD) after a card is deleted.")
+  "Abnormal hook called with (CARD-ID CARD) after a card is deleted.
+CARD is the full card plist captured before deletion, with keys
+`:word', `:hint', `:back', and `:meta'.")
 
 (defvar decklet-card-renamed-functions nil
-  "Abnormal hook called with (OLD-WORD NEW-WORD) after a card is renamed.
+  "Abnormal hook called with (CARD-ID OLD-WORD NEW-WORD) after a card is renamed.
 Extensions that key sidecar data by word should migrate their
 files or records in this hook.")
 
 (defvar decklet-card-archived-functions nil
-  "Abnormal hook called with (WORD) after a card is archived.")
+  "Abnormal hook called with (CARD-ID) after a card is archived.")
 
 (defvar decklet-card-unarchived-functions nil
-  "Abnormal hook called with (WORD) after a card is unarchived.")
+  "Abnormal hook called with (CARD-ID) after a card is unarchived.")
 
 (defvar decklet-card-field-updated-functions nil
-  "Abnormal hook called with (WORD FIELD) after a card field is updated.
+  "Abnormal hook called with (CARD-ID FIELD) after a card field is updated.
 FIELD is one of the symbols `hint' or `back'.")
 
 (defvar decklet-card-rated-functions nil
-  "Abnormal hook called with (WORD OLD-META GRADE NEW-META PRIOR-GRADE)
+  "Abnormal hook called with (CARD-ID OLD-META GRADE NEW-META PRIOR-GRADE)
 after a card is graded via review or edit mode.
 
 Arguments:
-  WORD         the word being graded.
+  CARD-ID      the card being graded.
   OLD-META     card meta before this grading (the FSRS base state used).
   GRADE        the grade (1=Again, 2=Hard, 3=Good, 4=Easy).
   NEW-META     card meta after FSRS scheduled the rating.
@@ -128,14 +130,6 @@ This hook does NOT fire on:
         (aset vec i (aref vec j))
         (aset vec j tmp)))
     (append vec nil)))
-
-(defun decklet--json-parse-safe (json-string context)
-  "Parse JSON-STRING, reporting errors with CONTEXT."
-  (condition-case err
-      (json-parse-string json-string :object-type 'alist)
-    (error
-     (message "%s: %s" context (error-message-string err))
-     nil)))
 
 (defun decklet--mint-monotonic-id (counter-sym &optional seed-fn)
   "Return the next strictly monotonic microsecond id stored in COUNTER-SYM.

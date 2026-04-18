@@ -250,6 +250,9 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 (defvar decklet-review--render-meta nil
   "Card meta for the current word; bound for the duration of a render cycle.")
 
+(defvar decklet-review--render-word nil
+  "Word for the current render cycle.")
+
 (defvar decklet-review--render-has-back nil
   "Non-nil when the current word has a card back; bound during a render cycle.")
 
@@ -260,7 +263,7 @@ post-render hint-timer decision share the same value.")
 
 (defvar decklet-review--trail nil
   "List of trail entries for the current review session.
-Each entry is a plist (:word :grade :pre-meta).")
+Each entry is a plist (:card-id :grade :pre-meta :log-id).")
 
 (defvar decklet-review--trail-pointer 0
   "Index into `decklet-review--trail'.
@@ -455,9 +458,9 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
 
 (defun decklet-review--clean-up ()
   "Clear transient review session state."
-  (setq decklet-current-word nil)
+  (setq decklet-current-card-id nil)
   (setq decklet-last-added-word nil)
-  (setq decklet-due-words nil)
+  (setq decklet-due-card-ids nil)
   (decklet-review--trail-reset)
   (decklet-review--reset-ui-state))
 
@@ -589,7 +592,7 @@ GRADE, apply `decklet-review-undo-highlight-face' to the LABEL text only."
     (concat (decklet-review--instruction-key-label command)
             " " styled-label
             (decklet-review--instruction-interval-label
-             decklet-current-word meta grade))))
+             decklet-review--render-word meta grade))))
 
 (defun decklet-review-component-rates ()
   "Return the options block for review ratings and commands.
@@ -623,7 +626,7 @@ When reviewing an undone card, the previous rating is highlighted."
 
 (defun decklet-review-component-word ()
   "Insert the current word in the review buffer."
-  (let ((word (propertize decklet-current-word 'face 'decklet-review-word-face)))
+  (let ((word (propertize decklet-review--render-word 'face 'decklet-review-word-face)))
     (decklet-center-text word)))
 
 (defun decklet-review-component-hint ()
@@ -657,8 +660,9 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   (with-current-buffer (get-buffer decklet-review-buffer-name)
     (when decklet-review-hide-cursor
       (decklet-review--hide-cursor))
-    (let* ((card-full (and decklet-current-word
-                          (decklet--load-card-full decklet-current-word)))
+    (let* ((card-full (and decklet-current-card-id
+                           (decklet-get-card decklet-current-card-id)))
+           (decklet-review--render-word (plist-get card-full :word))
            (decklet-review--render-meta (plist-get card-full :meta))
            (decklet-review--render-has-back (plist-get card-full :back))
            (decklet-review--render-hint (plist-get card-full :hint))
@@ -727,54 +731,50 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
     (plist-put entry :grade grade)
     (decklet-review--trail-advance-pointer)))
 
-(defun decklet-review--trail-rename (old-word new-word)
-  "Update `:word' entries in the trail from OLD-WORD to NEW-WORD."
-  (dolist (entry decklet-review--trail)
-    (when (string-equal (plist-get entry :word) old-word)
-      (plist-put entry :word new-word))))
-
-(defun decklet-review--trail-delete (word)
-  "Remove entries for WORD from the trail and adjust the pointer."
+(defun decklet-review--trail-delete (card-id)
+  "Remove entries for CARD-ID from the trail and adjust the pointer."
   (when decklet-review--trail
     (let ((removed-before-pointer 0)
           (i 0))
       (dolist (entry decklet-review--trail)
-        (when (and (string-equal (plist-get entry :word) word)
+        (when (and (eql (plist-get entry :card-id) card-id)
                    (< i decklet-review--trail-pointer))
           (setq removed-before-pointer (1+ removed-before-pointer)))
         (setq i (1+ i)))
       (setq decklet-review--trail
-            (seq-remove (lambda (e) (string-equal (plist-get e :word) word))
+            (seq-remove (lambda (e) (eql (plist-get e :card-id) card-id))
                         decklet-review--trail))
       (setq decklet-review--trail-pointer
             (min (- decklet-review--trail-pointer removed-before-pointer)
                  (length decklet-review--trail))))))
 
-(defun decklet-review--present-card (word)
-  "Set WORD as the current card and render the review buffer."
-  (setq decklet-current-word word)
+(defun decklet-review--present-card (card-id)
+  "Set CARD-ID as the current card and render the review buffer."
+  (setq decklet-current-card-id card-id)
   (decklet-review--reset-ui-state)
   (run-hooks 'decklet-review-next-card-hook)
   (decklet-review--render-buffer))
 
 (defun decklet-review--trail-skip ()
-  "Append a skip entry for the current word to the trail."
-  (when decklet-current-word
-    (let ((meta (decklet-get-card-meta decklet-current-word)))
-      (when meta
-        (decklet-review--trail-append
-         (list :word decklet-current-word
-               :grade nil
-               :pre-meta (copy-decklet-card-meta meta)))))))
+  "Append a skip entry for the current card to the trail."
+  (when decklet-current-card-id
+    (when-let ((meta (decklet-get-card-meta decklet-current-card-id)))
+      (decklet-review--trail-append
+       (list :card-id decklet-current-card-id
+             :grade nil
+             :pre-meta (copy-decklet-card-meta meta))))))
 
 (defun decklet-review--advance ()
   "Show the next card from the trail or the due queue, or quit."
   (if (decklet-review--undo-in-progress-p)
       (decklet-review--present-card
-       (plist-get (decklet-review--trail-current-entry) :word))
-    (if (or decklet-due-words (decklet--refresh-due-words))
-        (decklet-review--present-card (pop decklet-due-words))
-      (decklet-review-quit))))
+       (plist-get (decklet-review--trail-current-entry) :card-id))
+    (progn
+      (unless decklet-due-card-ids
+        (decklet--refresh-due-card-ids))
+      (if decklet-due-card-ids
+          (decklet-review--present-card (pop decklet-due-card-ids))
+        (decklet-review-quit)))))
 
 (defun decklet-review-next-card ()
   "Review the next due card.
@@ -800,9 +800,11 @@ When current list is empty, re-check for due cards and continue if any exist."
   (message "Review session finished"))
 
 (defun decklet-review--handle-grade (grade)
-  "Handle a GRADE input and move on to the next word."
-  (let ((word (decklet--require-current-word "rate"))
-        (goal-was-reached (decklet-review--daily-goal-reached-p)))
+  "Handle a GRADE input and move on to the next card."
+  (let* ((card-id (decklet--require-current-card-id "rate"))
+         (row (decklet--require-card-by-id card-id))
+         (word (plist-get row :word))
+         (goal-was-reached (decklet-review--daily-goal-reached-p)))
     (if (decklet-review--undo-in-progress-p)
         ;; Re-rate: restore pre-meta so FSRS computes from the
         ;; correct base state, then rate and update the entry.  Also
@@ -816,15 +818,16 @@ When current list is empty, re-check for due cards and continue if any exist."
           (decklet-db--upsert-card word pre-meta)
           (when prior-log-id
             (decklet-review-log-append-void prior-log-id))
-          (let ((new-log-id (decklet-rate-card word grade prior-grade)))
+          (let ((new-log-id (decklet--rate-card-state
+                             card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
           (decklet-review--trail-update-entry grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
-      (let* ((pre-meta (let ((m (decklet-get-card-meta word)))
-                         (when m (copy-decklet-card-meta m))))
-             (new-log-id (decklet-rate-card word grade)))
+      (let* ((old-meta (decklet-db--row->card-meta row))
+             (pre-meta (copy-decklet-card-meta old-meta))
+             (new-log-id (decklet--rate-card-state card-id word old-meta grade)))
         (decklet-review--trail-append
-         (list :word word :grade grade :pre-meta pre-meta :log-id new-log-id))))
+         (list :card-id card-id :grade grade :pre-meta pre-meta :log-id new-log-id))))
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
       (run-hooks 'decklet-review-daily-goal-reached-hook))
@@ -847,16 +850,17 @@ original rating remains in the database until the user re-rates."
     ;; current card is on the trail and will be revisited when the
     ;; pointer advances.
     (when (and (not (decklet-review--undo-in-progress-p))
-               decklet-current-word)
-      (push decklet-current-word decklet-due-words))
+               decklet-current-card-id)
+      (push decklet-current-card-id decklet-due-card-ids))
     (decklet-review--trail-retreat-pointer)
     (let* ((entry (decklet-review--trail-current-entry))
-           (word (plist-get entry :word)))
-      (if (not (decklet-card-exists-p word))
+           (card-id (plist-get entry :card-id))
+           (word (decklet-card-word-by-id card-id)))
+      (if (not (decklet-card-exists-p card-id))
           (progn
             (message "Card \"%s\" no longer exists, undo skipped" word)
             (decklet-review-undo))
-        (decklet-review--present-card word)))))
+        (decklet-review--present-card card-id)))))
 
 (defun decklet-review-rate-again ()
   "Rate the current word as `again'."
@@ -881,20 +885,20 @@ original rating remains in the database until the user re-rates."
 (defun decklet-review-refresh ()
   "Refresh the review window."
   (interactive)
-  (when decklet-current-word
+  (when decklet-current-card-id
     (let ((buffer (decklet-review--setup-buffer)))
       (switch-to-buffer buffer)
       (decklet-review--render-buffer))))
 
 (defun decklet-review--edit-card-fields (edit-word edit-hint)
   "Edit the current card using EDIT-WORD and EDIT-HINT flags."
-  (unless decklet-current-word
-    (user-error "No current word to edit"))
-  (setq decklet-current-word
-        (decklet-prompt-edit-card-fields decklet-current-word edit-word edit-hint))
-  (when (eq major-mode 'decklet-review-mode)
-    (decklet-review--render-buffer))
-  (message "Updated \"%s\"" decklet-current-word))
+  (let* ((card-id decklet-current-card-id)
+         (word (decklet-card-word-by-id
+                (decklet--require-current-card-id "edit")))
+         (updated-word (decklet-prompt-edit-card-fields card-id edit-word edit-hint)))
+    (when (eq major-mode 'decklet-review-mode)
+      (decklet-review--render-buffer))
+    (message "Updated \"%s\"" updated-word)))
 
 (defun decklet-review-edit-word ()
   "Edit the current word."
@@ -909,18 +913,19 @@ original rating remains in the database until the user re-rates."
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."
   (interactive)
-  (let ((word (decklet--require-current-word "delete")))
+  (let* ((card-id (decklet--require-current-card-id "delete"))
+         (word (decklet-card-word-by-id card-id)))
     (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
-      (decklet-delete-card word)
+      (decklet-delete-card card-id)
       (message "Deleted \"%s\" from the deck." word)
-      (setq decklet-current-word nil)
       (when (eq major-mode 'decklet-review-mode)
         (decklet-review--advance)))))
 
 (defun decklet-review-show-card-back ()
   "Show the card back for the current word in a read-only popup."
   (interactive)
-  (let ((word (decklet--require-current-word "show card back for")))
+  (let* ((card-id (decklet--require-current-card-id "show card back for"))
+         (word (decklet-card-word-by-id card-id)))
     (decklet-card-back-show word)))
 
 ;; Review mode setup
@@ -931,8 +936,8 @@ original rating remains in the database until the user re-rates."
   (interactive)
   (run-hooks 'decklet-review-start-hook)
   (decklet-review--trail-reset)
-  (decklet--refresh-due-words)
-  (if (null decklet-due-words)
+  (decklet--refresh-due-card-ids)
+  (if (null decklet-due-card-ids)
       (progn
         (decklet-review-quit)
         (message "No words to review"))
@@ -948,18 +953,18 @@ original rating remains in the database until the user re-rates."
 (add-hook 'decklet-review-start-hook #'decklet-review--enable-resize-refresh)
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
 
-;; Refresh the visible review buffer whenever any card field is updated.
-;; This removes the need for callers of `decklet-set-card-hint' or
-;; `decklet-set-card-back' to manage UI refreshes themselves.
-(defun decklet-review--on-field-updated (_word _field)
+;; Refresh the visible review buffer whenever the current card is updated.
+(defun decklet-review--on-field-updated (card-id _field)
   "Refresh the visible review buffer after a card field update."
-  (decklet-review--refresh-visible))
+  (when (eql card-id decklet-current-card-id)
+    (decklet-review--refresh-visible)))
 
 (add-hook 'decklet-card-field-updated-functions
           #'decklet-review--on-field-updated)
 
-(add-hook 'decklet-card-renamed-functions #'decklet-review--trail-rename)
-(add-hook 'decklet-card-deleted-functions #'decklet-review--trail-delete)
+(add-hook 'decklet-card-deleted-functions
+          (lambda (card-id &rest _)
+            (decklet-review--trail-delete card-id)))
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

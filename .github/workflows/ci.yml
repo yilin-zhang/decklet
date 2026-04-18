@@ -17,6 +17,6 @@ jobs:
         with:
           version: '30.1'
 
-      - name: Run checks (single entrypoint)
+      - name: Run checks (indentation, lint, tests)
         run: |
           ./scripts/check-all.sh
