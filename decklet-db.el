@@ -497,7 +497,7 @@ STEP can be a shuffle or sort clause."
 (defun decklet-db--counts ()
   "Return counter plist from database state."
   (let* ((now (current-time))
-         (day-start (decklet--time->fsrs-timestamp (decklet--day-start-time now)))
+         (day-start (decklet--time->fsrs-timestamp (decklet-day-start-time now)))
          (review-cutoff (decklet--time->fsrs-timestamp (decklet--next-day-start-time now)))
          (learning-cutoff (decklet--time->fsrs-timestamp now))
          (s-review (decklet--fsrs-state-string :review))
@@ -525,7 +525,7 @@ STEP can be a shuffle or sort clause."
 
 ;; Calendar queries
 
-(defun decklet-db--due-counts-by-date (day-start cutoff)
+(defun decklet-db-due-counts-by-date (day-start cutoff)
   "Return due-card counts grouped by date.
 
 DAY-START and CUTOFF are time values that bound the query.

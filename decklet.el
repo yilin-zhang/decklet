@@ -39,8 +39,6 @@
 (require 'decklet-edit)
 (require 'decklet-review)
 (require 'decklet-lookup)
-(require 'decklet-calendar)
-(require 'decklet-import)
 
 (provide 'decklet)
 ;;; decklet.el ends here

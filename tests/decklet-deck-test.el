@@ -134,5 +134,24 @@
 ;;         (when (buffer-live-p buf)
 ;;           (kill-buffer buf))))))
 
+;; ---------------------------------------------------------------------------
+;; Batch card collection parsing
+;; ---------------------------------------------------------------------------
+;; These tests protect batch-mode hint parsing: multi-line hints accumulate
+;; under the preceding word, and orphan hints (no preceding word) must fail.
+
+(ert-deftest decklet-test-batch-collect-cards-supports-hint-lines ()
+  (with-temp-buffer
+    (insert "\n  lucid  \n# adj.\n\n\t\n# lucid rain\n  dirt\n# ...\n")
+    (should
+     (equal (decklet--batch-collect-cards)
+            '((:word "lucid" :hint "adj.\nlucid rain")
+              (:word "dirt" :hint "..."))))))
+
+(ert-deftest decklet-test-batch-collect-cards-rejects-orphan-hint ()
+  (with-temp-buffer
+    (insert "# lonely hint\nlucid\n")
+    (should-error (decklet--batch-collect-cards))))
+
 (provide 'decklet-deck-test)
 ;;; decklet-deck-test.el ends here

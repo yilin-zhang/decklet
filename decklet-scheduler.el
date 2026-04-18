@@ -156,7 +156,7 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
     (4 :easy)
     (_ (error "Invalid grade: %s" grade))))
 
-(defun decklet--day-start-time (&optional time)
+(defun decklet-day-start-time (&optional time)
   "Return the start time of the review day containing TIME."
   (let* ((time (or time (current-time)))
          (decoded (decode-time time))
@@ -171,7 +171,7 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
 
 (defun decklet--next-day-start-time (&optional time)
   "Return the next review day start time after TIME."
-  (time-add (decklet--day-start-time time) (days-to-time 1)))
+  (time-add (decklet-day-start-time time) (days-to-time 1)))
 
 (defun decklet--now ()
   "Return the current time as an FSRS timestamp string."

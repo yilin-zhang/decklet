@@ -35,8 +35,7 @@ It is built differently from many SRS tools:
   - [Undo](#undo)
   - [Daily Goal](#daily-goal)
   - [Edit Mode Workflow](#edit-mode-workflow)
-  - [Calendar Mode](#calendar-mode)
-  - [Import from e-reader](#import-from-e-reader)
+  - [Batch Add Buffer](#batch-add-buffer)
   - [Data Location](#data-location)
 - [Customization](#customization)
   - [Review Order](#review-order)
@@ -105,13 +104,7 @@ candor       /ˈkændər/             *     review     2025-04-05 11:07 2025-04-
              decklet-db-backup
              decklet-db-restore
              decklet-db-export-json
-             decklet-db-import-json
-             ;; Import from e-book (optional)
-             decklet-import-kindle
-             decklet-import-kobo)
-  :hook
-  ;; If you would like to turn the calendar into a review load heatmap:
-  (calendar-load . decklet-calendar-mode)
+             decklet-db-import-json)
   :custom
   ;; `decklet-lookup-providers` defaults to nil.
   ;; For English learners, these are some useful choices.
@@ -432,27 +425,13 @@ to apply the action to all marked rows.
 Same thing applies to card deletion. Press `D` to delete the current card at
 point or mark multiple cards with `m` then press `D` to delete all marked cards.
 
-### Calendar Mode
+### Batch Add Buffer
 
-When `decklet-calendar-mode` is enabled, your calendar becomes a heatmap of
-upcoming review load.
+`M-x decklet-add-card-batch` opens a buffer where you can paste or type
+multiple words at once; `C-c C-c` parses the buffer into cards and hints
+and imports them in a single transaction.
 
-- Dates with due cards are highlighted automatically.
-- Highlight intensity is based on due count thresholds
-  (`decklet-calendar-thresholds`).
-- Due counts are computed with your rollover setting
-  (`decklet-day-rollover-hour`), so "today" follows your review-day boundary.
-- Moving across dates in Calendar shows the due-card count for the selected day.
-
-To avoid conflict with your current settings, it's an opt-in feature. See
-[Install](#install) on how to set it up.
-
-### Import from e-reader
-
-Decklet import buffers support both plain word lines and hint lines. During
-confirmation (`C-c C-c`), Decklet parses the buffer into cards and hints.
-
-In batch/import buffers, each non-empty non-`#` line starts a new word block.
+In batch buffers, each non-empty non-`#` line starts a new word block.
 Lines starting with `#` are treated as hint lines and attached to the most
 recent word.
 
@@ -473,32 +452,19 @@ zephyr
 # /ˈzefər/
 ```
 
-If you use Kindle Vocabulary Builder:
+### Calendar integration and e-reader import
 
-1. Copy `vocab.db` from your Kindle device to your computer.
-2. Run `M-x decklet-import-kindle` and select that `vocab.db` file.
-3. Review and edit the imported words in the temporary buffer, then confirm with
-   `C-c C-c`.
-4. When prompted, optionally clear the Kindle `vocab.db` to avoid re-importing
-   the same words next time.
-5. Copy the updated `vocab.db` back to your Kindle if you chose to clear it.
+Calendar due-date highlighting and Kindle/Kobo vocab import live in the
+separate [`decklet-extensions`](https://github.com/yilin-zhang/decklet-extensions)
+repo as standalone packages:
 
-By default, Decklet also imports Kindle usage sentences as hint lines. If you
-want to disable that behavior, set `decklet-import-kindle-usage` to nil.
+- `decklet-calendar` — heat-map the upcoming review load on the built-in calendar.
+- `decklet-import` — import saved words from Kindle `vocab.db` or Kobo
+  `KoboReader.sqlite` into a batch-add buffer.
 
-If you use Kobo:
-
-1. Copy `KoboReader.sqlite` from your Kobo device to your computer.
-2. Run `M-x decklet-import-kobo` and select that `KoboReader.sqlite` file.
-3. Review and edit the imported words in the temporary buffer, then confirm with
-   `C-c C-c`.
-4. When prompted, optionally clear the `WordList` rows to avoid re-importing
-   the same words next time.
-5. Copy the updated `KoboReader.sqlite` back to your device if you chose to
-   clear it.
-
-You can also operate directly on the on-device database file. However, clearing
-imported words is irreversible, so proceed at your own risk.
+Both packages are built on Decklet's public extension API (hooks +
+`decklet-db-due-counts-by-date` + `decklet-add-card-batch`) and install
+independently from the core.
 
 ### Data Location
 

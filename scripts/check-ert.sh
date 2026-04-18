@@ -10,8 +10,6 @@ emacs --batch -L "$FSRS_DIR" -L . -L tests \
   -l tests/decklet-db-test.el \
   -l tests/decklet-review-test.el \
   -l tests/decklet-edit-test.el \
-  -l tests/decklet-calendar-test.el \
-  -l tests/decklet-import-test.el \
   -l tests/decklet-deck-test.el \
   -l tests/decklet-backup-test.el \
   -l tests/decklet-review-log-test.el \
