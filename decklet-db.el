@@ -261,19 +261,6 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
                 "SELECT COALESCE(MAX(card_id), 0) FROM cards;"))
          0))))
 
-(defun decklet-db--update-word (old-word new-word)
-  "Rename OLD-WORD to NEW-WORD in the database, return normalized new word."
-  (let ((conn (decklet-db--ensure))
-        (old-word (decklet-db--normalize-word old-word))
-        (new-word (decklet-db--normalize-word new-word)))
-    (if (string-equal old-word new-word)
-        old-word
-      (when (decklet-db--select-card new-word)
-        (user-error "Word \"%s\" already exists in the deck" new-word))
-      (sqlite-execute conn "UPDATE cards SET word = ? WHERE word = ?;"
-                      (list new-word old-word))
-      new-word)))
-
 (defun decklet-db--update-word-by-id (card-id new-word)
   "Rename CARD-ID to NEW-WORD in the database, return normalized new word."
   (let* ((conn (decklet-db--ensure))
@@ -716,9 +703,12 @@ Return a plist with :added, :overwritten, and :skipped."
            (sqlite-execute conn "ROLLBACK;")
            (signal (car err) (cdr err)))))
       ;; Fire lifecycle events after the transaction commits so
-      ;; sidecar extensions only see successful imports.
-      (dolist (card-id (nreverse added-card-ids))
-        (run-hook-with-args 'decklet-card-added-functions card-id))
+      ;; sidecar extensions only see successful imports.  One batched
+      ;; event per successful import.
+      (when added-card-ids
+        (run-hook-with-args 'decklet-cards-added-functions
+                            (mapcar (lambda (card-id) (list :card-id card-id))
+                                    (nreverse added-card-ids))))
       (list :added added :overwritten overwritten :skipped skipped))))
 
 ;;;###autoload

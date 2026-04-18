@@ -270,7 +270,6 @@ Each entry is a plist (:card-id :grade :pre-meta :log-id).")
 Equal to the trail length during normal forward review.
 Less than the trail length when the user has undone cards.")
 
-;; Bring the definition up because it will be used by other functions down below.
 (defvar decklet-review-mode-map
   (define-keymap
     "1" #'decklet-review-rate-again
@@ -892,9 +891,7 @@ original rating remains in the database until the user re-rates."
 
 (defun decklet-review--edit-card-fields (edit-word edit-hint)
   "Edit the current card using EDIT-WORD and EDIT-HINT flags."
-  (let* ((card-id decklet-current-card-id)
-         (word (decklet-card-word-by-id
-                (decklet--require-current-card-id "edit")))
+  (let* ((card-id (decklet--require-current-card-id "edit"))
          (updated-word (decklet-prompt-edit-card-fields card-id edit-word edit-hint)))
     (when (eq major-mode 'decklet-review-mode)
       (decklet-review--render-buffer))
@@ -954,17 +951,20 @@ original rating remains in the database until the user re-rates."
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
 
 ;; Refresh the visible review buffer whenever the current card is updated.
-(defun decklet-review--on-field-updated (card-id _field)
-  "Refresh the visible review buffer after a card field update."
-  (when (eql card-id decklet-current-card-id)
+(defun decklet-review--on-cards-field-updated (events)
+  "Refresh the visible review buffer when the current card is in EVENTS."
+  (when (cl-some (lambda (ev) (eql (plist-get ev :card-id)
+                                   decklet-current-card-id))
+                 events)
     (decklet-review--refresh-visible)))
 
-(add-hook 'decklet-card-field-updated-functions
-          #'decklet-review--on-field-updated)
+(add-hook 'decklet-cards-field-updated-functions
+          #'decklet-review--on-cards-field-updated)
 
-(add-hook 'decklet-card-deleted-functions
-          (lambda (card-id &rest _)
-            (decklet-review--trail-delete card-id)))
+(add-hook 'decklet-cards-deleted-functions
+          (lambda (events)
+            (dolist (event events)
+              (decklet-review--trail-delete (plist-get event :card-id)))))
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

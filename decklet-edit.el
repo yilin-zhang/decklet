@@ -147,10 +147,6 @@ Each descriptor is a plist with keys:
 
 Sidecar columns are inserted after the built-in `Back' column.")
 
-(defconst decklet-edit--base-columns
-  '("Word" "Hint" "Back" "State" "Added" "Last Review" "Due" "Stability" "Difficulty")
-  "Built-in column names for the edit table.")
-
 (defconst decklet-edit--numeric-columns
   '("Stability" "Difficulty")
   "Columns that should be sorted numerically.")
@@ -241,21 +237,22 @@ If multiple words are equally near point, prefer a following line."
          (best-forward nil))
     (save-excursion
       (goto-char (point-min))
-      (while (< (point) (point-max))
-        (let ((card-id (tabulated-list-get-id)))
-          (when (and card-id
-                     (not (member card-id deleted-card-ids)))
-            (let* ((line (line-number-at-pos))
-                   (delta (abs (- line origin-line)))
-                   (forward (>= line origin-line)))
-              (when (or (null best-distance)
-                        (< delta best-distance)
-                        (and (= delta best-distance)
-                             (and forward (not best-forward))))
-                (setq best-card-id card-id
-                      best-distance delta
-                      best-forward forward)))))
-        (forward-line 1)))
+      (let ((line 1))
+        (while (< (point) (point-max))
+          (let ((card-id (tabulated-list-get-id)))
+            (when (and card-id
+                       (not (member card-id deleted-card-ids)))
+              (let* ((delta (abs (- line origin-line)))
+                     (forward (>= line origin-line)))
+                (when (or (null best-distance)
+                          (< delta best-distance)
+                          (and (= delta best-distance)
+                               (and forward (not best-forward))))
+                  (setq best-card-id card-id
+                        best-distance delta
+                        best-forward forward)))))
+          (forward-line 1)
+          (cl-incf line))))
     best-card-id))
 
 (defun decklet-edit--line-of-card-id (card-id)
@@ -263,12 +260,14 @@ If multiple words are equally near point, prefer a following line."
   (when card-id
     (save-excursion
       (goto-char (point-min))
-      (let (line)
-        (while (and (not line) (< (point) (point-max)))
+      (let ((line 1)
+            found)
+        (while (and (not found) (< (point) (point-max)))
           (when (eql (tabulated-list-get-id) card-id)
-            (setq line (line-number-at-pos)))
-          (forward-line 1))
-        line))))
+            (setq found line))
+          (forward-line 1)
+          (cl-incf line))
+        found))))
 
 (defun decklet-edit--sidecar-column-cells (row)
   "Return sidecar column cells for ROW."
@@ -711,13 +710,13 @@ Accepts any hook signature; arguments are ignored."
         (when (derived-mode-p 'decklet-edit-mode)
           (decklet-edit-refresh))))))
 
-(dolist (hook '(decklet-card-added-functions
-                decklet-card-deleted-functions
-                decklet-card-renamed-functions
-                decklet-card-archived-functions
-                decklet-card-unarchived-functions
-                decklet-card-field-updated-functions
-                decklet-card-rated-functions))
+(dolist (hook '(decklet-cards-added-functions
+                decklet-cards-deleted-functions
+                decklet-cards-renamed-functions
+                decklet-cards-archived-functions
+                decklet-cards-unarchived-functions
+                decklet-cards-field-updated-functions
+                decklet-cards-rated-functions))
   (add-hook hook #'decklet-edit--on-card-change))
 
 (defvar decklet-edit-mode-map

@@ -67,46 +67,73 @@
 ;; Lifecycle hooks for extensions
 ;;
 ;; These abnormal hooks allow extensions to react to card mutations
-;; without touching Decklet internals.  Each hook is called with
-;; arguments matching the event's natural shape — see the docstrings.
+;; without touching Decklet internals.
+;;
+;; Every hook is an abnormal hook called with a single EVENTS argument:
+;; a non-empty list of per-card plists.  Bulk operations (imports, batch
+;; add) fire the hook once with all events; single-card operations fire
+;; it once with a one-element list.  Every event plist carries at least
+;; a `:card-id' key; richer events carry extra keys documented per hook.
+;;
+;; Consumers iterate:
+;;
+;;   (defun my/on-cards-deleted (events)
+;;     (dolist (event events)
+;;       (let ((card-id (plist-get event :card-id))
+;;             (card (plist-get event :card)))
+;;         ...)))
+;;   (add-hook \\='decklet-cards-deleted-functions #\\='my/on-cards-deleted)
 
-(defvar decklet-card-added-functions nil
-  "Abnormal hook called with (CARD-ID) after a new card is added.")
+(defvar decklet-cards-added-functions nil
+  "Abnormal hook called with (EVENTS) after new cards are added.
+Each event plist has keys:
+  :card-id  id of the added card.")
 
-(defvar decklet-card-deleted-functions nil
-  "Abnormal hook called with (CARD-ID CARD) after a card is deleted.
-CARD is the full card plist captured before deletion, with keys
-`:word', `:hint', `:back', and `:meta'.")
+(defvar decklet-cards-deleted-functions nil
+  "Abnormal hook called with (EVENTS) after cards are deleted.
+Each event plist has keys:
+  :card-id  id of the deleted card.
+  :card     full card plist captured before deletion, with keys
+            `:word', `:hint', `:back', and `:meta'.")
 
-(defvar decklet-card-renamed-functions nil
-  "Abnormal hook called with (CARD-ID OLD-WORD NEW-WORD) after a card is renamed.
+(defvar decklet-cards-renamed-functions nil
+  "Abnormal hook called with (EVENTS) after cards are renamed.
+Each event plist has keys:
+  :card-id   id of the renamed card.
+  :old-word  word before the rename.
+  :new-word  word after the rename.
 Extensions that key sidecar data by word should migrate their
 files or records in this hook.")
 
-(defvar decklet-card-archived-functions nil
-  "Abnormal hook called with (CARD-ID) after a card is archived.")
+(defvar decklet-cards-archived-functions nil
+  "Abnormal hook called with (EVENTS) after cards are archived.
+Each event plist has keys:
+  :card-id  id of the archived card.")
 
-(defvar decklet-card-unarchived-functions nil
-  "Abnormal hook called with (CARD-ID) after a card is unarchived.")
+(defvar decklet-cards-unarchived-functions nil
+  "Abnormal hook called with (EVENTS) after cards are unarchived.
+Each event plist has keys:
+  :card-id  id of the unarchived card.")
 
-(defvar decklet-card-field-updated-functions nil
-  "Abnormal hook called with (CARD-ID FIELD) after a card field is updated.
-FIELD is one of the symbols `hint' or `back'.")
+(defvar decklet-cards-field-updated-functions nil
+  "Abnormal hook called with (EVENTS) after card fields are updated.
+Each event plist has keys:
+  :card-id  id of the updated card.
+  :field    symbol naming the field (`hint', `back', or an
+            extension-defined symbol such as `image').")
 
-(defvar decklet-card-rated-functions nil
-  "Abnormal hook called with (CARD-ID OLD-META GRADE NEW-META PRIOR-GRADE)
-after a card is graded via review or edit mode.
-
-Arguments:
-  CARD-ID      the card being graded.
-  OLD-META     card meta before this grading (the FSRS base state used).
-  GRADE        the grade (1=Again, 2=Hard, 3=Good, 4=Easy).
-  NEW-META     card meta after FSRS scheduled the rating.
-  PRIOR-GRADE  nil for fresh ratings.  When the user undoes a rating
-               and re-rates within the same session, this is the grade
-               being replaced.  Extensions that track per-grade
-               statistics should decrement the PRIOR-GRADE counter to
-               compensate for the original event.
+(defvar decklet-cards-rated-functions nil
+  "Abnormal hook called with (EVENTS) after cards are graded.
+Each event plist has keys:
+  :card-id      id of the graded card.
+  :old-meta     card meta before this grading (the FSRS base state used).
+  :grade        the grade (1=Again, 2=Hard, 3=Good, 4=Easy).
+  :new-meta     card meta after FSRS scheduled the rating.
+  :prior-grade  nil for fresh ratings.  When the user undoes a rating
+                and re-rates within the same session, this is the grade
+                being replaced.  Extensions that track per-grade
+                statistics should decrement the prior-grade counter to
+                compensate for the original event.
 
 This hook does NOT fire on:
   - undo (no DB change)

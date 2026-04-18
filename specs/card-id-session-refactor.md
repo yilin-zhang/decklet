@@ -15,7 +15,7 @@ This refactor should remove most rename-specific synchronization logic from runt
 - Prefer reading fresh card data from SQLite over caching full card plists.
 - Runtime state should keep only `card_id` and the minimum additional data needed for correctness.
 - Public and internal mutation hooks should become id-first.
-- `decklet-card-renamed-functions` is the main exception: it should carry `(CARD-ID OLD-WORD NEW-WORD)`.
+- `decklet-cards-renamed-functions` is the main exception: each event plist should carry `:card-id`, `:old-word`, and `:new-word`.
 - User-visible messages and logs should still include words where appropriate.
 - Historical logs should keep both stable identity and word snapshot when that history matters.
 
@@ -107,19 +107,25 @@ Displayed columns still show word, hint, and other mutable fields from each row.
 
 ### Hooks
 
-Move mutation hooks to id-first payloads.
+All lifecycle hooks are batched: handlers are called with a single
+argument `EVENTS`, a non-empty list of per-card plists.  Every event
+plist carries `:card-id`; richer events carry the extra keys below.
+Bulk operations (imports, batch add) fire the hook once with all
+events; single-card operations fire it once with a one-element list.
 
-Target signatures:
+Target shapes (per event plist):
 
-- `decklet-card-added-functions`: `(CARD-ID)`
-- `decklet-card-deleted-functions`: `(CARD-ID)`
-- `decklet-card-archived-functions`: `(CARD-ID)`
-- `decklet-card-unarchived-functions`: `(CARD-ID)`
-- `decklet-card-field-updated-functions`: `(CARD-ID FIELD)`
-- `decklet-card-rated-functions`: `(CARD-ID OLD-META GRADE NEW-META PRIOR-GRADE)`
-- `decklet-card-renamed-functions`: `(CARD-ID OLD-WORD NEW-WORD)`
+- `decklet-cards-added-functions`: `:card-id`
+- `decklet-cards-deleted-functions`: `:card-id`, `:card`
+- `decklet-cards-archived-functions`: `:card-id`
+- `decklet-cards-unarchived-functions`: `:card-id`
+- `decklet-cards-field-updated-functions`: `:card-id`, `:field`
+- `decklet-cards-rated-functions`: `:card-id`, `:old-meta`, `:grade`, `:new-meta`, `:prior-grade`
+- `decklet-cards-renamed-functions`: `:card-id`, `:old-word`, `:new-word`
 
-The rename hook remains special because some consumers may need both the stable identity and the before/after surface value.
+The rename hook carries both the stable identity and the before/after
+surface value so consumers that key sidecar data by word can migrate
+their files in-place.
 
 ## Required DB and Deck APIs
 

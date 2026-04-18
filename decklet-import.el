@@ -81,21 +81,21 @@ Each row comes from a LEFT JOIN between WORDS and LOOKUPS."
   "Build batch buffer lines from Kindle ROWS.
 ROWS should be a list of (STEM WORD USAGE)."
   ;; Keep order stable: first seen stem decides block position.
-  (let (groups)
+  (let (groups-rev)
     (dolist (row rows)
       (pcase-let* ((`(,stem ,word ,usage) row)
                    (hint (and decklet-import-kindle-usage
                               (decklet-import-kindle--highlight-usage-word usage word)))
-                   (cell (assoc stem groups)))
+                   (cell (assoc stem groups-rev)))
         (unless cell
-          (setq cell (cons stem nil)
-                groups (append groups (list cell))))
+          (setq cell (cons stem nil))
+          (push cell groups-rev))
         (when (and hint (not (member hint (cdr cell))))
-          (setcdr cell (append (cdr cell) (list hint))))))
+          (setcdr cell (cons hint (cdr cell))))))
     (let (lines)
-      (dolist (cell groups)
+      (dolist (cell (nreverse groups-rev))
         (push (car cell) lines)
-        (dolist (hint (cdr cell))
+        (dolist (hint (nreverse (cdr cell)))
           (push (concat "# " hint) lines)))
       (nreverse lines))))
 

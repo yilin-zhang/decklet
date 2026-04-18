@@ -787,29 +787,43 @@ analytics, ...) without touching Decklet internals.
 
 ### Lifecycle hooks
 
-All card lifecycle hooks are abnormal hooks: use `add-hook` and your
-handler is called with the arguments shown below.
+All card lifecycle hooks are abnormal hooks that take a single
+argument: a non-empty list of per-card event plists.  Bulk operations
+(imports, batch add) fire the hook once with all events; single-card
+operations fire it once with a one-element list.  Every event plist
+carries `:card-id`; richer events carry the extra keys shown below.
 
-| Hook | Arguments | Fires when |
+| Hook | Per-event plist keys | Fires when |
 |---|---|---|
-| `decklet-card-added-functions` | `(CARD-ID)` | a new card is stored (including imports) |
-| `decklet-card-deleted-functions` | `(CARD-ID CARD)` | a card is removed from the deck; `CARD` is the pre-delete plist snapshot |
-| `decklet-card-renamed-functions` | `(CARD-ID OLD-WORD NEW-WORD)` | a card's word key changes |
-| `decklet-card-archived-functions` | `(CARD-ID)` | a card is archived |
-| `decklet-card-unarchived-functions` | `(CARD-ID)` | a card is unarchived |
-| `decklet-card-field-updated-functions` | `(CARD-ID FIELD)` | hint/back changes, or extension-owned sidecar changes signaled with an extension-defined `FIELD` such as `image` |
-| `decklet-card-rated-functions` | `(CARD-ID OLD-META GRADE NEW-META PRIOR-GRADE)` | a card is rated in review or edit mode |
+| `decklet-cards-added-functions` | `:card-id` | a new card is stored (including imports) |
+| `decklet-cards-deleted-functions` | `:card-id`, `:card` (pre-delete plist snapshot) | a card is removed from the deck |
+| `decklet-cards-renamed-functions` | `:card-id`, `:old-word`, `:new-word` | a card's word key changes |
+| `decklet-cards-archived-functions` | `:card-id` | a card is archived |
+| `decklet-cards-unarchived-functions` | `:card-id` | a card is unarchived |
+| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, or an extension-defined symbol such as `image`) | hint/back changes, or extension-owned sidecar changes |
+| `decklet-cards-rated-functions` | `:card-id`, `:old-meta`, `:grade`, `:new-meta`, `:prior-grade` | a card is rated in review or edit mode |
+
+Consumers iterate over the events:
+
+```emacs-lisp
+(defun my/on-cards-deleted (events)
+  (dolist (event events)
+    (let ((word (plist-get (plist-get event :card) :word)))
+      ...)))
+
+(add-hook 'decklet-cards-deleted-functions #'my/on-cards-deleted)
+```
 
 #### About the rated hook
 
-The `decklet-card-rated-functions` hook fires for every completed
+The `decklet-cards-rated-functions` hook fires for every completed
 grading action, in both review and edit modes.
 
-- `PRIOR-GRADE` is nil for fresh ratings.
+- `:prior-grade` is nil for fresh ratings.
 - When the user undoes a rating and re-rates with a different grade
-  within the same session, `PRIOR-GRADE` is the grade being replaced.
+  within the same session, `:prior-grade` is the grade being replaced.
   Extensions that track per-grade statistics should decrement the
-  `PRIOR-GRADE` counter to compensate for the original event.
+  prior-grade counter to compensate for the original event.
 - Undo alone does not fire this hook (no DB change).
 - Confirming an undone rating (`n` on an undone card) does not fire
   the hook either — the original event already reflects the final state.
@@ -827,15 +841,18 @@ review UI:
 (defun my/decklet-image-path (word)
   (expand-file-name (concat word ".png") my/decklet-image-dir))
 
-(defun my/decklet-image-delete (_card-id card)
-  (let ((path (my/decklet-image-path (plist-get card :word))))
-    (when (file-exists-p path) (delete-file path))))
+(defun my/decklet-image-delete (events)
+  (dolist (event events)
+    (let ((path (my/decklet-image-path
+                 (plist-get (plist-get event :card) :word))))
+      (when (file-exists-p path) (delete-file path)))))
 
-(defun my/decklet-image-rename (_card-id old-word new-word)
-  (let ((old (my/decklet-image-path old-word))
-        (new (my/decklet-image-path new-word)))
-    (when (file-exists-p old)
-      (rename-file old new t))))
+(defun my/decklet-image-rename (events)
+  (dolist (event events)
+    (let ((old (my/decklet-image-path (plist-get event :old-word)))
+          (new (my/decklet-image-path (plist-get event :new-word))))
+      (when (file-exists-p old)
+        (rename-file old new t)))))
 
 (defun my/decklet-image-indicator ()
   "Review UI component showing [IMG] when the current word has an image."
@@ -845,8 +862,8 @@ review UI:
       (decklet-center-text
        (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face)))))
 
-(add-hook 'decklet-card-deleted-functions #'my/decklet-image-delete)
-(add-hook 'decklet-card-renamed-functions #'my/decklet-image-rename)
+(add-hook 'decklet-cards-deleted-functions #'my/decklet-image-delete)
+(add-hook 'decklet-cards-renamed-functions #'my/decklet-image-rename)
 (add-to-list 'decklet-review-floating-components #'my/decklet-image-indicator)
 ```
 

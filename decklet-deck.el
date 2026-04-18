@@ -204,8 +204,12 @@ optional PROMPT, defaulting to the word at point."
     (decklet-db--upsert-card word new-meta)
     (decklet--refresh-counter)
     (prog1 (decklet-review-log-append-rated word card-id grade old-meta new-meta)
-      (run-hook-with-args 'decklet-card-rated-functions
-                          card-id old-meta grade new-meta prior-grade))))
+      (run-hook-with-args 'decklet-cards-rated-functions
+                          (list (list :card-id card-id
+                                      :old-meta old-meta
+                                      :grade grade
+                                      :new-meta new-meta
+                                      :prior-grade prior-grade))))))
 
 (defun decklet-rename-card (card-id new-word)
   "Rename CARD-ID to NEW-WORD and return the normalized new value."
@@ -215,20 +219,25 @@ optional PROMPT, defaulting to the word at point."
       (setq decklet-last-added-word normalized))
     (unless (string-equal old-word normalized)
       (decklet-review-log-append-rename card-id old-word normalized)
-      (run-hook-with-args 'decklet-card-renamed-functions card-id old-word normalized))
+      (run-hook-with-args 'decklet-cards-renamed-functions
+                          (list (list :card-id card-id
+                                      :old-word old-word
+                                      :new-word normalized))))
     normalized))
 
 (defun decklet-set-card-hint (card-id hint)
   "Update CARD-ID's card hint to HINT."
   (decklet--require-card-by-id card-id)
   (decklet-db--update-hint-by-id card-id hint)
-  (run-hook-with-args 'decklet-card-field-updated-functions card-id 'hint))
+  (run-hook-with-args 'decklet-cards-field-updated-functions
+                      (list (list :card-id card-id :field 'hint))))
 
 (defun decklet-set-card-back (card-id content)
   "Update CARD-ID's card back to CONTENT."
   (decklet--require-card-by-id card-id)
   (decklet-db--update-back-by-id card-id content)
-  (run-hook-with-args 'decklet-card-field-updated-functions card-id 'back))
+  (run-hook-with-args 'decklet-cards-field-updated-functions
+                      (list (list :card-id card-id :field 'back))))
 
 (defun decklet-delete-card (card-id)
   "Delete CARD-ID from the deck."
@@ -239,7 +248,8 @@ optional PROMPT, defaulting to the word at point."
     (when decklet-due-card-ids
       (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
     (decklet--refresh-counter)
-    (run-hook-with-args 'decklet-card-deleted-functions card-id card)))
+    (run-hook-with-args 'decklet-cards-deleted-functions
+                        (list (list :card-id card-id :card card)))))
 
 (defun decklet-archive-card (card-id)
   "Archive CARD-ID without deleting it."
@@ -248,14 +258,16 @@ optional PROMPT, defaulting to the word at point."
   (when decklet-due-card-ids
     (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
   (decklet--refresh-counter)
-  (run-hook-with-args 'decklet-card-archived-functions card-id))
+  (run-hook-with-args 'decklet-cards-archived-functions
+                      (list (list :card-id card-id))))
 
 (defun decklet-unarchive-card (card-id)
   "Unarchive CARD-ID and return it to the active deck."
   (decklet--require-card-by-id card-id)
   (decklet-db--unarchive-card-by-id card-id)
   (decklet--refresh-counter)
-  (run-hook-with-args 'decklet-card-unarchived-functions card-id))
+  (run-hook-with-args 'decklet-cards-unarchived-functions
+                      (list (list :card-id card-id))))
 
 (defun decklet-prompt-edit-card-fields (card-id &optional edit-word edit-hint)
   "Edit CARD-ID fields based on EDIT-WORD and EDIT-HINT flags.
@@ -280,10 +292,19 @@ Return the updated word."
       (user-error "No word to add a hint to")))
 
 (defun decklet--add-card (word)
-  "Add WORD as a new card and return a status message.
-Fires `decklet-card-added-functions' only when a brand-new row is
-created.  Refreshing the added date of an existing new card does not
-fire the hook (the card's existence has not changed).
+  "Add WORD as a new card and return a result plist.
+Keys in the returned plist:
+  :card-id  id of the card touched (always set).
+  :status   one of the symbols `added', `exists', `refreshed':
+            - `added'     a brand-new row was created.
+            - `exists'    the word is already in the deck; nothing changed.
+            - `refreshed' the word was an existing new card whose
+                          added-date was refreshed in place.
+  :message  human-readable status string.
+
+Fires `decklet-cards-added-functions' only when status is `added'.
+Refreshing the added date of an existing new card does not fire the
+hook (the card's existence has not changed).
 
 A brand-new row is also assigned a fresh `card-id' via
 `decklet-db--mint-card-id'.  Refreshing an existing new card
@@ -300,30 +321,39 @@ preserves its existing `card-id'."
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--upsert-card word meta)
-        (run-hook-with-args 'decklet-card-added-functions
-                            (decklet-card-meta-card-id meta))
-        (format "Added \"%s\" to the deck. " word)))
+        (let ((card-id (decklet-card-meta-card-id meta)))
+          (run-hook-with-args 'decklet-cards-added-functions
+                              (list (list :card-id card-id)))
+          (list :card-id card-id
+                :status 'added
+                :message (format "Added \"%s\" to the deck. " word)))))
      ;; Existing reviewed card: do not treat it as addable again.
      ((not (decklet-card-meta-is-new meta))
-      (format "Word \"%s\" already exists in the deck. " word))
+      (list :card-id (decklet-card-meta-card-id meta)
+            :status 'exists
+            :message (format "Word \"%s\" already exists in the deck. " word)))
      ;; Existing new card: optionally refresh its added date instead of
      ;; creating a second add event for the same card.
      ((not decklet-add-and-refresh)
-      (format "Word \"%s\" already exists in the deck. " word))
+      (list :card-id (decklet-card-meta-card-id meta)
+            :status 'exists
+            :message (format "Word \"%s\" already exists in the deck. " word)))
      ;; Refresh the existing new card in place and keep its card-id.
      (t
       (let ((now (decklet--now)))
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--upsert-card word meta)
-        (format "Refreshed the added date of existing new word \"%s\". " word))))))
+        (list :card-id (decklet-card-meta-card-id meta)
+              :status 'refreshed
+              :message (format "Refreshed the added date of existing new word \"%s\". " word)))))))
 
 ;;;###autoload
 (defun decklet-add-card (word)
   "Add WORD as a new card.
 After adding a card, prompts if you want to add another."
   (interactive "sWord to add: ")
-  (let ((status-msg (decklet--add-card word)))
+  (let ((status-msg (plist-get (decklet--add-card word) :message)))
     (when (called-interactively-p 'any)
       (let ((choice (read-char-choice
                      (concat status-msg "Add another card? (y/n, ENTER for yes, t for hint): ")
@@ -389,25 +419,41 @@ for the most recent word.  Hint lines are joined with newlines."
     (nreverse cards)))
 
 (defun decklet-add-card-batch-confirm ()
-  "Confirm batch import for the current buffer."
+  "Confirm batch import for the current buffer.
+Fires `decklet-cards-added-functions' and
+`decklet-cards-field-updated-functions' once each at the end of the
+import, carrying all events from this batch."
   (interactive)
   (let* ((cards (decklet--batch-collect-cards))
-         (conn (decklet-db--ensure)))
+         (conn (decklet-db--ensure))
+         (added-events nil)
+         (hint-events nil))
     (sqlite-execute conn "BEGIN;")
     (condition-case err
-        (progn
+        ;; Suppress per-card hook fires inside the loop; we fire one
+        ;; batch event for each hook after COMMIT.
+        (let ((decklet-cards-added-functions nil)
+              (decklet-cards-field-updated-functions nil))
           (dolist (card cards)
-            (let ((word (plist-get card :word))
-                  (hint (plist-get card :hint)))
-              (decklet-add-card word)
+            (let* ((word (plist-get card :word))
+                   (hint (plist-get card :hint))
+                   (result (decklet--add-card word))
+                   (card-id (plist-get result :card-id)))
+              (when (eq (plist-get result :status) 'added)
+                (push (list :card-id card-id) added-events))
               (when hint
-                (let* ((row (decklet--require-card word))
-                       (card-id (decklet-card-meta-card-id (decklet-db--row->card-meta row))))
-                  (decklet-set-card-hint card-id hint)))))
+                (decklet-set-card-hint card-id hint)
+                (push (list :card-id card-id :field 'hint) hint-events))))
           (sqlite-execute conn "COMMIT;"))
       (error
        (sqlite-execute conn "ROLLBACK;")
        (signal (car err) (cdr err))))
+    (when added-events
+      (run-hook-with-args 'decklet-cards-added-functions
+                          (nreverse added-events)))
+    (when hint-events
+      (run-hook-with-args 'decklet-cards-field-updated-functions
+                          (nreverse hint-events)))
     (message "Imported %d words" (length cards))
     (when (functionp decklet-add-card-batch--on-confirm)
       (funcall decklet-add-card-batch--on-confirm
