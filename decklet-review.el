@@ -540,7 +540,7 @@ When LENGTH is non-nil, use it as the separator width."
 (defun decklet-review-component-title ()
   "Return the centered title line for the review header."
   (decklet-center-text
-   (pcase (decklet-card-meta-display-state decklet-review--render-meta)
+   (pcase (decklet-card-meta-effective-state decklet-review--render-meta)
      (:new
       (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
      ((or :learning :relearning)

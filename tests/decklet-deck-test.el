@@ -3,24 +3,24 @@
 (require 'decklet-test-helpers)
 
 ;; ---------------------------------------------------------------------------
-;; Card display state derivation
+;; Card effective state derivation
 ;; ---------------------------------------------------------------------------
 
-(ert-deftest decklet-test-card-display-state-derivation ()
-  (should (eq (decklet-card-display-state :learning nil) :new))
-  (should (eq (decklet-card-display-state :learning "") :new))
-  (should (eq (decklet-card-display-state :learning "2025-01-01T00:00:00Z") :learning))
-  (should (eq (decklet-card-display-state :relearning "2025-01-01T00:00:00Z") :relearning))
-  (should (eq (decklet-card-display-state :review "2025-01-01T00:00:00Z") :review))
-  (should (eq (decklet-card-display-state :unknown "2025-01-01T00:00:00Z") :review)))
+(ert-deftest decklet-test-card-effective-state-derivation ()
+  (should (eq (decklet-card-effective-state :learning nil) :new))
+  (should (eq (decklet-card-effective-state :learning "") :new))
+  (should (eq (decklet-card-effective-state :learning "2025-01-01T00:00:00Z") :learning))
+  (should (eq (decklet-card-effective-state :relearning "2025-01-01T00:00:00Z") :relearning))
+  (should (eq (decklet-card-effective-state :review "2025-01-01T00:00:00Z") :review))
+  (should (eq (decklet-card-effective-state :unknown "2025-01-01T00:00:00Z") :review)))
 
-(ert-deftest decklet-test-card-meta-display-state-derivation ()
+(ert-deftest decklet-test-card-meta-effective-state-derivation ()
   (should
-   (eq (decklet-card-meta-display-state
+   (eq (decklet-card-meta-effective-state
         (make-decklet-card-meta :state :learning :last-review nil))
        :new))
   (should
-   (eq (decklet-card-meta-display-state
+   (eq (decklet-card-meta-effective-state
         (make-decklet-card-meta :state :learning
                                 :last-review "2025-01-01T00:00:00Z"))
        :learning)))

@@ -309,7 +309,7 @@ preserves its existing `card-id'."
                 :status 'added
                 :message (format "Added \"%s\" to the deck. " word)))))
      ;; Existing reviewed card: do not treat it as addable again.
-     ((not (decklet-card-meta-display-state-new-p meta))
+     ((not (decklet-card-meta-effective-state-new-p meta))
       (list :card-id (decklet-card-meta-card-id meta)
             :status 'exists
             :message (format "Word \"%s\" already exists in the deck. " word)))

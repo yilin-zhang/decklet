@@ -399,15 +399,15 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                   (last-review (or last-review ""))
                   (due (or due ""))
                   (state (decklet--normalize-fsrs-state state))
-                  (display-state (decklet-card-display-state state last-review))
+                  (effective-state (decklet-card-effective-state state last-review))
                   (word-face (if (eq decklet-edit--filter 'archived)
                                  'decklet-edit-word-archived-face
                                'decklet-edit-word-face))
-                  (state-face (pcase display-state
+                  (state-face (pcase effective-state
                                 (:new 'decklet-edit-state-new-face)
                                 (:review 'decklet-edit-state-review-face)
                                 (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
-                  (state-text (or (decklet--fsrs-state-string display-state) ""))
+                  (state-text (or (decklet--fsrs-state-string effective-state) ""))
                   (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
                   (hint (if hint
                             (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)

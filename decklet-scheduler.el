@@ -100,12 +100,12 @@ persistent review log."
 LAST-REVIEW is considered empty when it is nil or an empty string."
   (string-empty-p (or last-review "")))
 
-(defun decklet-card-meta-display-state-new-p (meta)
+(defun decklet-card-meta-effective-state-new-p (meta)
   "Check if the card described by META is new (never reviewed)."
-  (eq (decklet-card-meta-display-state meta) :new))
+  (eq (decklet-card-meta-effective-state meta) :new))
 
-(defun decklet-card-display-state (state last-review)
-  "Return display state derived from STATE and LAST-REVIEW.
+(defun decklet-card-effective-state (state last-review)
+  "Return effective state derived from STATE and LAST-REVIEW.
 The result is one of `:new', `:learning', `:relearning', or `:review'."
   (if (decklet-last-review-empty-p last-review)
       :new
@@ -114,11 +114,11 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
       (:relearning :relearning)
       (_ :review))))
 
-(defun decklet-card-meta-display-state (meta)
-  "Return display state keyword for card META.
+(defun decklet-card-meta-effective-state (meta)
+  "Return effective state keyword for card META.
 The result is one of `:new', `:learning', `:relearning', or `:review'."
-  (decklet-card-display-state (decklet-card-meta-state meta)
-                              (decklet-card-meta-last-review meta)))
+  (decklet-card-effective-state (decklet-card-meta-state meta)
+                                (decklet-card-meta-last-review meta)))
 
 
 (defun decklet--get-fsrs-scheduler ()
