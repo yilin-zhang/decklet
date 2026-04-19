@@ -673,14 +673,20 @@ card back into the active deck as a side effect."
       (decklet-edit-refresh))
     (switch-to-buffer buffer)))
 
+(defun decklet-edit--on-kill-buffer ()
+  "Cleanup handler for the edit buffer's `kill-buffer-hook'.
+Runs whether the session is ended via `decklet-edit-quit' or by
+killing the buffer directly (e.g. `C-x k'), so the two code paths
+always leave the same amount of state behind."
+  (decklet-edit--clean-up)
+  (run-hooks 'decklet-edit-quit-hook)
+  (decklet-db--disconnect-if-idle))
+
 (defun decklet-edit-quit ()
   "Quit the edit buffer."
   (interactive)
-  (decklet-edit--clean-up)
   (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
-    (kill-buffer buffer))
-  (run-hooks 'decklet-edit-quit-hook)
-  (decklet-db--disconnect-if-idle))
+    (kill-buffer buffer)))
 
 ;;; Backup
 (add-hook 'decklet-edit-start-hook #'decklet-db-backup)
@@ -767,7 +773,8 @@ Registered on `window-selection-change-functions'."
   "Major mode for listing and editing Decklet cards."
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
-  (tabulated-list-init-header))
+  (tabulated-list-init-header)
+  (add-hook 'kill-buffer-hook #'decklet-edit--on-kill-buffer nil t))
 
 (provide 'decklet-edit)
 ;;; decklet-edit.el ends here

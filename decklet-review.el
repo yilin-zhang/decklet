@@ -788,14 +788,20 @@ When current list is empty, re-check for due cards and continue if any exist."
     (decklet-review--trail-skip)
     (decklet-review--advance)))
 
+(defun decklet-review--on-kill-buffer ()
+  "Cleanup handler for the review buffer's `kill-buffer-hook'.
+Runs whether the session is ended via `decklet-review-quit' or by
+killing the buffer directly (e.g. `C-x k'), so the two code paths
+always leave the same amount of state behind."
+  (decklet-review--clean-up)
+  (run-hooks 'decklet-review-quit-hook)
+  (decklet-db--disconnect-if-idle))
+
 (defun decklet-review-quit ()
   "Quit Decklet review."
   (interactive)
-  (decklet-review--clean-up)
   (when-let* ((buffer (get-buffer decklet-review-buffer-name)))
     (kill-buffer buffer))
-  (run-hooks 'decklet-review-quit-hook)
-  (decklet-db--disconnect-if-idle)
   (message "Review session finished"))
 
 (defun decklet-review--handle-grade (grade)
@@ -974,7 +980,8 @@ original rating remains in the database until the user re-rates."
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
   (setq buffer-read-only t)
-  (buffer-disable-undo))
+  (buffer-disable-undo)
+  (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))
 
 (provide 'decklet-review)
 ;;; decklet-review.el ends here
