@@ -795,7 +795,9 @@ killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
   (decklet-review--clean-up)
   (run-hooks 'decklet-review-quit-hook)
-  (decklet-db--disconnect-if-idle))
+  ;; Pass (current-buffer) so the still-alive review buffer — we are
+  ;; inside its `kill-buffer-hook' — is not counted as an open session.
+  (decklet-db--disconnect-if-idle (current-buffer)))
 
 (defun decklet-review-quit ()
   "Quit Decklet review."

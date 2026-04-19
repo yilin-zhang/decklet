@@ -130,19 +130,27 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 
-(defun decklet-db--session-window-open-p ()
-  "Return non-nil when a review/edit session buffer is still open."
+(defun decklet-db--session-window-open-p (&optional exclude-buffer)
+  "Return non-nil when a review/edit session buffer is still open.
+When EXCLUDE-BUFFER is non-nil, ignore it during the scan — useful
+from `kill-buffer-hook' handlers, where the buffer being killed is
+still present in `buffer-list' but should not be counted as an
+active session for the purpose of deciding whether to disconnect."
   (cl-some
    (lambda (buffer)
      (and (buffer-live-p buffer)
+          (not (eq buffer exclude-buffer))
           (with-current-buffer buffer
             (or (derived-mode-p 'decklet-review-mode)
                 (derived-mode-p 'decklet-edit-mode)))))
    (buffer-list)))
 
-(defun decklet-db--disconnect-if-idle ()
-  "Disconnect DB when no review/edit session windows are open."
-  (unless (decklet-db--session-window-open-p)
+(defun decklet-db--disconnect-if-idle (&optional excluding-buffer)
+  "Disconnect DB when no review/edit session windows are open.
+EXCLUDING-BUFFER, when non-nil, is excluded from the session-open
+check — pass the current buffer from inside `kill-buffer-hook' so
+the soon-to-be-gone session buffer does not keep the DB open."
+  (unless (decklet-db--session-window-open-p excluding-buffer)
     (decklet-db--disconnect)))
 
 (defun decklet-db--select-card-row-by-word (word)

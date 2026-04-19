@@ -680,7 +680,9 @@ killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
   (decklet-edit--clean-up)
   (run-hooks 'decklet-edit-quit-hook)
-  (decklet-db--disconnect-if-idle))
+  ;; Pass (current-buffer) so the still-alive edit buffer — we are
+  ;; inside its `kill-buffer-hook' — is not counted as an open session.
+  (decklet-db--disconnect-if-idle (current-buffer)))
 
 (defun decklet-edit-quit ()
   "Quit the edit buffer."
