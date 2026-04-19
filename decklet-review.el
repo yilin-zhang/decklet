@@ -280,8 +280,8 @@ Less than the trail length when the user has undone cards.")
     "n" #'decklet-review-next-card
     "g" #'decklet-review-refresh
     "D" #'decklet-review-delete-card
-    "e" #'decklet-review-edit-word
-    "t" #'decklet-review-edit-hint
+    "e" #'decklet-review-set-word
+    "t" #'decklet-review-set-hint
     "u" #'decklet-review-undo
     "b" #'decklet-review-show-card-back)
   "Keymap for `decklet-review-mode'.")
@@ -889,23 +889,23 @@ original rating remains in the database until the user re-rates."
       (switch-to-buffer buffer)
       (decklet-review--render-buffer))))
 
-(defun decklet-review--edit-card-fields (edit-word edit-hint)
-  "Edit the current card using EDIT-WORD and EDIT-HINT flags."
+(defun decklet-review--set-card-fields (set-word set-hint)
+  "Set the current card using SET-WORD and SET-HINT flags."
   (let* ((card-id (decklet--require-current-card-id "edit"))
-         (updated-word (decklet-prompt-edit-card-fields card-id edit-word edit-hint)))
+         (updated-word (decklet-prompt-set-card-fields card-id set-word set-hint)))
     (when (eq major-mode 'decklet-review-mode)
       (decklet-review--render-buffer))
     (message "Updated \"%s\"" updated-word)))
 
-(defun decklet-review-edit-word ()
-  "Edit the current word."
+(defun decklet-review-set-word ()
+  "Set the current word."
   (interactive)
-  (decklet-review--edit-card-fields t nil))
+  (decklet-review--set-card-fields t nil))
 
-(defun decklet-review-edit-hint ()
-  "Edit the current hint."
+(defun decklet-review-set-hint ()
+  "Set the current hint."
   (interactive)
-  (decklet-review--edit-card-fields nil t))
+  (decklet-review--set-card-fields nil t))
 
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."

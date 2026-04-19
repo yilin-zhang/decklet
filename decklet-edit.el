@@ -569,26 +569,26 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (decklet-edit-refresh)
   (message "Filter: %s" decklet-edit--filter))
 
-(defun decklet-edit--edit-card-at-point (edit-word edit-hint)
-  "Edit the card at point using EDIT-WORD and EDIT-HINT flags.
-Field edits (word, hint) are allowed on the current review card:
+(defun decklet-edit--set-card-at-point (set-word set-hint)
+  "Set the card at point using SET-WORD and SET-HINT flags.
+Field updates (word, hint) are allowed on the current review card:
 `decklet-cards-field-updated-functions' and
 `decklet-cards-renamed-functions' carry the change to the review
-buffer, which refreshes if the edited card is on screen."
+buffer, which refreshes if the updated card is on screen."
   (let* ((card (decklet-edit--card-at-point))
          (card-id (plist-get card :card-id)))
     (message "Updated \"%s\""
-             (decklet-prompt-edit-card-fields card-id edit-word edit-hint))))
+             (decklet-prompt-set-card-fields card-id set-word set-hint))))
 
-(defun decklet-edit-update-word ()
-  "Edit the word at point."
+(defun decklet-edit-set-word ()
+  "Set the word at point."
   (interactive)
-  (decklet-edit--edit-card-at-point t nil))
+  (decklet-edit--set-card-at-point t nil))
 
-(defun decklet-edit-update-hint ()
-  "Edit the hint at point."
+(defun decklet-edit-set-hint ()
+  "Set the hint at point."
   (interactive)
-  (decklet-edit--edit-card-at-point nil t))
+  (decklet-edit--set-card-at-point nil t))
 
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
@@ -740,8 +740,8 @@ Registered on `window-selection-change-functions'."
 (defvar decklet-edit-mode-map
   (define-keymap
     :parent tabulated-list-mode-map
-    "e" #'decklet-edit-update-word
-    "t" #'decklet-edit-update-hint
+    "e" #'decklet-edit-set-word
+    "t" #'decklet-edit-set-hint
     "b" #'decklet-edit-show-card-back
     "D" #'decklet-edit-delete-card
     "/ r" #'decklet-edit-filter-review

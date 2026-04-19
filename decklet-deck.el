@@ -251,17 +251,17 @@ optional PROMPT, defaulting to the word at point."
   (decklet-run-cards-hook 'decklet-cards-unarchived-functions
                           (list (list :card-id card-id))))
 
-(defun decklet-prompt-edit-card-fields (card-id &optional edit-word edit-hint)
-  "Edit CARD-ID fields based on EDIT-WORD and EDIT-HINT flags.
+(defun decklet-prompt-set-card-fields (card-id &optional set-word set-hint)
+  "Set CARD-ID fields based on SET-WORD and SET-HINT flags.
 Return the updated word."
   (pcase-let (((map :word :hint)
                (decklet-db--row->card (decklet-db--require-card-row card-id))))
-    (when edit-word
+    (when set-word
       (let ((new-word (read-string (format "Word (%s): " word) word)))
         (unless (string-equal new-word word)
           (decklet-rename-card card-id new-word)
           (setq word new-word))))
-    (when edit-hint
+    (when set-hint
       (let ((new-hint (read-string (format "Hint (%s): " word) (or hint ""))))
         (unless (string-equal new-hint (or hint ""))
           (decklet-set-card-hint card-id new-hint))))
