@@ -24,7 +24,7 @@
   "Edit mode for Decklet."
   :group 'decklet)
 
-;; Faces
+;;; Faces
 
 (defface decklet-edit-word-face
   `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
@@ -108,7 +108,7 @@
   "Face for the mark indicator character."
   :group 'decklet-edit)
 
-;; Hooks
+;;; Hooks
 
 (defcustom decklet-edit-start-hook nil
   "Hook run when decklet edit session starts."
@@ -120,16 +120,13 @@
   :type 'hook
   :group 'decklet-edit)
 
-;; Internal
+;;; Internal
 
 (defvar decklet-edit-buffer-name "*Decklet Edit*"
   "Name of the buffer used for card editing.")
 
 (defvar decklet-edit--marked (make-hash-table :test 'equal)
   "Hash table of marked words in the edit view.")
-
-(defvar decklet-edit--mark-overlays (make-hash-table :test 'equal)
-  "Hash table of word -> overlay for marked rows.")
 
 (defvar decklet-edit--filter 'all
   "Current filter for the edit table.
@@ -179,7 +176,7 @@ Sidecar columns are inserted after the built-in `Back' column.")
       (push (cons name index) table)
       (setq index (1+ index)))))
 
-;; Edit table formatting and sorting
+;;; Helper functions: edit table formatting, sorting, point position
 
 (defun decklet-edit--db-sort-key (sort-key)
   "Translate tabulated-list SORT-KEY to a DB sort-key.
@@ -191,7 +188,6 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
 (defun decklet-edit--clean-up ()
   "Clear edit session state."
   (setq decklet-edit--marked (make-hash-table :test 'equal))
-  (setq decklet-edit--mark-overlays (make-hash-table :test 'equal))
   (setq decklet-edit--filter 'all))
 
 (defun decklet-edit--format-timestamp (timestamp)
@@ -217,16 +213,39 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
                     "")))
     (if (numberp value) value (string-to-number value))))
 
-(defun decklet-edit--restore-position (line win-line)
-  "Restore edit-buffer position using LINE and WIN-LINE.
-LINE is the 1-based buffer line number to move point to.
-WIN-LINE is the point's screen-line offset from window start, used by
-`recenter' to keep a stable on-screen position after refresh."
-  (let ((max-line (line-number-at-pos (point-max))))
-    (goto-char (point-min))
-    (forward-line (1- (min line max-line))))
-  (when (and win-line (numberp win-line))
-    (recenter win-line)))
+(defvar decklet-edit--preserving-point nil
+  "Non-nil while `decklet-edit--preserving-window-position' is active.
+Nested invocations become no-ops so the outermost frame owns the
+final recenter.")
+
+(defmacro decklet-edit--preserving-window-position (&rest body)
+  "Run BODY while keeping point on the same screen line in the edit window.
+Capture point's rendered screen row via `posn-at-point' before BODY,
+then `recenter' back to that row afterwards.  When the edit buffer
+has no live window, BODY still runs but no preservation is attempted.
+Nested calls become no-ops so the outermost caller owns the final
+position.
+
+`posn-at-point' is preferred over `count-screen-lines', which overcounts
+by one for mid-line positions, and over `line-beginning-position', which
+is field-aware.  The rendered row already accounts for the header-line,
+wrapped display, and field boundaries, so it round-trips exactly with
+`recenter'."
+  (declare (indent 0) (debug t))
+  (let ((win-sym (make-symbol "win"))
+        (row-sym (make-symbol "row")))
+    `(if decklet-edit--preserving-point
+         (progn ,@body)
+       (let* ((decklet-edit--preserving-point t)
+              (,win-sym (get-buffer-window (current-buffer) 0))
+              (,row-sym (and ,win-sym
+                             (with-selected-window ,win-sym
+                               (when-let* ((posn (posn-at-point)))
+                                 (cdr (posn-col-row posn)))))))
+         (prog1 (progn ,@body)
+           (when (and ,win-sym ,row-sym (window-live-p ,win-sym))
+             (with-selected-window ,win-sym
+               (recenter ,row-sym))))))))
 
 (defun decklet-edit--nearest-surviving-card-id (deleted-card-ids)
   "Return the nearest table card id not listed in DELETED-CARD-IDS.
@@ -255,19 +274,35 @@ If multiple words are equally near point, prefer a following line."
           (cl-incf line))))
     best-card-id))
 
-(defun decklet-edit--line-of-card-id (card-id)
-  "Return line number of CARD-ID in current edit table, or nil if not found."
+(defun decklet-edit--goto-card-id (card-id)
+  "Move point to the row whose tabulated-list id equals CARD-ID.
+Return point on success, or nil when CARD-ID is nil or not found."
   (when card-id
-    (save-excursion
-      (goto-char (point-min))
-      (let ((line 1)
-            found)
-        (while (and (not found) (< (point) (point-max)))
+    (let ((target nil))
+      (save-excursion
+        (goto-char (point-min))
+        (while (and (not target) (< (point) (point-max)))
           (when (eql (tabulated-list-get-id) card-id)
-            (setq found line))
-          (forward-line 1)
-          (cl-incf line))
-        found))))
+            (setq target (point)))
+          (forward-line 1)))
+      (when target
+        (goto-char target)))))
+
+(defun decklet-edit--execute-mutation (action card-ids)
+  "Apply ACTION to each of CARD-IDS, preserving the edit window position.
+Per-card refresh callbacks are suppressed while ACTION runs, so a
+single refresh fires once at the end via `unwind-protect'.  Point
+lands back on its original row when that row survived, or on the
+nearest surviving card otherwise."
+  (let ((origin-card-id (tabulated-list-get-id))
+        (target-card-id (decklet-edit--nearest-surviving-card-id card-ids)))
+    (decklet-edit--preserving-window-position
+     (let ((decklet-edit--inhibit-callback-refresh t))
+       (unwind-protect
+           (mapc action card-ids)
+         (decklet-edit-refresh)))
+     (or (decklet-edit--goto-card-id origin-card-id)
+         (decklet-edit--goto-card-id target-card-id)))))
 
 (defun decklet-edit--sidecar-column-cells (row)
   "Return sidecar column cells for ROW."
@@ -332,8 +367,6 @@ changes propagate through the next format rebuild."
                 ,column
                 (if descending "descending" "ascending")))))
 
-;; Lightweight ratings from the edit table
-
 (defun decklet-edit--card-id-at-point ()
   "Return the card id for the card on the current line.
 Signal a `user-error' if point is not on a card row."
@@ -359,34 +392,6 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
       (decklet-edit--ensure-not-current card-id))
     (list :card-id card-id
           :word (decklet-card-word-by-id card-id))))
-
-(defun decklet-edit-rate-card ()
-  "Rate the card at point, regardless of its current state.
-When the current filter is `archived', the card is unarchived
-first and then rated, so rating from the archived view brings the
-card back into the active deck as a side effect."
-  (interactive)
-  (when decklet-current-card-id
-    (user-error "Rating is disabled while a review session is active"))
-  (let* ((card (decklet-edit--card-at-point t))
-         (card-id (plist-get card :card-id))
-         (word (plist-get card :word))
-         (grade-options '((1 . "Again") (2 . "Hard") (3 . "Good") (4 . "Easy")))
-         (prompt (concat (format "Rate \"%s\" " word)
-                         (mapconcat (lambda (g)
-                                      (format "[%d] %s" (car g) (cdr g)))
-                                    grade-options " ")
-                         ": "))
-         (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
-         (label (alist-get grade grade-options "" nil #'=)))
-    (if (eq decklet-edit--filter 'archived)
-        (decklet-edit--with-deferred-refresh
-         (decklet-unarchive-card card-id)
-         (decklet-rate-card card-id grade))
-      (decklet-rate-card card-id grade))
-    (message "Rated \"%s\" as %s" word label)))
-
-;; Edit table mode and commands
 
 (defun decklet-edit--entries ()
   "Return tabulated list entries for the edit buffer."
@@ -443,35 +448,13 @@ card back into the active deck as a side effect."
    (decklet-db--select-cards decklet-edit--filter
                              (decklet-edit--db-sort-key tabulated-list-sort-key))))
 
-(defun decklet-edit-refresh ()
-  "Refresh the card list buffer."
-  (interactive)
-  (setq tabulated-list-format (decklet-edit--tabulated-list-format))
-  (tabulated-list-init-header)
-  (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
-  (tabulated-list-print t)
-  (decklet-edit--apply-marks))
-
-(defmacro decklet-edit--with-deferred-refresh (&rest body)
-  "Run BODY as one bulk edit operation with callback refreshes suppressed.
-Card-change callbacks triggered inside BODY do not refresh the edit
-buffer immediately.  Instead, the edit buffer is refreshed once on exit."
-  `(let ((decklet-edit--inhibit-callback-refresh t))
-     (unwind-protect
-         (progn ,@body)
-       (decklet-edit-refresh))))
-
 (defun decklet-edit--apply-marks ()
-  "Apply marked-row faces to the edit buffer."
+  "Apply mark overlays to all currently-marked rows."
   (decklet-edit--clear-mark-overlays)
   (save-excursion
-    (goto-char (point-min))
-    (forward-line 1)
-    (while (not (eobp))
-      (let ((card-id (tabulated-list-get-id)))
-        (when (gethash card-id decklet-edit--marked)
-          (decklet-edit--add-mark-overlay card-id)))
-      (forward-line 1))))
+    (dolist (card-id (decklet-edit--marked-card-ids))
+      (when (decklet-edit--goto-card-id card-id)
+        (decklet-edit--add-mark-overlay)))))
 
 (defun decklet-edit--marked-card-ids ()
   "Return a list of marked card ids."
@@ -479,29 +462,23 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
     (maphash (lambda (card-id _value) (push card-id card-ids)) decklet-edit--marked)
     (nreverse card-ids)))
 
-(defun decklet-edit--delete-overlay-cons (overlay-cons)
-  "Delete overlays in OVERLAY-CONS."
-  (delete-overlay (car overlay-cons))
-  (delete-overlay (cdr overlay-cons)))
-
 (defun decklet-edit--clear-mark-overlays ()
   "Remove all mark overlays in the edit view."
-  (maphash (lambda (_word ovs)
-             (decklet-edit--delete-overlay-cons ovs))
-           decklet-edit--mark-overlays)
-  (clrhash decklet-edit--mark-overlays))
+  (remove-overlays (point-min) (point-max) 'decklet-mark t))
 
-(defun decklet-edit--add-mark-overlay (card-id)
-  "Add a mark overlay for CARD-ID on the current line."
-  (when-let* ((ovs (gethash card-id decklet-edit--mark-overlays)))
-    ;; remove overlays to avoid duplication
-    (decklet-edit--delete-overlay-cons ovs))
-  (let ((ov (make-overlay (line-beginning-position) (line-end-position)))
-        (mark-ov (make-overlay (line-beginning-position)
-                               (1+ (line-beginning-position)))))
-    (overlay-put ov 'face 'decklet-edit-mark-face)
-    (overlay-put mark-ov 'display (propertize "*" 'face 'decklet-edit-mark-indicator-face))
-    (puthash card-id (cons ov mark-ov) decklet-edit--mark-overlays)))
+(defun decklet-edit--add-mark-overlay ()
+  "Add mark overlays on the current line."
+  (let ((bol (line-beginning-position))
+        (eol (line-end-position)))
+    ;; Dedupe: drop any existing mark overlays on this line.
+    (remove-overlays bol eol 'decklet-mark t)
+    (let ((row-ov (make-overlay bol eol))
+          (ind-ov (make-overlay bol (1+ bol))))
+      (overlay-put row-ov 'decklet-mark t)
+      (overlay-put row-ov 'face 'decklet-edit-mark-face)
+      (overlay-put ind-ov 'decklet-mark t)
+      (overlay-put ind-ov 'display
+                   (propertize "*" 'face 'decklet-edit-mark-indicator-face)))))
 
 (defun decklet-edit--mark-region (beg end)
   "Mark all cards between BEG and END lines in the current edit table."
@@ -520,8 +497,28 @@ buffer immediately.  Instead, the edit buffer is refreshed once on exit."
       (while (<= (line-beginning-position) finish)
         (when-let* ((card-id (tabulated-list-get-id)))
           (puthash card-id t decklet-edit--marked)
-          (decklet-edit--add-mark-overlay card-id))
+          (decklet-edit--add-mark-overlay))
         (forward-line 1)))))
+
+(defun decklet-edit--unmark-all ()
+  "Clear all mark in the edit view."
+  (clrhash decklet-edit--marked)
+  (decklet-edit--clear-mark-overlays))
+
+;;; Edit mode commands
+
+(defun decklet-edit-refresh ()
+  "Refresh the card list buffer.
+Point is kept on the same screen line via
+`decklet-edit--preserving-window-position', so hook- and
+command-driven refreshes do not scroll the edit window."
+  (interactive)
+  (decklet-edit--preserving-window-position
+   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
+   (tabulated-list-init-header)
+   (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
+   (tabulated-list-print t)
+   (decklet-edit--apply-marks)))
 
 (defun decklet-edit-mark-at-point ()
   "Mark card(s) at point.
@@ -538,7 +535,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
         (forward-line 1))
     (let ((card-id (decklet-edit--card-id-at-point)))
       (puthash card-id t decklet-edit--marked)
-      (decklet-edit--add-mark-overlay card-id)
+      (decklet-edit--add-mark-overlay)
       (forward-line 1))))
 
 (defun decklet-edit-unmark-at-point ()
@@ -546,15 +543,9 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (let ((card-id (decklet-edit--card-id-at-point)))
     (remhash card-id decklet-edit--marked)
-    (when-let* ((ovs (gethash card-id decklet-edit--mark-overlays)))
-      (decklet-edit--delete-overlay-cons ovs)
-      (remhash card-id decklet-edit--mark-overlays))
+    (remove-overlays (line-beginning-position) (line-end-position)
+                     'decklet-mark t)
     (forward-line 1)))
-
-(defun decklet-edit--unmark-all ()
-  "Clear all mark in the edit view."
-  (clrhash decklet-edit--marked)
-  (decklet-edit--clear-mark-overlays))
 
 (defun decklet-edit-unmark-all ()
   "Clear all mark in the edit view."
@@ -598,12 +589,12 @@ buffer, which refreshes if the edited card is on screen."
     (message "Updated \"%s\""
              (decklet-prompt-edit-card-fields card-id edit-word edit-hint))))
 
-(defun decklet-edit-word ()
+(defun decklet-edit-update-word ()
   "Edit the word at point."
   (interactive)
   (decklet-edit--edit-card-at-point t nil))
 
-(defun decklet-edit-hint ()
+(defun decklet-edit-update-hint ()
   "Edit the hint at point."
   (interactive)
   (decklet-edit--edit-card-at-point nil t))
@@ -614,76 +605,71 @@ buffer, which refreshes if the edited card is on screen."
   (decklet-card-back-show (plist-get (decklet-edit--card-at-point) :word)))
 
 (defun decklet-edit-delete-card ()
-  "Delete the card at point from the deck."
-  (interactive)
-  (let* ((card (decklet-edit--card-at-point t))
-         (card-id (plist-get card :card-id))
-         (word (plist-get card :word)))
-    (when (yes-or-no-p (format "Delete \"%s\" from the deck? " word))
-      (decklet-delete-card card-id)
-      (message "Deleted \"%s\"" word))))
-
-(defun decklet-edit-delete ()
   "Delete marked cards, or the card at point."
   (interactive)
-  (let ((marked (decklet-edit--marked-card-ids)))
-    (if marked
-        ;; bulk processing
-        (let* ((win-line (count-screen-lines (window-start) (point)))
-               (target-card-id (decklet-edit--nearest-surviving-card-id marked)))
-          (decklet-edit--ensure-not-current marked)
-          (when (yes-or-no-p (format "Delete %d marked cards? " (length marked)))
-            (decklet-edit--with-deferred-refresh
-             (decklet-edit--unmark-all)
-             (mapc #'decklet-delete-card marked))
-            (when-let* ((target-line (decklet-edit--line-of-card-id target-card-id)))
-              (decklet-edit--restore-position target-line win-line))
-            (message "Deleted %d cards" (length marked))))
-      (decklet-edit-delete-card))))
+  (let* ((marked (decklet-edit--marked-card-ids))
+         (card-ids (or marked (list (decklet-edit--card-id-at-point))))
+         (word (and (not marked) (decklet-card-word-by-id (car card-ids)))))
+    (decklet-edit--ensure-not-current card-ids)
+    (when (yes-or-no-p (if marked
+                           (format "Delete %d marked cards? " (length marked))
+                         (format "Delete \"%s\" from the deck? " word)))
+      (when marked (decklet-edit--unmark-all))
+      (decklet-edit--execute-mutation #'decklet-delete-card card-ids)
+      (message (if marked
+                   (format "Deleted %d cards" (length card-ids))
+                 (format "Deleted \"%s\"" word))))))
 
 (defun decklet-edit-archive-card ()
-  "Archive the card at point."
+  "Archive marked cards, or the card at point.
+Under the `archived' filter, the action is unarchive instead."
   (interactive)
+  (let* ((marked (decklet-edit--marked-card-ids))
+         (card-ids (or marked (list (decklet-edit--card-id-at-point))))
+         (word (and (not marked) (decklet-card-word-by-id (car card-ids))))
+         (unarchive-p (eq decklet-edit--filter 'archived))
+         (action (if unarchive-p #'decklet-unarchive-card #'decklet-archive-card))
+         (verb (if unarchive-p "Unarchive" "Archive"))
+         (done-verb (if unarchive-p "Unarchived" "Archived")))
+    (decklet-edit--ensure-not-current card-ids)
+    (when (yes-or-no-p (cond
+                        (marked (format "%s %d marked cards? " verb (length marked)))
+                        (unarchive-p (format "%s \"%s\"? " verb word))
+                        (t (format "%s \"%s\" from review? " verb word))))
+      (when marked (decklet-edit--unmark-all))
+      (decklet-edit--execute-mutation action card-ids)
+      (message (if marked
+                   (format "%s %d cards" done-verb (length card-ids))
+                 (format "%s \"%s\"" done-verb word))))))
+
+(defun decklet-edit-rate-card ()
+  "Rate the card at point, regardless of its current state.
+When the current filter is `archived', the card is unarchived
+first and then rated, so rating from the archived view brings the
+card back into the active deck as a side effect."
+  (interactive)
+  (when decklet-current-card-id
+    (user-error "Rating is disabled while a review session is active"))
   (let* ((card (decklet-edit--card-at-point t))
          (card-id (plist-get card :card-id))
-         (word (plist-get card :word)))
-    (when (yes-or-no-p (format "Archive \"%s\" from review? " word))
-      (decklet-archive-card card-id)
-      (message "Archived \"%s\"" word))))
+         (word (plist-get card :word))
+         (unarchive-p (eq decklet-edit--filter 'archived))
+         (grade-options '((1 . "Again") (2 . "Hard") (3 . "Good") (4 . "Easy")))
+         (prompt (concat (format "Rate \"%s\" " word)
+                         (mapconcat (lambda (g)
+                                      (format "[%d] %s" (car g) (cdr g)))
+                                    grade-options " ")
+                         ": "))
+         (grade (- (read-char-choice prompt '(?1 ?2 ?3 ?4)) ?0))
+         (label (alist-get grade grade-options "" nil #'=)))
+    (decklet-edit--execute-mutation
+     (lambda (id)
+       (when unarchive-p (decklet-unarchive-card id))
+       (decklet-rate-card id grade))
+     (list card-id))
+    (message "Rated \"%s\" as %s" word label)))
 
-(defun decklet-edit-unarchive-card ()
-  "Unarchive the card at point."
-  (interactive)
-  (let* ((card (decklet-edit--card-at-point t))
-         (card-id (plist-get card :card-id)))
-    (decklet-unarchive-card card-id)
-    (message "Unarchived \"%s\"" (plist-get card :word))))
-
-(defun decklet-edit-archive ()
-  "Archive or unarchive marked cards, or the card at point."
-  (interactive)
-  (let ((marked (decklet-edit--marked-card-ids)))
-    (if marked
-        ;; bulk processing
-        (let* ((unarchive-p (eq decklet-edit--filter 'archived))
-               (verb (if unarchive-p "Unarchive" "Archive"))
-               (done-verb (if unarchive-p "Unarchived" "Archived"))
-               (action (if unarchive-p #'decklet-unarchive-card #'decklet-archive-card))
-               (win-line (count-screen-lines (window-start) (point)))
-               (target-card-id (decklet-edit--nearest-surviving-card-id marked)))
-          (decklet-edit--ensure-not-current marked)
-          (when (yes-or-no-p (format "%s %d marked cards? " verb (length marked)))
-            (decklet-edit--with-deferred-refresh
-             (decklet-edit--unmark-all)
-             (mapc action marked))
-            (when-let* ((target-line (decklet-edit--line-of-card-id target-card-id)))
-              (decklet-edit--restore-position target-line win-line))
-            (message "%s %d cards" done-verb (length marked))))
-      (if (eq decklet-edit--filter 'archived)
-          (decklet-edit-unarchive-card)
-        (decklet-edit-archive-card)))))
-
-;; Edit mode setup
+;;; Edit mode setup
 
 ;;;###autoload
 (defun decklet-edit ()
@@ -705,7 +691,7 @@ buffer, which refreshes if the edited card is on screen."
   (run-hooks 'decklet-edit-quit-hook)
   (decklet-db--disconnect-if-idle))
 
-;; Backup
+;;; Backup
 (add-hook 'decklet-edit-start-hook #'decklet-db-backup)
 (add-hook 'decklet-edit-quit-hook #'decklet-db-backup)
 
@@ -713,14 +699,43 @@ buffer, which refreshes if the edited card is on screen."
 ;; `decklet-deck.el' fires one of these hooks, so the edit buffer stays
 ;; in sync without its own commands needing to call `decklet-edit-refresh'
 ;; directly.
+;;
+;; If the edit buffer is not the selected window (e.g. the user is in a
+;; card-back popup or another buffer), we defer the refresh and set
+;; `decklet-edit--refresh-pending' instead.  The pending refresh is
+;; flushed via `window-selection-change-functions' when the edit buffer
+;; becomes selected again, so `tabulated-list-print' runs against the
+;; user's actual point — avoiding the "point jumps to line 1" artifact
+;; caused by `tabulated-list-print t' falling back to `point-min' when
+;; called in a non-focused buffer.
+(defvar-local decklet-edit--refresh-pending nil
+  "Non-nil when the edit buffer needs a refresh on next focus.
+Set by `decklet-edit--on-card-change' when the buffer is not selected;
+cleared by `decklet-edit--flush-pending-refresh'.")
+
 (defun decklet-edit--on-card-change (&rest _)
-  "Refresh the edit buffer after a card change.
+  "Refresh the edit buffer after a card change, or defer if not focused.
 Accepts any hook signature; arguments are ignored."
   (unless decklet-edit--inhibit-callback-refresh
     (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
       (with-current-buffer buffer
         (when (derived-mode-p 'decklet-edit-mode)
-          (decklet-edit-refresh))))))
+          (if (eq buffer (window-buffer (selected-window)))
+              (decklet-edit-refresh)
+            (setq decklet-edit--refresh-pending t)))))))
+
+(defun decklet-edit--flush-pending-refresh (&rest _)
+  "Flush a pending refresh when the edit buffer becomes selected.
+Registered on `window-selection-change-functions'."
+  (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
+    (when (and (eq buffer (window-buffer (selected-window)))
+               (buffer-local-value 'decklet-edit--refresh-pending buffer))
+      (with-current-buffer buffer
+        (setq decklet-edit--refresh-pending nil)
+        (decklet-edit-refresh)))))
+
+(add-hook 'window-selection-change-functions
+          #'decklet-edit--flush-pending-refresh)
 
 (dolist (hook '(decklet-cards-added-functions
                 decklet-cards-deleted-functions
@@ -734,10 +749,10 @@ Accepts any hook signature; arguments are ignored."
 (defvar decklet-edit-mode-map
   (define-keymap
     :parent tabulated-list-mode-map
-    "e" #'decklet-edit-word
-    "t" #'decklet-edit-hint
+    "e" #'decklet-edit-update-word
+    "t" #'decklet-edit-update-hint
     "b" #'decklet-edit-show-card-back
-    "D" #'decklet-edit-delete
+    "D" #'decklet-edit-delete-card
     "/ r" #'decklet-edit-filter-review
     "/ l" #'decklet-edit-filter-learning
     "/ a" #'decklet-edit-filter-toggle-archive
@@ -748,7 +763,7 @@ Accepts any hook signature; arguments are ignored."
     "; s" (decklet-edit--column-sort-command "Stability")
     "; f" (decklet-edit--column-sort-command "Difficulty")
     "R" #'decklet-edit-rate-card
-    "A" #'decklet-edit-archive
+    "A" #'decklet-edit-archive-card
     "m" #'decklet-edit-mark-at-point
     "u" #'decklet-edit-unmark-at-point
     "U" #'decklet-edit-unmark-all

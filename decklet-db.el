@@ -707,8 +707,8 @@ Return a plist with :added, :overwritten, and :skipped."
       ;; event per successful import.
       (when added-card-ids
         (decklet-run-cards-hook 'decklet-cards-added-functions
-				(mapcar (lambda (card-id) (list :card-id card-id))
-					(nreverse added-card-ids))))
+                                (mapcar (lambda (card-id) (list :card-id card-id))
+                                        (nreverse added-card-ids))))
       (list :added added :overwritten overwritten :skipped skipped))))
 
 ;;;###autoload
