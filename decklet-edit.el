@@ -58,11 +58,6 @@
   "Face for displaying due timestamps in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-state-face
-  `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)))
-  "Face for displaying state values in edit lists."
-  :group 'decklet-edit)
-
 (defface decklet-edit-stability-face
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
   "Face for displaying stability values in edit lists."
@@ -413,9 +408,8 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                          'decklet-edit-word-face))
             (state-face (pcase display-state
                           (:new 'decklet-edit-state-new-face)
-                          ((or :learning :relearning) 'decklet-edit-state-learning-face)
                           (:review 'decklet-edit-state-review-face)
-                          (_ 'decklet-edit-state-face)))
+                          (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
             (state-text (or (decklet--fsrs-state-string display-state) ""))
             (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
             (hint (if hint
