@@ -63,7 +63,7 @@ Set to nil to disable relearning steps."
 
 (defcustom decklet-day-rollover-hour 4
   "Hour of day (0-23) that starts a new review day."
-  :type 'integer
+  :type '(integer :tag "Hour (0-23)")
   :group 'decklet-scheduler)
 
 (defcustom decklet-fsrs-parameters nil
