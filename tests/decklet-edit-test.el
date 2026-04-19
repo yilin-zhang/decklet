@@ -142,7 +142,7 @@
     (should (null decklet-edit--preserving-point))))
 
 (ert-deftest decklet-test-edit-entries-render-multiline-word-and-hint-inline ()
-  (cl-letf (((symbol-function 'decklet-db--select-cards)
+  (cl-letf (((symbol-function 'decklet-db--select-card-rows)
              (lambda (&rest _)
                '((:card-id 42 :word "line1\nline2" :added "20250101T000000Z"
                            :last-review nil :due "20250102T000000Z"
@@ -174,7 +174,7 @@
         (cleared nil))
     (cl-letf (((symbol-function 'decklet-edit--marked-card-ids) (lambda () nil))
               ((symbol-function 'decklet-edit--card-id-at-point) (lambda () 42))
-              ((symbol-function 'decklet-card-word-by-id) (lambda (_) "hello"))
+              ((symbol-function 'decklet-card-word) (lambda (_) "hello"))
               ((symbol-function 'decklet-edit--nearest-surviving-card-id)
                (lambda (_) 99))
               ((symbol-function 'decklet-edit--ensure-not-current) (lambda (_) nil))
@@ -196,7 +196,7 @@
         (archived nil))
     (cl-letf (((symbol-function 'decklet-edit--marked-card-ids) (lambda () nil))
               ((symbol-function 'decklet-edit--card-id-at-point) (lambda () 42))
-              ((symbol-function 'decklet-card-word-by-id) (lambda (_) "hello"))
+              ((symbol-function 'decklet-card-word) (lambda (_) "hello"))
               ((symbol-function 'decklet-edit--nearest-surviving-card-id)
                (lambda (_) 99))
               ((symbol-function 'decklet-edit--ensure-not-current) (lambda (_) nil))

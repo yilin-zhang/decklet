@@ -728,8 +728,8 @@ analytics, ...) without touching Decklet internals.
 | `(decklet-get-card-hint CARD-ID)` | hint string or nil |
 | `(decklet-get-card-back CARD-ID)` | card back content or nil |
 | `(decklet-get-card-meta CARD-ID)` | `decklet-card-meta` struct or nil |
-| `(decklet-card-word-by-id CARD-ID)` | current word string or nil |
-| `(decklet-card-id-for-word WORD)` | card id or nil |
+| `(decklet-card-word CARD-ID)` | current word string or nil |
+| `(decklet-card-id-by-word WORD)` | card id or nil |
 | `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all`, `review`, `learning`, or `archived` |
 
 #### Mutating cards
@@ -823,7 +823,7 @@ review UI:
 (defun my/decklet-image-indicator ()
   "Review UI component showing [IMG] when the current word has an image."
   (when-let ((word (and decklet-current-card-id
-                        (decklet-card-word-by-id decklet-current-card-id))))
+                        (decklet-card-word decklet-current-card-id))))
     (when (file-exists-p (my/decklet-image-path word))
       (decklet-center-text
        (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face)))))

@@ -9,6 +9,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'map)
 (require 'seq)
 (require 'sqlite)
 (require 'subr-x)
@@ -144,7 +145,7 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
   (unless (decklet-db--session-window-open-p)
     (decklet-db--disconnect)))
 
-(defun decklet-db--select-card (word)
+(defun decklet-db--select-card-row-by-word (word)
   "Return the card row for WORD or nil."
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
@@ -153,7 +154,12 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
                            FROM cards WHERE word = ?;"
                          (list word))))))
 
-(defun decklet-db--select-card-by-id (card-id)
+(defun decklet-db--require-card-row-by-word (word)
+  "Return the card row for WORD, or signal a user error."
+  (or (decklet-db--select-card-row-by-word word)
+      (user-error "No card found for \"%s\"" word)))
+
+(defun decklet-db--select-card-row (card-id)
   "Return the card row for CARD-ID or nil."
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
@@ -162,18 +168,23 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
                           FROM cards WHERE card_id = ?;"
                          (list card-id))))))
 
-(defun decklet-db--select-card-word-by-id (card-id)
-  "Return the word for CARD-ID, or nil if absent."
-  (decklet-db--select-card-field-by-id card-id 'word))
+(defun decklet-db--require-card-row (card-id)
+  "Return the card row for CARD-ID, or signal a user error."
+  (or (decklet-db--select-card-row card-id)
+      (user-error "No card found for id %s" card-id)))
 
-(defun decklet-db--select-card-field-by-id (card-id field)
+(defun decklet-db--select-card-word (card-id)
+  "Return the word for CARD-ID, or nil if absent."
+  (decklet-db--select-card-field card-id 'word))
+
+(defun decklet-db--select-card-field (card-id field)
   "Return FIELD for CARD-ID, or nil if absent."
   (let ((conn (decklet-db--ensure)))
     (caar (sqlite-select conn
                          (format "SELECT %s FROM cards WHERE card_id = ?;" field)
                          (list card-id)))))
 
-(defun decklet-db--update-card-text-field-by-id (card-id field value)
+(defun decklet-db--update-card-text-field (card-id field value)
   "Update text FIELD for CARD-ID with VALUE, returning normalized text."
   (let* ((value (decklet-db--normalize-optional-text value))
          (conn (decklet-db--ensure)))
@@ -182,7 +193,7 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
                     (list value card-id))
     value))
 
-(defun decklet-db--set-card-archived-at-by-id (card-id archived-at)
+(defun decklet-db--set-card-archived-at (card-id archived-at)
   "Set CARD-ID archived_at to ARCHIVED-AT."
   (let ((conn (decklet-db--ensure)))
     (sqlite-execute conn "UPDATE cards SET archived_at = ? WHERE card_id = ?;"
@@ -218,36 +229,36 @@ card's stable identity is preserved across rating updates."
            (decklet-card-meta-stability card-meta)
            (decklet-card-meta-difficulty card-meta)))))
 
-(defun decklet-db--update-hint-by-id (card-id hint)
+(defun decklet-db--update-hint (card-id hint)
   "Update CARD-ID's hint with HINT in the database, return normalized hint."
-  (decklet-db--update-card-text-field-by-id card-id 'hint hint))
+  (decklet-db--update-card-text-field card-id 'hint hint))
 
-(defun decklet-db--update-back-by-id (card-id back)
+(defun decklet-db--update-back (card-id back)
   "Update CARD-ID's back with BACK in the database, return normalized back."
-  (decklet-db--update-card-text-field-by-id card-id 'back back))
+  (decklet-db--update-card-text-field card-id 'back back))
 
-(defun decklet-db--select-card-hint-by-id (card-id)
+(defun decklet-db--select-card-hint (card-id)
   "Return the hint for CARD-ID, or nil."
   (decklet-db--normalize-optional-text
-   (decklet-db--select-card-field-by-id card-id 'hint)))
+   (decklet-db--select-card-field card-id 'hint)))
 
-(defun decklet-db--select-card-back-by-id (card-id)
+(defun decklet-db--select-card-back (card-id)
   "Return the back content for CARD-ID's card, or nil."
   (decklet-db--normalize-optional-text
-   (decklet-db--select-card-field-by-id card-id 'back)))
+   (decklet-db--select-card-field card-id 'back)))
 
-(defun decklet-db--delete-card-by-id (card-id)
+(defun decklet-db--delete-card (card-id)
   "Delete CARD-ID from the database."
   (let ((conn (decklet-db--ensure)))
     (sqlite-execute conn "DELETE FROM cards WHERE card_id = ?;" (list card-id))))
 
-(defun decklet-db--archive-card-by-id (card-id archived-at)
+(defun decklet-db--archive-card (card-id archived-at)
   "Mark CARD-ID as archived at ARCHIVED-AT."
-  (decklet-db--set-card-archived-at-by-id card-id archived-at))
+  (decklet-db--set-card-archived-at card-id archived-at))
 
-(defun decklet-db--unarchive-card-by-id (card-id)
+(defun decklet-db--unarchive-card (card-id)
   "Clear CARD-ID's archived flag."
-  (decklet-db--set-card-archived-at-by-id card-id nil))
+  (decklet-db--set-card-archived-at card-id nil))
 
 (defun decklet-db--mint-card-id ()
   "Return a fresh unique card id.
@@ -261,16 +272,16 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
                 "SELECT COALESCE(MAX(card_id), 0) FROM cards;"))
          0))))
 
-(defun decklet-db--update-word-by-id (card-id new-word)
+(defun decklet-db--update-word (card-id new-word)
   "Rename CARD-ID to NEW-WORD in the database, return normalized new word."
   (let* ((conn (decklet-db--ensure))
-         (row (or (decklet-db--select-card-by-id card-id)
+         (row (or (decklet-db--select-card-row card-id)
                   (user-error "No card found for id %s" card-id)))
          (old-word (plist-get row :word))
          (new-word (decklet-db--normalize-word new-word)))
     (if (string-equal old-word new-word)
         old-word
-      (when (decklet-db--select-card new-word)
+      (when (decklet-db--select-card-row-by-word new-word)
         (user-error "Word \"%s\" already exists in the deck" new-word))
       (sqlite-execute conn "UPDATE cards SET word = ? WHERE card_id = ?;"
                       (list new-word card-id))
@@ -302,7 +313,7 @@ database column name string."
                        (format "COALESCE(%s, '')" db-column))))
     (format " ORDER BY %s %s, rowid %s" order-expr direction direction)))
 
-(defun decklet-db--select-cards (&optional filter sort-key)
+(defun decklet-db--select-card-rows (&optional filter sort-key)
   "Return cards filtered by FILTER and sorted by SORT-KEY."
   (let ((conn (decklet-db--ensure)))
     (pcase-let ((`(,where . ,params) (decklet-db--edit-filter-sql filter)))
@@ -320,24 +331,29 @@ database column name string."
 (defun decklet-db--row->card-meta (row)
   "Convert card plist ROW into a `decklet-card-meta' instance."
   (when row
-    (let* ((last-review (plist-get row :last-review))
-           (is-new (decklet-last-review-empty-p last-review))
-           (state (decklet--normalize-fsrs-state (plist-get row :state)))
-           (step (let ((s (plist-get row :step)))
-                   (if is-new (or s 0) s)))
-           (stability (let ((s (plist-get row :stability)))
-                        (and (numberp s) s)))
-           (difficulty (let ((d (plist-get row :difficulty)))
-                         (and (numberp d) d))))
+    (pcase-let* (((map :card-id :added :last-review :due :state :step :stability :difficulty) row)
+                 (is-new (decklet-last-review-empty-p last-review))
+                 (state (decklet--normalize-fsrs-state state))
+                 (step (if is-new (or step 0) step))
+                 (stability (and (numberp stability) stability))
+                 (difficulty (and (numberp difficulty) difficulty)))
       (make-decklet-card-meta
-       :card-id (plist-get row :card-id)
-       :added-date (plist-get row :added)
+       :card-id card-id
+       :added-date added
        :last-review last-review
-       :due (plist-get row :due)
+       :due due
        :state state
        :step step
        :stability stability
        :difficulty difficulty))))
+
+(defun decklet-db--row->card (row)
+  "Return public card plist converted from ROW."
+  (list :card-id (plist-get row :card-id)
+        :word (plist-get row :word)
+        :hint (plist-get row :hint)
+        :back (plist-get row :back)
+        :meta (decklet-db--row->card-meta row)))
 
 (defun decklet-db--review-normalize-targets (targets)
   "Normalize TARGETS into a list of review types."
@@ -578,7 +594,11 @@ Return a plist with keys:
       (alist-get (symbol-name key) record nil nil #'equal)))
 
 (defun decklet-db--import-record->card (record)
-  "Convert JSON RECORD alist to (WORD META ARCHIVED-AT)."
+  "Convert JSON RECORD alist to a card plist.
+Returns a card plist with keys :card-id, :word, :hint, :back,
+:meta, and :archived-at.  The :archived-at key is specific to the
+import flow and is not present on cards produced by
+`decklet-db--row->card'."
   (unless (listp record)
     (user-error "Invalid JSON record: expected object, got %S" record))
   (let* ((now (decklet--now))
@@ -607,7 +627,12 @@ Return a plist with keys:
          (back (decklet-db--normalize-optional-text
                 (decklet-db--json-alist-get record 'back)))
          (archived-at (decklet-db--json-alist-get record 'archived_at)))
-    (list word meta archived-at hint back)))
+    (list :card-id (decklet-card-meta-card-id meta)
+          :word word
+          :hint hint
+          :back back
+          :meta meta
+          :archived-at archived-at)))
 
 (defun decklet-db--import-read-conflict-choice (word)
   "Prompt conflict action for WORD.
@@ -636,18 +661,25 @@ confirms an \"all\" behavior."
              (message "Canceled \"overwrite all\"; choose for current word."))))))
     (cons resolved global-choice)))
 
-(defun decklet-db--apply-import-card (word meta archived-at hint back overwrite-p)
-  "Upsert WORD with META, write HINT and BACK, then apply ARCHIVED-AT flag.
-When OVERWRITE-P is non-nil, also clear any stale archived flag on the
-existing card.  New cards never need this since they start unarchived."
-  (decklet-db--upsert-card word meta)
-  (let ((card-id (plist-get (decklet-db--select-card word) :card-id)))
-    (when hint (decklet-db--update-hint-by-id card-id hint))
-    (when back (decklet-db--update-back-by-id card-id back))
-    (if archived-at
-        (decklet-db--archive-card-by-id card-id archived-at)
-      (when overwrite-p
-        (decklet-db--unarchive-card-by-id card-id)))))
+(defun decklet-db--apply-import-card (card overwrite-p)
+  "Upsert CARD into the database and apply its archive flag.
+CARD is the plist returned by `decklet-db--import-record->card'.
+When OVERWRITE-P is non-nil, also clear any stale archived flag
+on an existing row.  New cards never need this since they start
+unarchived."
+  (let ((word (plist-get card :word))
+        (meta (plist-get card :meta))
+        (hint (plist-get card :hint))
+        (back (plist-get card :back))
+        (archived-at (plist-get card :archived-at)))
+    (decklet-db--upsert-card word meta)
+    (let ((card-id (plist-get (decklet-db--select-card-row-by-word word) :card-id)))
+      (when hint (decklet-db--update-hint card-id hint))
+      (when back (decklet-db--update-back card-id back))
+      (if archived-at
+          (decklet-db--archive-card card-id archived-at)
+        (when overwrite-p
+          (decklet-db--unarchive-card card-id))))))
 
 (defun decklet-db--import-json-file (file)
   "Import cards from JSON FILE.
@@ -667,15 +699,15 @@ Return a plist with :added, :overwritten, and :skipped."
     (let* ((global-conflict-action nil)
            (planned (mapcar
                      (lambda (record)
-                       (pcase-let ((`(,word ,meta ,archived-at ,hint ,back)
-                                    (decklet-db--import-record->card record)))
-                         (let ((action (if (decklet-db--select-card word)
-                                           (or global-conflict-action
-                                               (let ((decision (decklet-db--import-read-conflict-choice word)))
-                                                 (setq global-conflict-action (cdr decision))
-                                                 (car decision)))
-                                         :add)))
-                           (list word meta archived-at hint back action))))
+                       (let* ((card (decklet-db--import-record->card record))
+                              (word (plist-get card :word))
+                              (action (if (decklet-db--select-card-row-by-word word)
+                                          (or global-conflict-action
+                                              (let ((decision (decklet-db--import-read-conflict-choice word)))
+                                                (setq global-conflict-action (cdr decision))
+                                                (car decision)))
+                                        :add)))
+                         (cons card action)))
                      records))
            (added 0) (overwritten 0) (skipped 0)
            (added-card-ids nil))
@@ -685,16 +717,17 @@ Return a plist with :added, :overwritten, and :skipped."
         (condition-case err
             (progn
               (dolist (entry planned)
-                (pcase-let ((`(,word ,meta ,archived-at ,hint ,back ,action) entry))
+                (let ((card (car entry))
+                      (action (cdr entry)))
                   (pcase action
                     (:add
-                     (decklet-db--apply-import-card word meta archived-at hint back nil)
-                     (push (decklet-card-meta-card-id meta) added-card-ids)
+                     (decklet-db--apply-import-card card nil)
+                     (push (plist-get card :card-id) added-card-ids)
                      (cl-incf added))
                     (:skip
                      (cl-incf skipped))
                     (:overwrite
-                     (decklet-db--apply-import-card word meta archived-at hint back t)
+                     (decklet-db--apply-import-card card t)
                      (cl-incf overwritten))
                     (_
                      (error "Unknown import action: %S" action)))))

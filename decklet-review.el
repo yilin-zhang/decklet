@@ -518,8 +518,8 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
        (format "\\<decklet-review-mode-map>\\[%s]" command))
     ""))
 
-(defun decklet-review--instruction-interval-label (word meta grade)
-  "Return a propertized interval label for WORD with META at GRADE.
+(defun decklet-review--instruction-interval-label (meta grade)
+  "Return a propertized interval label for card META at GRADE.
 When `decklet-review-enable-interval-labels' is nil, return an empty string.
 Otherwise, simulate one FSRS review with GRADE and format the predicted
 interval as a compact label, for example (10m)."
@@ -528,7 +528,7 @@ interval as a compact label, for example (10m)."
     (propertize
      (format " (%s)"
              (decklet--format-interval
-              (decklet--simulate-review-interval word meta grade)))
+              (decklet--simulate-review-interval meta grade)))
      'face 'decklet-review-rating-interval-face)))
 
 (defun decklet-review--separator (&optional length)
@@ -590,8 +590,7 @@ GRADE, apply `decklet-review-undo-highlight-face' to the LABEL text only."
                          label)))
     (concat (decklet-review--instruction-key-label command)
             " " styled-label
-            (decklet-review--instruction-interval-label
-             decklet-review--render-word meta grade))))
+            (decklet-review--instruction-interval-label meta grade))))
 
 (defun decklet-review-component-rates ()
   "Return the options block for review ratings and commands.
@@ -659,19 +658,20 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   (with-current-buffer (get-buffer decklet-review-buffer-name)
     (when decklet-review-hide-cursor
       (decklet-review--hide-cursor))
-    (let* ((card-full (and decklet-current-card-id
-                           (decklet-get-card decklet-current-card-id)))
-           (decklet-review--render-word (plist-get card-full :word))
-           (decklet-review--render-meta (plist-get card-full :meta))
-           (decklet-review--render-has-back (plist-get card-full :back))
-           (decklet-review--render-hint (plist-get card-full :hint))
-           (window (get-buffer-window (current-buffer) 0))
-           (saved-point (when (and keep-position window) (window-point window)))
-           (saved-start (when (and keep-position window) (window-start window)))
-           (render (lambda ()
-                     (let ((inhibit-read-only t))
-                       (erase-buffer)
-                       (insert (decklet-review--render-components))))))
+    (pcase-let* ((card-full (and decklet-current-card-id
+                                 (decklet-get-card decklet-current-card-id)))
+                 ((map (:word decklet-review--render-word)
+                       (:meta decklet-review--render-meta)
+                       (:back decklet-review--render-has-back)
+                       (:hint decklet-review--render-hint))
+                  card-full)
+                 (window (get-buffer-window (current-buffer) 0))
+                 (saved-point (when (and keep-position window) (window-point window)))
+                 (saved-start (when (and keep-position window) (window-start window)))
+                 (render (lambda ()
+                           (let ((inhibit-read-only t))
+                             (erase-buffer)
+                             (insert (decklet-review--render-components))))))
       ;; Render using the review window so centering uses its dimensions.
       (if window
           (with-selected-window window (funcall render))
@@ -801,7 +801,7 @@ When current list is empty, re-check for due cards and continue if any exist."
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next card."
   (let* ((card-id (decklet--require-current-card-id "rate"))
-         (row (decklet--require-card-by-id card-id))
+         (row (decklet-db--require-card-row card-id))
          (word (plist-get row :word))
          (goal-was-reached (decklet-review--daily-goal-reached-p)))
     (if (decklet-review--undo-in-progress-p)
@@ -854,7 +854,7 @@ original rating remains in the database until the user re-rates."
     (decklet-review--trail-retreat-pointer)
     (let* ((entry (decklet-review--trail-current-entry))
            (card-id (plist-get entry :card-id))
-           (word (decklet-card-word-by-id card-id)))
+           (word (decklet-card-word card-id)))
       (if (not (decklet-card-exists-p card-id))
           (progn
             (message "Card \"%s\" no longer exists, undo skipped" word)
@@ -911,7 +911,7 @@ original rating remains in the database until the user re-rates."
   "Delete the current card from the deck."
   (interactive)
   (let* ((card-id (decklet--require-current-card-id "delete"))
-         (word (decklet-card-word-by-id card-id)))
+         (word (decklet-card-word card-id)))
     (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
       (decklet-delete-card card-id)
       (message "Deleted \"%s\" from the deck." word)
@@ -922,7 +922,7 @@ original rating remains in the database until the user re-rates."
   "Show the card back for the current word in a read-only popup."
   (interactive)
   (let* ((card-id (decklet--require-current-card-id "show card back for"))
-         (word (decklet-card-word-by-id card-id)))
+         (word (decklet-card-word card-id)))
     (decklet-card-back-show word)))
 
 ;; Review mode setup

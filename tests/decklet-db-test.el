@@ -29,7 +29,7 @@
   (decklet-test--with-temp-db
    (decklet-db--ensure)
    (decklet-db--upsert-card "lucid" (decklet-test--make-card-meta))
-   (let ((row (decklet-db--select-card "lucid")))
+   (let ((row (decklet-db--select-card-row-by-word "lucid")))
      (should row)
      (should (string= (plist-get row :word) "lucid")))))
 
@@ -44,13 +44,13 @@
    (let ((ts (decklet-test--ts (current-time))))
      (decklet-db--upsert-card "archive-me"
                               (decklet-test--make-card-meta :timestamp ts))
-     (let ((card-id (plist-get (decklet-db--select-card "archive-me") :card-id)))
-       (should (= 1 (length (decklet-db--select-cards 'all nil))))
-       (decklet-db--archive-card-by-id card-id ts)
-       (should (= 0 (length (decklet-db--select-cards 'all nil))))
-       (should (= 1 (length (decklet-db--select-cards 'archived nil))))
-       (decklet-db--unarchive-card-by-id card-id)
-       (should (= 1 (length (decklet-db--select-cards 'all nil))))))))
+     (let ((card-id (plist-get (decklet-db--select-card-row-by-word "archive-me") :card-id)))
+       (should (= 1 (length (decklet-db--select-card-rows 'all nil))))
+       (decklet-db--archive-card card-id ts)
+       (should (= 0 (length (decklet-db--select-card-rows 'all nil))))
+       (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
+       (decklet-db--unarchive-card card-id)
+       (should (= 1 (length (decklet-db--select-card-rows 'all nil))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Due-word selection with review-order
@@ -99,7 +99,7 @@
 
      (should (equal (decklet-db--select-due-card-ids)
                     (mapcar (lambda (word)
-                              (plist-get (decklet-db--select-card word) :card-id))
+                              (plist-get (decklet-db--select-card-row-by-word word) :card-id))
                             '("learn-a" "new-a" "review-a")))))))
 
 ;; ---------------------------------------------------------------------------
@@ -217,8 +217,8 @@
        (should (= 2 (plist-get stats :added)))
        (should (= 0 (plist-get stats :overwritten)))
        (should (= 0 (plist-get stats :skipped))))
-     (should (= 1 (length (decklet-db--select-cards 'all nil))))
-     (should (= 1 (length (decklet-db--select-cards 'archived nil)))))))
+     (should (= 1 (length (decklet-db--select-card-rows 'all nil))))
+     (should (= 1 (length (decklet-db--select-card-rows 'archived nil)))))))
 
 (ert-deftest decklet-test-db-import-json-conflict-skip-and-overwrite ()
   (decklet-test--with-temp-db
@@ -238,8 +238,8 @@
                    (hint . "new"))))
           (json-encoding-pretty-print t))
      (decklet-db--upsert-card "alpha" base-meta)
-     (decklet-db--update-hint-by-id
-      (plist-get (decklet-db--select-card "alpha") :card-id) "old")
+     (decklet-db--update-hint
+      (plist-get (decklet-db--select-card-row-by-word "alpha") :card-id) "old")
      (with-temp-file file
        (insert (json-encode rows)))
      ;; Conflict => skip
@@ -249,7 +249,7 @@
          (should (= 0 (plist-get stats :added)))
          (should (= 0 (plist-get stats :overwritten)))
          (should (= 1 (plist-get stats :skipped)))))
-     (should (string= "old" (plist-get (decklet-db--select-card "alpha") :hint)))
+     (should (string= "old" (plist-get (decklet-db--select-card-row-by-word "alpha") :hint)))
      ;; Conflict => overwrite
      (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
                 (lambda (_word) (cons :overwrite nil))))
@@ -257,7 +257,7 @@
          (should (= 0 (plist-get stats :added)))
          (should (= 1 (plist-get stats :overwritten)))
          (should (= 0 (plist-get stats :skipped)))))
-     (should (string= "new" (plist-get (decklet-db--select-card "alpha") :hint))))))
+     (should (string= "new" (plist-get (decklet-db--select-card-row-by-word "alpha") :hint))))))
 
 (ert-deftest decklet-test-db-import-read-conflict-choice-global-confirm ()
   ;; Choosing all-overwrite and confirming should return current overwrite action
@@ -282,14 +282,16 @@
 
 (ert-deftest decklet-test-db-import-record-step-default-by-state ()
   ;; Missing step defaults to nil for review, 0 for learning-like states.
-  (pcase-let ((`(,_word ,review-meta ,_archived)
-               (decklet-db--import-record->card
-                '((word . "review-word")
-                  (state . "review"))))
-              (`(,_word2 ,learning-meta ,_archived2)
-               (decklet-db--import-record->card
-                '((word . "learning-word")
-                  (state . "learning")))))
+  (let ((review-meta (plist-get
+                      (decklet-db--import-record->card
+                       '((word . "review-word")
+                         (state . "review")))
+                      :meta))
+        (learning-meta (plist-get
+                        (decklet-db--import-record->card
+                         '((word . "learning-word")
+                           (state . "learning")))
+                        :meta)))
     (should (null (decklet-card-meta-step review-meta)))
     (should (= 0 (decklet-card-meta-step learning-meta)))))
 
@@ -356,11 +358,11 @@
                 :due "20250101T000000Z"
                 :state :new)))
      (decklet-db--upsert-card "lucid" meta)
-     (let ((card-id (plist-get (decklet-db--select-card "lucid") :card-id)))
-       (should (null (decklet-db--select-card-back-by-id card-id)))
-       (decklet-db--update-back-by-id card-id "clear and bright")
+     (let ((card-id (plist-get (decklet-db--select-card-row-by-word "lucid") :card-id)))
+       (should (null (decklet-db--select-card-back card-id)))
+       (decklet-db--update-back card-id "clear and bright")
        (should (string= "clear and bright"
-                        (decklet-db--select-card-back-by-id card-id)))))))
+                        (decklet-db--select-card-back card-id)))))))
 
 (ert-deftest decklet-test-card-back-select-nil-when-absent ()
   "select-card-back returns nil for a card with no back."
@@ -370,8 +372,8 @@
                              :added-date "20250101T000000Z"
                              :due "20250101T000000Z"
                              :state :new))
-   (should (null (decklet-db--select-card-back-by-id
-                  (plist-get (decklet-db--select-card "fog") :card-id))))))
+   (should (null (decklet-db--select-card-back
+                  (plist-get (decklet-db--select-card-row-by-word "fog") :card-id))))))
 
 (ert-deftest decklet-test-card-back-blank-normalizes-to-nil ()
   "Storing a blank back normalizes it to nil."
@@ -381,9 +383,9 @@
                              :added-date "20250101T000000Z"
                              :due "20250101T000000Z"
                              :state :new))
-   (let ((card-id (plist-get (decklet-db--select-card "mist") :card-id)))
-     (decklet-db--update-back-by-id card-id "   ")
-     (should (null (decklet-db--select-card-back-by-id card-id))))))
+   (let ((card-id (plist-get (decklet-db--select-card-row-by-word "mist") :card-id)))
+     (decklet-db--update-back card-id "   ")
+     (should (null (decklet-db--select-card-back card-id))))))
 
 (ert-deftest decklet-test-card-back-upsert-does-not-touch-back ()
   "upsert-card leaves back untouched; back must be set via update-back."
@@ -394,10 +396,10 @@
                 :state :new)))
      (decklet-db--upsert-card "vivid" meta)
      ;; Back is nil after initial upsert.
-     (let ((card-id (plist-get (decklet-db--select-card "vivid") :card-id)))
-       (should (null (decklet-db--select-card-back-by-id card-id)))
+     (let ((card-id (plist-get (decklet-db--select-card-row-by-word "vivid") :card-id)))
+       (should (null (decklet-db--select-card-back card-id)))
        ;; Set back directly.
-       (decklet-db--update-back-by-id card-id "example sentence")
+       (decklet-db--update-back card-id "example sentence")
        ;; Scheduling update does not clear it.
        (decklet-db--upsert-card
         "vivid"
@@ -407,7 +409,7 @@
          :due "20250110T000000Z"
          :state :review))
        (should (string= "example sentence"
-                        (decklet-db--select-card-back-by-id card-id)))))))
+                        (decklet-db--select-card-back card-id)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Card back — JSON import/export
@@ -433,8 +435,8 @@
        (insert (json-encode rows)))
      (decklet-db-import-json file)
      (should (string= "fresh and clear"
-                      (decklet-db--select-card-back-by-id
-                       (plist-get (decklet-db--select-card "crisp") :card-id)))))))
+                      (decklet-db--select-card-back
+                       (plist-get (decklet-db--select-card-row-by-word "crisp") :card-id)))))))
 
 (ert-deftest decklet-test-card-back-json-import-nil-back ()
   "JSON import with null back leaves back as nil."
@@ -455,8 +457,8 @@
      (with-temp-file file
        (insert (json-encode rows)))
      (decklet-db-import-json file)
-     (should (null (decklet-db--select-card-back-by-id
-                    (plist-get (decklet-db--select-card "dim") :card-id)))))))
+     (should (null (decklet-db--select-card-back
+                    (plist-get (decklet-db--select-card-row-by-word "dim") :card-id)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON export
@@ -470,9 +472,9 @@
                  :timestamp "20250101T010101Z"
                  :stability 5.0 :difficulty 3.0)))
      (decklet-db--upsert-card "sun" meta)
-     (let ((sun-id (plist-get (decklet-db--select-card "sun") :card-id)))
-       (decklet-db--update-hint-by-id sun-id "star")
-       (decklet-db--update-back-by-id sun-id "notes about sun"))
+     (let ((sun-id (plist-get (decklet-db--select-card-row-by-word "sun") :card-id)))
+       (decklet-db--update-hint sun-id "star")
+       (decklet-db--update-back sun-id "notes about sun"))
      (decklet-db--upsert-card "moon" meta)
      (decklet-db-export-json file)
      (let* ((data (with-temp-buffer
@@ -505,13 +507,13 @@
                   :last-review nil :state :learning :step 0)))
      ;; Populate source DB.
      (decklet-db--upsert-card "river" meta1)
-     (let ((river-id (plist-get (decklet-db--select-card "river") :card-id)))
-       (decklet-db--update-hint-by-id river-id "flows")
-       (decklet-db--update-back-by-id river-id "water body"))
+     (let ((river-id (plist-get (decklet-db--select-card-row-by-word "river") :card-id)))
+       (decklet-db--update-hint river-id "flows")
+       (decklet-db--update-back river-id "water body"))
      (decklet-db--upsert-card "lake" meta2)
-     (decklet-db--update-hint-by-id
-      (plist-get (decklet-db--select-card "lake") :card-id) "still")
-     (decklet-archive-card (plist-get (decklet-db--select-card "lake") :card-id))
+     (decklet-db--update-hint
+      (plist-get (decklet-db--select-card-row-by-word "lake") :card-id) "still")
+     (decklet-archive-card (plist-get (decklet-db--select-card-row-by-word "lake") :card-id))
      ;; Export.
      (decklet-db-export-json export-file)
      ;; Clear all cards to simulate a fresh DB.
@@ -520,7 +522,7 @@
      (let ((stats (decklet-db-import-json export-file)))
        (should (= 2 (plist-get stats :added))))
      ;; Verify river (active, reviewed card with back and scheduling data).
-     (let ((row (decklet-db--select-card "river")))
+     (let ((row (decklet-db--select-card-row-by-word "river")))
        (should row)
        (should (equal (plist-get row :hint) "flows"))
        (should (equal (plist-get row :back) "water body"))
@@ -528,8 +530,8 @@
        (should (= (plist-get row :stability) 8.5))
        (should (= (plist-get row :difficulty) 4.2)))
      ;; Verify lake (archived, new card without scheduling data).
-     (should (= 1 (length (decklet-db--select-cards 'archived nil))))
-     (let ((row (decklet-db--select-card "lake")))
+     (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
+     (let ((row (decklet-db--select-card-row-by-word "lake")))
        (should row)
        (should (equal (plist-get row :hint) "still"))
        (should (equal (plist-get row :step) 0))))))

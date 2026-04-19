@@ -66,8 +66,8 @@
                              :added-date "20250101T000000Z"
                              :due "20250101T000000Z"
                              :state :new))
-   (decklet-db--update-back-by-id
-    (plist-get (decklet-db--select-card "bright") :card-id)
+   (decklet-db--update-back
+    (plist-get (decklet-db--select-card-row-by-word "bright") :card-id)
     "shining example")
    ;; Mock pop-to-buffer to avoid needing a live window during tests.
    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
@@ -128,8 +128,8 @@
 ;;             (insert "a vivid glow")
 ;;             (decklet-card-back-save)
 ;;             (should (string= "a vivid glow"
-;;                              (decklet-db--select-card-back-by-id
-;;                               (plist-get (decklet-db--select-card "radiant") :card-id))))
+;;                              (decklet-db--select-card-back
+;;                               (plist-get (decklet-db--select-card-row-by-word "radiant") :card-id))))
 ;;             (should on-save-called))
 ;;         (when (buffer-live-p buf)
 ;;           (kill-buffer buf))))))

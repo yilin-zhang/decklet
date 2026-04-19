@@ -377,7 +377,7 @@ CARD-IDS can be a single card id or a list of card ids."
                    (memq current card-ids)
                  (eql card-ids current)))
       (user-error "Current review word \"%s\" can only be modified in review mode"
-                  (decklet-card-word-by-id current)))))
+                  (decklet-card-word current)))))
 
 (defun decklet-edit--card-at-point (&optional ensure-not-current)
   "Return the current edit-row card as a plist with `:card-id' and `:word'.
@@ -386,35 +386,32 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
     (when ensure-not-current
       (decklet-edit--ensure-not-current card-id))
     (list :card-id card-id
-          :word (decklet-card-word-by-id card-id))))
+          :word (decklet-card-word card-id))))
 
 (defun decklet-edit--entries ()
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
-     (let* ((word (plist-get row :word))
-            (card-id (plist-get row :card-id))
-            (added (or (plist-get row :added) ""))
-            (last-review (or (plist-get row :last-review) ""))
-            (due (or (plist-get row :due) ""))
-            (state (decklet--normalize-fsrs-state (plist-get row :state)))
-            (stability (plist-get row :stability))
-            (difficulty (plist-get row :difficulty))
-            (hint (plist-get row :hint))
-            (back (plist-get row :back))
-            (display-state (decklet-card-display-state state last-review))
-            (word-face (if (eq decklet-edit--filter 'archived)
-                           'decklet-edit-word-archived-face
-                         'decklet-edit-word-face))
-            (state-face (pcase display-state
-                          (:new 'decklet-edit-state-new-face)
-                          (:review 'decklet-edit-state-review-face)
-                          (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
-            (state-text (or (decklet--fsrs-state-string display-state) ""))
-            (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
-            (hint (if hint
-                      (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
-                    "")))
+     (pcase-let* (((map :card-id :word :hint :back :added :last-review :due
+                        :state :stability :difficulty)
+                   row)
+                  (added (or added ""))
+                  (last-review (or last-review ""))
+                  (due (or due ""))
+                  (state (decklet--normalize-fsrs-state state))
+                  (display-state (decklet-card-display-state state last-review))
+                  (word-face (if (eq decklet-edit--filter 'archived)
+                                 'decklet-edit-word-archived-face
+                               'decklet-edit-word-face))
+                  (state-face (pcase display-state
+                                (:new 'decklet-edit-state-new-face)
+                                (:review 'decklet-edit-state-review-face)
+                                (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
+                  (state-text (or (decklet--fsrs-state-string display-state) ""))
+                  (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
+                  (hint (if hint
+                            (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
+                          "")))
        (list card-id
              (vconcat
               (vector
@@ -439,8 +436,8 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                (propertize (if difficulty (format "%.3f" difficulty) "")
                            'face 'decklet-edit-difficulty-face
                            'decklet-sort-number (or difficulty 0)))))))
-   (decklet-db--select-cards decklet-edit--filter
-                             (decklet-edit--db-sort-key tabulated-list-sort-key))))
+   (decklet-db--select-card-rows decklet-edit--filter
+                                 (decklet-edit--db-sort-key tabulated-list-sort-key))))
 
 (defun decklet-edit--apply-marks ()
   "Apply mark overlays to all currently-marked rows."
@@ -603,7 +600,7 @@ buffer, which refreshes if the edited card is on screen."
   (interactive)
   (let* ((marked (decklet-edit--marked-card-ids))
          (card-ids (or marked (list (decklet-edit--card-id-at-point))))
-         (word (and (not marked) (decklet-card-word-by-id (car card-ids)))))
+         (word (and (not marked) (decklet-card-word (car card-ids)))))
     (decklet-edit--ensure-not-current card-ids)
     (when (yes-or-no-p (if marked
                            (format "Delete %d marked cards? " (length marked))
@@ -620,7 +617,7 @@ Under the `archived' filter, the action is unarchive instead."
   (interactive)
   (let* ((marked (decklet-edit--marked-card-ids))
          (card-ids (or marked (list (decklet-edit--card-id-at-point))))
-         (word (and (not marked) (decklet-card-word-by-id (car card-ids))))
+         (word (and (not marked) (decklet-card-word (car card-ids))))
          (unarchive-p (eq decklet-edit--filter 'archived))
          (action (if unarchive-p #'decklet-unarchive-card #'decklet-archive-card))
          (verb (if unarchive-p "Unarchive" "Archive"))

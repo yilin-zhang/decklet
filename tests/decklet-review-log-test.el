@@ -175,7 +175,7 @@ Returns nil when the file does not exist or is empty."
   (decklet-test--with-temp-db
    (decklet-db--ensure)
    (decklet--add-card "inveigh")
-   (let ((log-id (decklet-rate-card (plist-get (decklet-db--select-card "inveigh") :card-id) 3)))
+   (let ((log-id (decklet-rate-card (plist-get (decklet-db--select-card-row-by-word "inveigh") :card-id) 3)))
      (should (integerp log-id))
      (let ((records (decklet-test--read-log)))
        (should (= 1 (length records)))
@@ -194,7 +194,7 @@ Returns nil when the file does not exist or is empty."
   (decklet-test--with-temp-db
    (decklet-db--ensure)
    (decklet--add-card "colour")
-   (let* ((meta (decklet-db--row->card-meta (decklet-db--select-card "colour")))
+   (let* ((meta (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "colour")))
           (card-id (decklet-card-meta-card-id meta)))
      (decklet-rename-card card-id "color")
      (let ((rec (car (decklet-test--read-log))))
@@ -211,7 +211,7 @@ Returns nil when the file does not exist or is empty."
   (decklet-test--with-temp-db
    (decklet-db--ensure)
    (decklet--add-card "alpha")
-   (let* ((meta (decklet-db--row->card-meta (decklet-db--select-card "alpha")))
+   (let* ((meta (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "alpha")))
           (id (decklet-card-meta-card-id meta)))
      (should (integerp id))
      (should (> id 0)))))
@@ -224,10 +224,10 @@ Returns nil when the file does not exist or is empty."
      (decklet-db--ensure)
      (decklet--add-card "alpha")
      (let* ((first-id (decklet-card-meta-card-id
-                       (decklet-db--row->card-meta (decklet-db--select-card "alpha")))))
+                       (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "alpha")))))
        (decklet--add-card "alpha")
        (let* ((second-id (decklet-card-meta-card-id
-                          (decklet-db--row->card-meta (decklet-db--select-card "alpha")))))
+                          (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "alpha")))))
          (should (= first-id second-id)))))))
 
 (ert-deftest decklet-test-add-card-delete-re-add-mints-new-card-id ()
@@ -238,11 +238,11 @@ Returns nil when the file does not exist or is empty."
    (decklet-db--ensure)
    (decklet--add-card "beta")
    (let ((first-id (decklet-card-meta-card-id
-                    (decklet-db--row->card-meta (decklet-db--select-card "beta")))))
+                    (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "beta")))))
      (decklet-delete-card first-id)
      (decklet--add-card "beta")
      (let ((second-id (decklet-card-meta-card-id
-                       (decklet-db--row->card-meta (decklet-db--select-card "beta")))))
+                       (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "beta")))))
        (should (integerp second-id))
        (should (not (= first-id second-id)))
        (should (> second-id first-id))))))
@@ -282,11 +282,11 @@ the log id is nil because the writer reported failure."
    (let ((log-id
           (cl-letf (((symbol-function 'write-region)
                      (lambda (&rest _) (error "simulated disk full"))))
-            (decklet-rate-card (plist-get (decklet-db--select-card "resilient") :card-id) 3))))
+            (decklet-rate-card (plist-get (decklet-db--select-card-row-by-word "resilient") :card-id) 3))))
      (should-not log-id))
    ;; Card state was advanced by FSRS despite the log failure:
    ;; `last-review' is now set.
-   (let ((meta (decklet-db--row->card-meta (decklet-db--select-card "resilient"))))
+   (let ((meta (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "resilient"))))
      (should (decklet-card-meta-last-review meta)))))
 
 (provide 'decklet-review-log-test)
