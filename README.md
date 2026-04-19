@@ -494,29 +494,37 @@ Examples:
 
 ```emacs-lisp
 ;; Default review order
-;; 1) finish due learning/relearning cards first (earliest due first)
+;; 1) finish due learning + relearning cards first (earliest due first)
 ;; 2) then review cards in random order
 ;; 3) finally show new cards, newest first
 (setq decklet-review-order
-      '((:sort :due :asc :learning)
-        (:shuffle :review)
-        (:sort :added :desc :new)))
+      '(((:learning :relearning) . (sort :due :asc))
+        (:review . shuffle)
+        (:new    . (sort :added :desc))))
+
+;; Prioritize lapsed (relearning) cards before anything else.
+(setq decklet-review-order
+      '((:relearning . (sort :due :asc))
+        (:learning   . (sort :due :asc))
+        (:review     . shuffle)
+        (:new        . (sort :added :desc))))
 
 ;; Mix learning + review together, then shuffle them.
 (setq decklet-review-order
-      '((:shuffle (:learning :review))
-        (:sort :added :desc :new)))
+      '(((:learning :relearning :review) . shuffle)
+        (:new . (sort :added :desc))))
 
 ;; Focus on tough review cards first.
 (setq decklet-review-order
-      '((:sort :difficulty :desc :review)
-        (:sort :due :asc :learning)
-        (:sort :added :desc :new)))
+      '((:review . (sort :difficulty :desc))
+        ((:learning :relearning) . (sort :due :asc))
+        (:new . (sort :added :desc))))
 ```
 
-Syntax:
-- `(:shuffle TARGETS)`: Shuffle cards from the selected target groups.
-- `(:sort FIELD ORDER TARGETS)`: Sort cards from target groups by one field and order.
+Syntax — each entry is `(TARGETS . SPEC)`:
+- `SPEC` is `shuffle` to shuffle cards from the target group.
+- `SPEC` is `(sort FIELD ORDER)` to sort cards by one field and order.
+- `TARGETS` is a single target keyword or a list of them.
 
 Fields:
 - `:due`: Sort by next due time.
@@ -530,7 +538,8 @@ Orders:
 - `:desc`: Largest/latest value first.
 
 Targets:
-- `:learning`: Cards in learning or relearning.
+- `:learning`: Cards in the initial learning phase.
+- `:relearning`: Previously graduated cards that lapsed and returned to short-interval study.
 - `:review`: Cards in normal review state.
 - `:new`: Cards not reviewed yet.
 
@@ -560,8 +569,8 @@ already exists but is still new (unreviewed).
 ```
 
 This feature is mainly for bringing stale new cards forward. It is most useful
-when new cards are sorted by added time in descending order (e.g. `'(:sort
-:added :desc :new)`).
+when new cards are sorted by added time in descending order (e.g.
+`(:new . (sort :added :desc))`).
 
 For example, you might import a large chunk of words, then revisit one of them a
 few months later. Refreshing that card helps surface it sooner so you can review

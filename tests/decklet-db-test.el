@@ -64,9 +64,9 @@
   ;; Bind a specific order to test that the queue sequence matches config,
   ;; independent of whatever the production default happens to be.
   (decklet-test--with-temp-db
-   (let* ((decklet-review-order '((:sort :due :asc :learning)
-                                  (:sort :added :desc :new)
-                                  (:sort :due :asc :review)))
+   (let* ((decklet-review-order '((:learning . (sort :due :asc))
+                                  (:new     . (sort :added :desc))
+                                  (:review  . (sort :due :asc))))
           (now (current-time))
           (past-2h (time-subtract now (seconds-to-time (* 2 3600))))
           (past-1h (time-subtract now (seconds-to-time 3600)))
@@ -112,13 +112,13 @@
 (ert-deftest decklet-test-review-order-validate-rejects-duplicates ()
   (should-error
    (decklet-db--review-validate-order
-    '((:shuffle :review)
-      (:sort :due :asc :review)))))
+    '((:review . shuffle)
+      (:review . (sort :due :asc))))))
 
 (ert-deftest decklet-test-review-order-validate-rejects-invalid-learning-sort-field ()
   (should-error
    (decklet-db--review-validate-order
-    '((:sort :stability :desc :learning)))))
+    '((:learning . (sort :stability :desc))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Review target clause generation
@@ -129,12 +129,15 @@
 (ert-deftest decklet-test-review-target-clause-shapes ()
   (let* ((now (current-time))
          (learning (decklet-db--review-target-clause :learning now))
+         (relearning (decklet-db--review-target-clause :relearning now))
          (review (decklet-db--review-target-clause :review now))
          (new (decklet-db--review-target-clause :new now)))
-    (should (string-match-p "state IN (\\?, \\?)" (car learning)))
+    (should (string-match-p "state = \\?" (car learning)))
+    (should (string-match-p "state = \\?" (car relearning)))
     (should (string-match-p "state = \\?" (car review)))
     (should (string-match-p "last_review IS NULL" (car new)))
-    (should (= 3 (length (cdr learning))))
+    (should (= 2 (length (cdr learning))))
+    (should (= 2 (length (cdr relearning))))
     (should (= 2 (length (cdr review))))
     (should (= 1 (length (cdr new))))))
 

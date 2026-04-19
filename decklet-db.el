@@ -366,27 +366,28 @@ database column name string."
   "Signal error if ORDER is invalid for `decklet-review-order'."
   (let ((all-targets '()))
     (dolist (step order)
-      (pcase step
-        (`(:shuffle ,step-targets)
-         ;; Track targets as they appear so we can detect duplicates later.
-         (setq all-targets
-               (append (decklet-db--review-normalize-targets step-targets) all-targets)))
-        (`(:sort ,field ,order ,step-targets)
-         (unless (memq order '(:asc :desc))
-           (error "Invalid sort order: %S" order))
-         (let* ((step-targets (decklet-db--review-normalize-targets step-targets))
-                ;; Learning/new cards only support due/added sorting.
-                (allowed (if (or (memq :learning step-targets)
-                                 (memq :new step-targets))
-                             '(:due :added)
-                           '(:due :added :last-review :difficulty :stability))))
-           (unless (memq field allowed)
-             (error "Invalid sort field: %S" field))
-           (setq all-targets (append step-targets all-targets))))
-        (_ (error "Invalid review order step: %S" step))))
+      (let ((step-targets
+             (pcase step
+               (`(,targets . shuffle)
+                (decklet-db--review-normalize-targets targets))
+               (`(,targets sort ,field ,sort-order)
+                (unless (memq sort-order '(:asc :desc))
+                  (error "Invalid sort order: %S" sort-order))
+                (let* ((step-targets (decklet-db--review-normalize-targets targets))
+                       ;; Learning/relearning/new cards only support due/added sorting.
+                       (allowed (if (or (memq :learning step-targets)
+                                        (memq :relearning step-targets)
+                                        (memq :new step-targets))
+                                    '(:due :added)
+                                  '(:due :added :last-review :difficulty :stability))))
+                  (unless (memq field allowed)
+                    (error "Invalid sort field: %S" field))
+                  step-targets))
+               (_ (error "Invalid review order step: %S" step)))))
+        (setq all-targets (append step-targets all-targets))))
     ;; Validate final target list and reject duplicate targets.
     (dolist (target all-targets)
-      (unless (memq target '(:learning :review :new))
+      (unless (memq target '(:learning :relearning :review :new))
         (error "Invalid review target: %S" target)))
     (let ((seen (make-hash-table :test 'eq)))
       (dolist (target all-targets)
@@ -395,22 +396,23 @@ database column name string."
         (puthash target t seen)))))
 
 (defcustom decklet-review-order
-  '((:sort :due :asc :learning)
-    (:shuffle :review)
-    (:sort :added :desc :new))
+  '(((:learning :relearning) . (sort :due :asc))
+    (:review  . shuffle)
+    (:new     . (sort :added :desc)))
   "Review order for due cards.
 
-Each entry is one of:
+Each entry maps TARGETS to a spec:
 
-  (:shuffle TARGETS)
-  (:sort FIELD ORDER TARGETS)
+  (TARGETS . shuffle)
+  (TARGETS . (sort FIELD ORDER))
 
-TARGETS can be a single type or a list of types.  Types are:
-`:learning', `:review', and `:new'.  `:learning' includes relearning cards.
+TARGETS is a keyword or list of keywords from `:learning',
+`:relearning', `:review', and `:new'.
 
-FIELD can be `:due', `:added', `:last-review', `:difficulty', or `:stability'.
-For `:learning' or `:new' targets, only `:due' and `:added' are supported.
-ORDER can be `:asc' or `:desc'."
+FIELD can be `:due', `:added', `:last-review', `:difficulty', or
+`:stability'.  For `:learning', `:relearning', or `:new' targets,
+only `:due' and `:added' are supported.  ORDER can be `:asc' or
+`:desc'."
   :type '(repeat sexp)
   :set (lambda (sym val)
          (decklet-db--review-validate-order val)
@@ -433,7 +435,7 @@ ORDER can be `:asc' or `:desc'."
 
 (defun decklet-db--review-target-clause (target now)
   "Return SQL clause and params for TARGET at NOW."
-  ;; Review cards are due by day; learning cards are due by timestamp.
+  ;; Review cards are due by day; learning/relearning cards are due by timestamp.
   (let ((review-cutoff (decklet--time->fsrs-timestamp
                         (decklet--next-day-start-time now)))
         (learning-cutoff (decklet--time->fsrs-timestamp now))
@@ -442,9 +444,13 @@ ORDER can be `:asc' or `:desc'."
         (s-relearning (decklet--fsrs-state-string :relearning)))
     (pcase target
       (:learning
-       (cons "state IN (?, ?)
+       (cons "state = ?
               AND last_review IS NOT NULL
-              AND due <= ?" (list s-learning s-relearning learning-cutoff)))
+              AND due <= ?" (list s-learning learning-cutoff)))
+      (:relearning
+       (cons "state = ?
+              AND last_review IS NOT NULL
+              AND due <= ?" (list s-relearning learning-cutoff)))
       (:review
        (cons "state = ?
               AND last_review IS NOT NULL
@@ -482,18 +488,17 @@ ORDER can be `:asc' or `:desc'."
   "Return ITEMS for STEP at NOW.
 STEP can be a shuffle or sort clause."
   (pcase step
-    (`(:shuffle ,targets)
+    (`(,targets . shuffle)
      (let* ((step-targets (decklet-db--review-normalize-targets targets))
             (step-items (decklet-db--due-items step-targets now nil nil)))
        ;; Shuffle happens after SQL filtering (no ORDER BY).
        (decklet--shuffle-list step-items)))
-    (`(:sort ,field ,order ,targets)
-     (unless (memq order '(:asc :desc))
-       (error "Unknown sort order: %S" order))
-     (let* ((step-targets (decklet-db--review-normalize-targets targets))
-            (step-items (decklet-db--due-items step-targets now field order)))
+    (`(,targets sort ,field ,sort-order)
+     (unless (memq sort-order '(:asc :desc))
+       (error "Unknown sort order: %S" sort-order))
+     (let* ((step-targets (decklet-db--review-normalize-targets targets)))
        ;; Sorting is done by SQL ORDER BY for this step.
-       step-items))
+       (decklet-db--due-items step-targets now field sort-order)))
     (_ (error "Invalid review order step: %S" step))))
 
 (defun decklet-db--collect-due-items ()
