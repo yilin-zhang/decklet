@@ -22,8 +22,8 @@
 
 (ert-deftest decklet-test-review-handle-grade-triggers-daily-goal-hook-on-transition ()
   (let ((decklet-current-card-id 1)
-        (decklet-review--trail nil)
-        (decklet-review--trail-pointer 0)
+        (decklet-review--trail-past nil)
+        (decklet-review--trail-future nil)
         (hook-count 0)
         (rated nil)
         (advance-count 0)
@@ -55,8 +55,8 @@
 
 (ert-deftest decklet-test-review-handle-grade-does-not-trigger-hook-without-transition ()
   (let ((decklet-current-card-id 1)
-        (decklet-review--trail nil)
-        (decklet-review--trail-pointer 0)
+        (decklet-review--trail-past nil)
+        (decklet-review--trail-future nil)
         (hook-count 0)
         ;; reached before and after rating -> no transition
         (goal-states '(t t)))
@@ -140,14 +140,14 @@
     (should (eq decklet-review--hint-timer 'fake-timer))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: log and pointer
+;; Trail zipper: entry recording
 ;; ---------------------------------------------------------------------------
 
-(ert-deftest decklet-test-review-undo-log-entry-on-grade ()
-  "Rating a card appends a log entry with pre-meta and grade."
+(ert-deftest decklet-test-review-trail-records-rated-entry-on-past ()
+  "Rating a card pushes an entry onto the past side."
   (let ((decklet-current-card-id 1)
-        (decklet-review--trail nil)
-        (decklet-review--trail-pointer 0)
+        (decklet-review--trail-past nil)
+        (decklet-review--trail-future nil)
         (pre (make-decklet-card-meta :state :learning :step 0)))
     (decklet-test-review--with-card-words ((1 . "apple"))
                                           (cl-letf (((symbol-function 'decklet-review--daily-goal-reached-p)
@@ -160,19 +160,19 @@
                                                     ((symbol-function 'decklet-review--advance)
                                                      (lambda () nil)))
                                             (decklet-review--handle-grade 3)))
-    (should (= 1 (length decklet-review--trail)))
-    (should (= 1 decklet-review--trail-pointer))
-    (let ((entry (nth 0 decklet-review--trail)))
+    (should (= 1 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))
+    (let ((entry (car decklet-review--trail-past)))
       (should (= 1 (plist-get entry :card-id)))
       (should (= 3 (plist-get entry :grade)))
       (should (plist-get entry :pre-meta)))))
 
-(ert-deftest decklet-test-review-undo-log-entry-on-skip ()
-  "Skipping a card appends a log entry with nil grade."
+(ert-deftest decklet-test-review-trail-records-skip-entry-on-past ()
+  "Skipping a card pushes an entry with nil grade onto the past side."
   (let ((decklet-current-card-id 1)
         (decklet-due-card-ids '(2))
-        (decklet-review--trail nil)
-        (decklet-review--trail-pointer 0)
+        (decklet-review--trail-past nil)
+        (decklet-review--trail-future nil)
         (meta (make-decklet-card-meta :state :learning)))
     (decklet-test-review--with-card-words ((1 . "banana") (2 . "cherry"))
                                           (cl-letf (((symbol-function 'decklet-get-card-meta)
@@ -181,20 +181,22 @@
                                                     ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil))
                                                     ((symbol-function 'run-hooks) (lambda (&rest _) nil)))
                                             (decklet-review-next-card)))
-    (should (= 1 (length decklet-review--trail)))
-    (let ((entry (nth 0 decklet-review--trail)))
+    (should (= 1 (length decklet-review--trail-past)))
+    (let ((entry (car decklet-review--trail-past)))
       (should (= 1 (plist-get entry :card-id)))
       (should (null (plist-get entry :grade)))
       (should (plist-get entry :pre-meta)))))
 
-(ert-deftest decklet-test-review-undo-decrements-pointer-and-navigates ()
-  "Undo decrements pointer, pushes current card back, does not write to DB."
+;; ---------------------------------------------------------------------------
+;; Trail zipper: undo
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-review-undo-moves-past-head-to-future ()
+  "Undo pops from past, pushes onto future, and pushes current card back to due."
   (let* ((pre (make-decklet-card-meta :state :learning :step 0))
-         (decklet-review--trail
-          (list (list :card-id 1
-                      :grade 3
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 1)
+         (decklet-review--trail-past
+          (list (list :card-id 1 :grade 3 :pre-meta pre)))
+         (decklet-review--trail-future nil)
          (decklet-current-card-id 2)
          (decklet-due-card-ids '(3))
          (upserted nil))
@@ -204,15 +206,16 @@
                                                     ((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
                                                     ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
                                             (decklet-review-undo)))
-    (should (= 0 decklet-review--trail-pointer))
+    (should (null decklet-review--trail-past))
+    (should (= 1 (length decklet-review--trail-future)))
     (should (null upserted))
     (should (= 1 decklet-current-card-id))
     (should (equal '(2 3) decklet-due-card-ids))))
 
-(ert-deftest decklet-test-review-undo-empty-log ()
-  "Undo on empty log messages without error."
-  (let ((decklet-review--trail nil)
-        (decklet-review--trail-pointer 0)
+(ert-deftest decklet-test-review-undo-empty-trail ()
+  "Undo on empty trail messages without error."
+  (let ((decklet-review--trail-past nil)
+        (decklet-review--trail-future nil)
         (msg nil))
     (cl-letf (((symbol-function 'message)
                (lambda (fmt &rest _) (setq msg fmt))))
@@ -220,13 +223,15 @@
     (should (string-match-p "Nothing to undo" msg))))
 
 (ert-deftest decklet-test-review-undo-multiple-walks-backward ()
-  "Multiple undos walk backward through the log."
-  (let* ((entries (mapcar (lambda (id)
-                            (list :card-id id :grade 3
-                                  :pre-meta (make-decklet-card-meta)))
-                          '(1 2 3)))
-         (decklet-review--trail entries)
-         (decklet-review--trail-pointer 3)
+  "Multiple undos walk the full past onto future, newest-first."
+  (let* ((make-entry (lambda (id)
+                       (list :card-id id :grade 3 :pre-meta (make-decklet-card-meta))))
+         ;; Rate order was 1 then 2 then 3, so past head is most recent = 3.
+         (decklet-review--trail-past
+          (list (funcall make-entry 3)
+                (funcall make-entry 2)
+                (funcall make-entry 1)))
+         (decklet-review--trail-future nil)
          (decklet-current-card-id 4)
          (words-seen nil))
     (decklet-test-review--with-card-words ((1 . "A") (2 . "B") (3 . "C") (4 . "D"))
@@ -235,20 +240,21 @@
                                             (dotimes (_ 3)
                                               (decklet-review-undo)
                                               (push (decklet-card-word decklet-current-card-id) words-seen))))
+    ;; First undo reveals C (most recent), then B, then A.
     (should (equal '("A" "B" "C") words-seen))
-    (should (= 0 decklet-review--trail-pointer))))
+    (should (null decklet-review--trail-past))
+    (should (= 3 (length decklet-review--trail-future)))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: confirm and re-rate
+;; Trail zipper: confirm and re-rate
 ;; ---------------------------------------------------------------------------
 
-(ert-deftest decklet-test-review-undo-confirm-rated-advances-pointer ()
-  "Confirming an undone rated card advances pointer without DB write."
+(ert-deftest decklet-test-review-confirm-rated-moves-future-head-to-past ()
+  "Confirming an undone rated card moves its entry back to past, no DB write."
   (let* ((pre (make-decklet-card-meta :state :learning))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade 3 :pre-meta pre)))
          (decklet-current-card-id 1)
          (decklet-due-card-ids '(2))
          (upserted nil))
@@ -260,15 +266,15 @@
                                                     ((symbol-function 'run-hooks) (lambda (&rest _) nil)))
                                             (decklet-review-next-card)))
     (should (null upserted))
-    (should (= 1 decklet-review--trail-pointer))))
+    (should (= 1 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))))
 
-(ert-deftest decklet-test-review-undo-confirm-skipped-no-db-write ()
+(ert-deftest decklet-test-review-confirm-skipped-no-db-write ()
   "Confirming an undone skipped card does not write to DB."
   (let* ((pre (make-decklet-card-meta :state :learning))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade nil
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade nil :pre-meta pre)))
          (decklet-current-card-id 1)
          (decklet-due-card-ids '(2))
          (upserted nil))
@@ -280,15 +286,15 @@
                                                     ((symbol-function 'run-hooks) (lambda (&rest _) nil)))
                                             (decklet-review-next-card)))
     (should (null upserted))
-    (should (= 1 decklet-review--trail-pointer))))
+    (should (= 1 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))))
 
-(ert-deftest decklet-test-review-undo-rerate-restores-pre-meta-and-updates-grade ()
-  "Re-rating an undone card restores pre-meta to DB then rates."
+(ert-deftest decklet-test-review-rerate-restores-pre-meta-and-updates-entry ()
+  "Re-rating an undone card restores pre-meta to DB then rates and updates entry."
   (let* ((pre (make-decklet-card-meta :state :learning :step 0))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade 3 :pre-meta pre)))
          (decklet-current-card-id 1)
          (upserted nil)
          (rated nil))
@@ -306,18 +312,18 @@
                                                     ((symbol-function 'decklet-review--advance)
                                                      (lambda () nil)))
                                             (decklet-review--handle-grade 1)))
-    (should (= 1 decklet-review--trail-pointer))
+    (should (= 1 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))
     (should (equal "jelly" (car upserted)))
     (should (equal pre (cadr upserted)))
     (should (equal '(1 1 3) rated))
-    (let ((entry (nth 0 decklet-review--trail)))
-      (should (= 1 (plist-get entry :grade))))))
+    (should (= 1 (plist-get (car decklet-review--trail-past) :grade)))))
 
-(ert-deftest decklet-test-review-undo-pointer-catches-up-resumes-forward ()
-  "When pointer catches up to log end, next-card pops from due-words."
-  (let* ((decklet-review--trail (list (list :card-id 1 :grade 3
-                                            :pre-meta (make-decklet-card-meta))))
-         (decklet-review--trail-pointer 1)
+(ert-deftest decklet-test-review-next-card-in-forward-flow-skips-and-pops ()
+  "Forward-flow next-card records a skip and pops the next due card."
+  (let* ((decklet-review--trail-past
+          (list (list :card-id 1 :grade 3 :pre-meta (make-decklet-card-meta))))
+         (decklet-review--trail-future nil)
          (decklet-current-card-id 1)
          (decklet-due-card-ids '(2)))
     (decklet-test-review--with-card-words ((1 . "x") (2 . "kiwi"))
@@ -328,17 +334,15 @@
                                                     ((symbol-function 'run-hooks) (lambda (&rest _) nil)))
                                             (decklet-review-next-card)))
     (should (= 2 decklet-current-card-id))
-    (should (= 2 (length decklet-review--trail)))))
+    ;; Prior rated entry plus the fresh skip.
+    (should (= 2 (length decklet-review--trail-past)))))
 
-(ert-deftest decklet-test-review-undo-confirm-then-resume-no-double-skip ()
-  "After confirming the last undone card, forward flow resumes correctly.
-The confirmed card must not be double-logged as a skip."
+(ert-deftest decklet-test-review-confirm-then-resume-no-double-skip ()
+  "After confirming the last undone card, forward flow resumes without double-logging it."
   (let* ((pre (make-decklet-card-meta :state :learning))
-         ;; Log has one rated entry; pointer is at 0 (undone).
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade 3 :pre-meta pre)))
          (decklet-current-card-id 1)
          (decklet-due-card-ids '(2)))
     (decklet-test-review--with-card-words ((1 . "A") (2 . "B"))
@@ -347,34 +351,17 @@ The confirmed card must not be double-logged as a skip."
                                                     ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil))
                                                     ((symbol-function 'run-hooks) (lambda (&rest _) nil)))
                                             (decklet-review-next-card)))
-    (should (= 1 decklet-review--trail-pointer))
+    (should (null decklet-review--trail-future))
     (should (= 2 decklet-current-card-id))
-    (should (= 1 (length decklet-review--trail)))))
-
-(ert-deftest decklet-test-review-undo-pushes-current-card-to-due-words ()
-  "Undoing from normal flow pushes the current card back to due-words."
-  (let* ((pre (make-decklet-card-meta :state :learning))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 1)
-         (decklet-current-card-id 2)
-         (decklet-due-card-ids '(3)))
-    (decklet-test-review--with-card-words ((1 . "A") (2 . "B") (3 . "C"))
-                                          (cl-letf (((symbol-function 'decklet-review--reset-ui-state) (lambda () nil))
-                                                    ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
-                                            (decklet-review-undo)))
-    (should (= 1 decklet-current-card-id))
-    (should (equal '(2 3) decklet-due-card-ids))))
+    (should (= 1 (length decklet-review--trail-past)))))
 
 (ert-deftest decklet-test-review-undo-in-undo-state-does-not-push-to-queue ()
   "Undoing while already in undo state does not push the current card."
-  (let* ((entries (mapcar (lambda (id)
-                            (list :card-id id :grade 3
-                                  :pre-meta (make-decklet-card-meta)))
-                          '(1 2)))
-         (decklet-review--trail entries)
-         (decklet-review--trail-pointer 1)
+  (let* ((make-entry (lambda (id)
+                       (list :card-id id :grade 3 :pre-meta (make-decklet-card-meta))))
+         ;; Already undone once: past=(A), future=(B).  Current on screen is B.
+         (decklet-review--trail-past (list (funcall make-entry 1)))
+         (decklet-review--trail-future (list (funcall make-entry 2)))
          (decklet-current-card-id 2)
          (decklet-due-card-ids '(3)))
     (decklet-test-review--with-card-words ((1 . "A") (2 . "B") (3 . "C"))
@@ -384,13 +371,12 @@ The confirmed card must not be double-logged as a skip."
     (should (= 1 decklet-current-card-id))
     (should (equal '(3) decklet-due-card-ids))))
 
-(ert-deftest decklet-test-review-undo-rate-after-undo-does-not-duplicate-log ()
-  "Rating a card after undoing to it updates the entry, not appends."
+(ert-deftest decklet-test-review-rerate-after-undo-does-not-duplicate-entry ()
+  "Rating a card after undoing to it updates the entry in place."
   (let* ((pre (make-decklet-card-meta :state :learning))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade nil
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade nil :pre-meta pre)))
          (decklet-current-card-id 1))
     (decklet-test-review--with-card-words ((1 . "A"))
                                           (cl-letf (((symbol-function 'decklet-review--daily-goal-reached-p)
@@ -402,96 +388,86 @@ The confirmed card must not be double-logged as a skip."
                                                     ((symbol-function 'decklet-review--advance)
                                                      (lambda () nil)))
                                             (decklet-review--handle-grade 1)))
-    (should (= 1 (length decklet-review--trail)))
-    (should (= 1 (plist-get (nth 0 decklet-review--trail) :grade)))))
+    (should (= 1 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))
+    (should (= 1 (plist-get (car decklet-review--trail-past) :grade)))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: trail reset
+;; Trail zipper: reset
 ;; ---------------------------------------------------------------------------
 
 (ert-deftest decklet-test-review-trail-reset-clears-state ()
-  "Reset clears the trail and pointer."
-  (let ((decklet-review--trail
-         (list (list :card-id 1 :grade 3
-                     :pre-meta (make-decklet-card-meta))))
-        (decklet-review--trail-pointer 0))
+  "Reset clears both sides of the trail."
+  (let ((decklet-review--trail-past
+         (list (list :card-id 1 :grade 3 :pre-meta (make-decklet-card-meta))))
+        (decklet-review--trail-future
+         (list (list :card-id 2 :grade 2 :pre-meta (make-decklet-card-meta)))))
     (decklet-review--trail-reset)
-    (should (null decklet-review--trail))
-    (should (= 0 decklet-review--trail-pointer))))
+    (should (null decklet-review--trail-past))
+    (should (null decklet-review--trail-future))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: rename and delete integration
+;; Trail zipper: delete
 ;; ---------------------------------------------------------------------------
 
 (ert-deftest decklet-test-review-trail-entries-keep-card-ids ()
   "Trail identity is stored as stable card ids."
-  (let ((decklet-review--trail
-         (list (list :card-id 11 :grade 3
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 22 :grade 2
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 11 :grade 1
-                     :pre-meta (make-decklet-card-meta)))))
-    (should (= 11 (plist-get (nth 0 decklet-review--trail) :card-id)))
-    (should (= 22 (plist-get (nth 1 decklet-review--trail) :card-id)))
-    (should (= 11 (plist-get (nth 2 decklet-review--trail) :card-id)))))
+  (let ((decklet-review--trail-past
+         (list (list :card-id 11 :grade 1 :pre-meta (make-decklet-card-meta))
+               (list :card-id 22 :grade 2 :pre-meta (make-decklet-card-meta))
+               (list :card-id 11 :grade 3 :pre-meta (make-decklet-card-meta)))))
+    (should (= 11 (plist-get (nth 0 decklet-review--trail-past) :card-id)))
+    (should (= 22 (plist-get (nth 1 decklet-review--trail-past) :card-id)))
+    (should (= 11 (plist-get (nth 2 decklet-review--trail-past) :card-id)))))
 
-(ert-deftest decklet-test-review-undo-delete-removes-entries-adjusts-pointer ()
-  "Deleting a word removes its log entries and adjusts the pointer."
-  (let ((decklet-review--trail
-         (list (list :card-id 1 :grade 3
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 2 :grade 2
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 3 :grade 1
-                     :pre-meta (make-decklet-card-meta))))
-        (decklet-review--trail-pointer 3))
+(ert-deftest decklet-test-review-trail-delete-removes-from-past ()
+  "Deleting a card removes its entries from the past side."
+  (let ((decklet-review--trail-past
+         (list (list :card-id 3 :grade 1 :pre-meta (make-decklet-card-meta))
+               (list :card-id 2 :grade 2 :pre-meta (make-decklet-card-meta))
+               (list :card-id 1 :grade 3 :pre-meta (make-decklet-card-meta))))
+        (decklet-review--trail-future nil))
     (decklet-review--trail-delete 2)
-    (should (= 2 (length decklet-review--trail)))
-    (should (= 1 (plist-get (nth 0 decklet-review--trail) :card-id)))
-    (should (= 3 (plist-get (nth 1 decklet-review--trail) :card-id)))
-    (should (= 2 decklet-review--trail-pointer))))
+    (should (= 2 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))
+    (should (= 3 (plist-get (nth 0 decklet-review--trail-past) :card-id)))
+    (should (= 1 (plist-get (nth 1 decklet-review--trail-past) :card-id)))))
 
-(ert-deftest decklet-test-review-undo-delete-before-pointer-adjusts ()
-  "Deleting an entry before the pointer decrements it."
-  (let ((decklet-review--trail
-         (list (list :card-id 1 :grade 3
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 2 :grade 2
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 3 :grade 1
-                     :pre-meta (make-decklet-card-meta))))
-        (decklet-review--trail-pointer 1))
+(ert-deftest decklet-test-review-trail-delete-removes-from-both-sides ()
+  "Deleting a card removes entries from both past and future."
+  ;; Prior state: rated 1, rated 2, then undone twice, so user is on 1.
+  ;; past=(), future=((:card 1 ...) (:card 2 ...))
+  (let ((decklet-review--trail-past nil)
+        (decklet-review--trail-future
+         (list (list :card-id 1 :grade 3 :pre-meta (make-decklet-card-meta))
+               (list :card-id 2 :grade 2 :pre-meta (make-decklet-card-meta)))))
     (decklet-review--trail-delete 1)
-    (should (= 2 (length decklet-review--trail)))
-    (should (= 0 decklet-review--trail-pointer))
-    (should (= 2 (plist-get (nth 0 decklet-review--trail) :card-id)))))
+    (should (null decklet-review--trail-past))
+    (should (= 1 (length decklet-review--trail-future)))
+    (should (= 2 (plist-get (car decklet-review--trail-future) :card-id)))))
 
-(ert-deftest decklet-test-review-undo-delete-at-pointer ()
-  "Deleting the entry at the current pointer adjusts gracefully."
-  (let ((decklet-review--trail
-         (list (list :card-id 1 :grade 3
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 2 :grade 2
-                     :pre-meta (make-decklet-card-meta))
-               (list :card-id 3 :grade 1
-                     :pre-meta (make-decklet-card-meta))))
-        (decklet-review--trail-pointer 2))
+(ert-deftest decklet-test-review-trail-delete-of-current-leaves-rest ()
+  "Deleting the card currently on-screen removes just that entry from future."
+  ;; past=((:card 2)), future=((:card 3)).  User is looking at 3.
+  (let ((decklet-review--trail-past
+         (list (list :card-id 2 :grade 2 :pre-meta (make-decklet-card-meta))
+               (list :card-id 1 :grade 3 :pre-meta (make-decklet-card-meta))))
+        (decklet-review--trail-future
+         (list (list :card-id 3 :grade 1 :pre-meta (make-decklet-card-meta)))))
     (decklet-review--trail-delete 3)
-    (should (= 2 (length decklet-review--trail)))
-    (should (= 2 decklet-review--trail-pointer))))
+    (should (= 2 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: rendering
+;; Trail zipper: render highlighting
 ;; ---------------------------------------------------------------------------
 
 (ert-deftest decklet-test-review-undo-highlight-on-rated-card ()
   "The previous grade is highlighted when reviewing an undone rated card."
   (let* ((meta (make-decklet-card-meta :state :review :last-review "2025-01-01T00:00:00Z"))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta meta)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade 3 :pre-meta meta)))
          (decklet-review--render-word "plum")
          (decklet-review--render-meta meta)
          (decklet-review-enable-interval-labels nil))
@@ -499,7 +475,6 @@ The confirmed card must not be double-logged as a skip."
       ;; "Good" option should have the undo highlight face
       (should (text-property-not-all 0 (length output)
                                      'face nil output))
-      ;; Check that undo highlight face appears in the output
       (let ((found nil))
         (dotimes (i (length output))
           (when (eq (get-text-property i 'face output)
@@ -510,8 +485,8 @@ The confirmed card must not be double-logged as a skip."
 (ert-deftest decklet-test-review-undo-no-highlight-in-normal-flow ()
   "No undo highlight face appears during normal forward review."
   (let* ((meta (make-decklet-card-meta :state :review :last-review "2025-01-01T00:00:00Z"))
-         (decklet-review--trail nil)
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future nil)
          (decklet-review--render-word "quince")
          (decklet-review--render-meta meta)
          (decklet-review-enable-interval-labels nil))
@@ -526,10 +501,9 @@ The confirmed card must not be double-logged as a skip."
 (ert-deftest decklet-test-review-undo-no-highlight-on-skipped-card ()
   "No highlight face on an undone skipped card."
   (let* ((meta (make-decklet-card-meta :state :learning))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade nil
-                      :pre-meta meta)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade nil :pre-meta meta)))
          (decklet-review--render-word "raisin")
          (decklet-review--render-meta meta)
          (decklet-review-enable-interval-labels nil))
@@ -542,34 +516,52 @@ The confirmed card must not be double-logged as a skip."
         (should-not found)))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: cleanup
+;; Session cleanup
 ;; ---------------------------------------------------------------------------
 
-(ert-deftest decklet-test-review-undo-cleanup-clears-state ()
-  "Session cleanup clears the trail and pointer."
-  (let ((decklet-review--trail (list (list :card-id 1 :grade 1
-                                           :pre-meta (make-decklet-card-meta))))
-        (decklet-review--trail-pointer 0)
+(ert-deftest decklet-test-review-clean-up-clears-trail ()
+  "Session cleanup clears both sides of the trail."
+  (let ((decklet-review--trail-past
+         (list (list :card-id 1 :grade 1 :pre-meta (make-decklet-card-meta))))
+        (decklet-review--trail-future
+         (list (list :card-id 2 :grade 3 :pre-meta (make-decklet-card-meta))))
         (decklet-review--hint-timer nil)
         (decklet-review--state-display-hint nil)
         (decklet-current-card-id 1)
         (decklet-last-added-word nil)
         (decklet-due-card-ids nil))
     (decklet-review--clean-up)
-    (should (null decklet-review--trail))
-    (should (= 0 decklet-review--trail-pointer))))
+    (should (null decklet-review--trail-past))
+    (should (null decklet-review--trail-future))))
+
+(ert-deftest decklet-test-review-clean-up-does-not-write-to-db ()
+  "Session cleanup clears state without writing to DB."
+  (let* ((decklet-review--trail-past
+          (list (list :card-id 1 :grade 3 :pre-meta (make-decklet-card-meta))))
+         (decklet-review--trail-future nil)
+         (decklet-review--hint-timer nil)
+         (decklet-review--state-display-hint nil)
+         (decklet-current-card-id 1)
+         (decklet-last-added-word nil)
+         (decklet-due-card-ids nil)
+         (upserted nil))
+    (cl-letf (((symbol-function 'decklet-db--upsert-card)
+               (lambda (word meta) (push (list word meta) upserted))))
+      (decklet-review--clean-up))
+    (should (null upserted))
+    (should (null decklet-review--trail-past))
+    (should (null decklet-review--trail-future))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: skip not logged during undo confirm
+;; Undo: skip not logged during confirm
 ;; ---------------------------------------------------------------------------
 
-(ert-deftest decklet-test-review-undo-skip-not-logged-on-confirm ()
-  "Confirming an undone card via `n' does not append a new log entry."
+(ert-deftest decklet-test-review-skip-not-logged-on-confirm ()
+  "Confirming an undone card via `n' does not append a new trail entry."
   (let* ((pre (make-decklet-card-meta :state :learning))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta pre)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade 3 :pre-meta pre)))
          (decklet-current-card-id 1)
          (decklet-due-card-ids '(2)))
     (decklet-test-review--with-card-words ((1 . "star") (2 . "sun"))
@@ -577,20 +569,22 @@ The confirmed card must not be double-logged as a skip."
                                                     ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil))
                                                     ((symbol-function 'run-hooks) (lambda (&rest _) nil)))
                                             (decklet-review-next-card)))
-    (should (= 1 (length decklet-review--trail)))))
+    (should (= 1 (length decklet-review--trail-past)))
+    (should (null decklet-review--trail-future))))
 
 ;; ---------------------------------------------------------------------------
-;; Undo: undo skips deleted cards
+;; Undo: skips deleted cards
 ;; ---------------------------------------------------------------------------
 
 (ert-deftest decklet-test-review-undo-skips-deleted-card ()
   "Undo skips entries whose card no longer exists and continues backward."
-  (let* ((entries (mapcar (lambda (id)
-                            (list :card-id id :grade 3
-                                  :pre-meta (make-decklet-card-meta)))
-                          '(1 2)))
-         (decklet-review--trail entries)
-         (decklet-review--trail-pointer 2)
+  (let* ((make-entry (lambda (id)
+                       (list :card-id id :grade 3 :pre-meta (make-decklet-card-meta))))
+         ;; Past head is most recent, i.e., 2 rated after 1.
+         (decklet-review--trail-past
+          (list (funcall make-entry 2)
+                (funcall make-entry 1)))
+         (decklet-review--trail-future nil)
          (decklet-current-card-id 3)
          (decklet-due-card-ids nil))
     (cl-letf (((symbol-function 'decklet-card-word)
@@ -602,30 +596,8 @@ The confirmed card must not be double-logged as a skip."
               ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
       (decklet-review-undo))
     (should (= 1 decklet-current-card-id))
-    (should (= 0 decklet-review--trail-pointer))))
-
-;; ---------------------------------------------------------------------------
-;; Undo: cleanup clears state without DB writes
-;; ---------------------------------------------------------------------------
-
-(ert-deftest decklet-test-review-cleanup-clears-without-db-write ()
-  "Session cleanup clears state without writing to DB."
-  (let* ((decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta (make-decklet-card-meta))))
-         (decklet-review--trail-pointer 0)
-         (decklet-review--hint-timer nil)
-         (decklet-review--state-display-hint nil)
-         (decklet-current-card-id 1)
-         (decklet-last-added-word nil)
-         (decklet-due-card-ids nil)
-         (upserted nil))
-    (cl-letf (((symbol-function 'decklet-db--upsert-card)
-               (lambda (word meta) (push (list word meta) upserted))))
-      (decklet-review--clean-up))
-    (should (null upserted))
-    (should (null decklet-review--trail))
-    (should (= 0 decklet-review--trail-pointer))))
+    (should (null decklet-review--trail-past))
+    (should (= 2 (length decklet-review--trail-future)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Undo: highlight targets only the label text
@@ -634,21 +606,17 @@ The confirmed card must not be double-logged as a skip."
 (ert-deftest decklet-test-review-undo-highlight-only-on-label ()
   "The highlight face applies to the label text only, not the key number."
   (let* ((meta (make-decklet-card-meta :state :review :last-review "2025-01-01T00:00:00Z"))
-         (decklet-review--trail
-          (list (list :card-id 1 :grade 3
-                      :pre-meta meta)))
-         (decklet-review--trail-pointer 0)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future
+          (list (list :card-id 1 :grade 3 :pre-meta meta)))
          (decklet-review--render-word "plum")
          (decklet-review--render-meta meta)
          (decklet-review-enable-interval-labels nil))
     (let ((output (decklet-review-component-rates)))
-      ;; Find where "Good" starts in the output.
       (let ((good-pos (string-match "Good" output)))
         (should good-pos)
-        ;; The face at "Good" should be the highlight face.
         (should (eq (get-text-property good-pos 'face output)
                     'decklet-review-undo-highlight-face))
-        ;; The character before "Good" (the space) should NOT have the face.
         (should-not (eq (get-text-property (1- good-pos) 'face output)
                         'decklet-review-undo-highlight-face))))))
 

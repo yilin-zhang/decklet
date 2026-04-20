@@ -262,14 +262,18 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 Scoped to `decklet-review--render-buffer' so both the component and the
 post-render hint-timer decision share the same value.")
 
-(defvar decklet-review--trail nil
-  "List of trail entries for the current review session.
-Each entry is a plist (:card-id :grade :pre-meta :log-id).")
+(defvar decklet-review--trail-past nil
+  "Completed trail entries, most-recent first.
+Each entry is a plist (:card-id :grade :pre-meta :log-id).
+During normal forward review every rated or skipped card pushes
+onto this list.  Undo migrates entries onto
+`decklet-review--trail-future' one at a time.")
 
-(defvar decklet-review--trail-pointer 0
-  "Index into `decklet-review--trail'.
-Equal to the trail length during normal forward review.
-Less than the trail length when the user has undone cards.")
+(defvar decklet-review--trail-future nil
+  "Entries currently being revisited, head-first.
+Non-empty iff an undo is in progress; the head is the card on
+screen.  Advancing (next-card or re-rating) moves the head back
+onto `decklet-review--trail-past'.")
 
 (defvar decklet-review-mode-map
   (define-keymap
@@ -689,63 +693,34 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 ;; Review flow and rating commands
 
 (defun decklet-review--trail-reset ()
-  "Clear the trail and pointer."
-  (setq decklet-review--trail nil)
-  (setq decklet-review--trail-pointer 0))
+  "Clear both sides of the trail."
+  (setq decklet-review--trail-past nil
+        decklet-review--trail-future nil))
 
 (defun decklet-review--undo-in-progress-p ()
   "Return non-nil when review is in undo state."
-  (and decklet-review--trail
-       (< decklet-review--trail-pointer (length decklet-review--trail))))
+  (not (null decklet-review--trail-future)))
 
 (defun decklet-review--trail-current-entry ()
-  "Return the trail entry at the current pointer, or nil."
-  (when (decklet-review--undo-in-progress-p)
-    (nth decklet-review--trail-pointer decklet-review--trail)))
-
-(defun decklet-review--trail-can-retreat-p ()
-  "Return non-nil when the pointer can move backward."
-  (and decklet-review--trail
-       (> decklet-review--trail-pointer 0)))
-
-(defun decklet-review--trail-advance-pointer ()
-  "Move the pointer forward by one position."
-  (setq decklet-review--trail-pointer
-        (1+ decklet-review--trail-pointer)))
-
-(defun decklet-review--trail-retreat-pointer ()
-  "Move the pointer backward by one position."
-  (setq decklet-review--trail-pointer
-        (1- decklet-review--trail-pointer)))
+  "Return the entry currently being revisited during undo, or nil."
+  (car decklet-review--trail-future))
 
 (defun decklet-review--trail-append (entry)
-  "Append ENTRY to the trail."
-  (setq decklet-review--trail
-        (nconc decklet-review--trail (list entry)))
-  (setq decklet-review--trail-pointer (length decklet-review--trail)))
+  "Record ENTRY as a completed forward step.
+Callers must be in forward-flow state (future empty)."
+  (push entry decklet-review--trail-past))
 
-(defun decklet-review--trail-update-entry (grade)
-  "Update the current undone entry with GRADE, then advance."
-  (let ((entry (decklet-review--trail-current-entry)))
+(defun decklet-review--trail-update-and-advance (grade)
+  "Update the currently undone entry with GRADE and move it onto past."
+  (let ((entry (car decklet-review--trail-future)))
     (plist-put entry :grade grade)
-    (decklet-review--trail-advance-pointer)))
+    (push (pop decklet-review--trail-future) decklet-review--trail-past)))
 
 (defun decklet-review--trail-delete (card-id)
-  "Remove entries for CARD-ID from the trail and adjust the pointer."
-  (when decklet-review--trail
-    (let ((removed-before-pointer 0)
-          (i 0))
-      (dolist (entry decklet-review--trail)
-        (when (and (eql (plist-get entry :card-id) card-id)
-                   (< i decklet-review--trail-pointer))
-          (setq removed-before-pointer (1+ removed-before-pointer)))
-        (setq i (1+ i)))
-      (setq decklet-review--trail
-            (seq-remove (lambda (e) (eql (plist-get e :card-id) card-id))
-                        decklet-review--trail))
-      (setq decklet-review--trail-pointer
-            (min (- decklet-review--trail-pointer removed-before-pointer)
-                 (length decklet-review--trail))))))
+  "Remove entries for CARD-ID from both sides of the trail."
+  (let ((keep (lambda (e) (not (eql (plist-get e :card-id) card-id)))))
+    (setq decklet-review--trail-past (seq-filter keep decklet-review--trail-past)
+          decklet-review--trail-future (seq-filter keep decklet-review--trail-future))))
 
 (defun decklet-review--present-card (card-id)
   "Set CARD-ID as the current card and render the review buffer."
@@ -780,13 +755,14 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 When in undo state, confirm the current undone card and advance.
 When current list is empty, re-check for due cards and continue if any exist."
   (interactive)
-  (if (decklet-review--undo-in-progress-p)
-      (progn
-        (decklet-review--trail-advance-pointer)
-        (decklet-review--advance))
-    ;; Normal forward flow: record skip on the trail, then pop next card.
+  (cond
+   ((decklet-review--undo-in-progress-p)
+    ;; Confirm the undone card: move its entry back onto the past side.
+    (push (pop decklet-review--trail-future) decklet-review--trail-past)
+    (decklet-review--advance))
+   (t
     (decklet-review--trail-skip)
-    (decklet-review--advance)))
+    (decklet-review--advance))))
 
 (defun decklet-review--on-kill-buffer ()
   "Cleanup handler for the review buffer's `kill-buffer-hook'.
@@ -828,7 +804,7 @@ always leave the same amount of state behind."
           (let ((new-log-id (decklet--rate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
-          (decklet-review--trail-update-entry grade))
+          (decklet-review--trail-update-and-advance grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
       (let* ((old-meta (decklet-db--row->card-meta row))
              (pre-meta (copy-decklet-card-meta old-meta))
@@ -846,20 +822,20 @@ always leave the same amount of state behind."
 
 (defun decklet-review-undo ()
   "Go back to the previous card and redisplay it.
-Moves the undo pointer backward.  Does not revert DB state — the
-original rating remains in the database until the user re-rates."
+Does not revert DB state — the original rating remains in the
+database until the user re-rates."
   (interactive)
-  (if (not (decklet-review--trail-can-retreat-p))
+  (if (null decklet-review--trail-past)
       (message "Nothing to undo")
     ;; When undoing from normal flow, the current card hasn't been
-    ;; appended to the trail yet — push it back to the front of the
-    ;; due queue so it isn't lost.  When already in undo state, the
-    ;; current card is on the trail and will be revisited when the
-    ;; pointer advances.
+    ;; recorded on the trail — push it back onto the due queue so
+    ;; advancing past the undo revisits it.  When already in undo
+    ;; state, the current card is on the future side and reappears
+    ;; on its own.
     (when (and (not (decklet-review--undo-in-progress-p))
                decklet-current-card-id)
       (push decklet-current-card-id decklet-due-card-ids))
-    (decklet-review--trail-retreat-pointer)
+    (push (pop decklet-review--trail-past) decklet-review--trail-future)
     (let* ((entry (decklet-review--trail-current-entry))
            (card-id (plist-get entry :card-id))
            (word (decklet-card-word card-id)))
