@@ -822,25 +822,11 @@ When called interactively, prompt for FILE under `decklet-directory'."
   :type 'file
   :group 'decklet-db)
 
-(defcustom decklet-backup-retain-days 30
-  "Number of days to keep database backups."
-  :type 'integer
-  :group 'decklet-db)
-
-(defcustom decklet-backup-prune-min-count 10
-  "Minimum number of backups before pruning old ones."
-  :type 'integer
-  :group 'decklet-db)
-
-(defcustom decklet-backup-prune-max-count nil
-  "Prune when backup count exceeds this number.
-When nil, this threshold is disabled."
+(defcustom decklet-backup-prune-max-count 20
+  "Maximum number of backups to retain.
+When the count exceeds this, oldest backups are deleted silently.
+Set to nil to disable pruning."
   :type '(choice (const :tag "Disabled" nil) integer)
-  :group 'decklet-db)
-
-(defcustom decklet-backup-prune-confirm t
-  "Whether to confirm before pruning backups."
-  :type 'boolean
   :group 'decklet-db)
 
 (defcustom decklet-backup-restore-completion-setup
@@ -879,46 +865,22 @@ Includes an optional collision suffix (e.g. `-1', `-2')."
              finally return candidate)))
 
 (defun decklet-db--backup-prune (backup-dir base ext)
-  "Prune old backup files in BACKUP-DIR matching BASE.EXT when thresholds are met."
-  (when (and (integerp decklet-backup-retain-days)
-             (> decklet-backup-retain-days 0)
-             (integerp decklet-backup-prune-min-count)
-             (> decklet-backup-prune-min-count 0))
+  "Prune old backup files in BACKUP-DIR matching BASE.EXT.
+Keeps the newest `decklet-backup-prune-max-count' files and
+deletes the rest.  Filenames carry a UTC timestamp, so
+lexicographic order matches chronological order."
+  (when (and (integerp decklet-backup-prune-max-count)
+             (> decklet-backup-prune-max-count 0))
     (let* ((pattern (decklet-db--backup-file-pattern base ext))
-           (files (directory-files backup-dir t pattern))
-           (count (length files))
-           (max-exceeded (and (integerp decklet-backup-prune-max-count)
-                              (> decklet-backup-prune-max-count 0)
-                              (> count decklet-backup-prune-max-count))))
-      (when (or (> count decklet-backup-prune-min-count) max-exceeded)
-        (let* ((cutoff-time (time-subtract (current-time)
-                                           (days-to-time decklet-backup-retain-days)))
-               (files-by-age (sort (copy-sequence files)
-                                   (lambda (a b)
-                                     (time-less-p (file-attribute-modification-time (file-attributes a))
-                                                  (file-attribute-modification-time (file-attributes b))))))
-               (to-delete (seq-filter (lambda (file)
-                                        (time-less-p (file-attribute-modification-time (file-attributes file))
-                                                     cutoff-time))
-                                      files-by-age)))
-          ;; Qualify by age OR by being pushed out by max-count.
-          (when max-exceeded
-            (let* ((excess-count (- count decklet-backup-prune-max-count))
-                   (excess-files (seq-take files-by-age excess-count)))
-              (setq to-delete (seq-union to-delete excess-files))))
-          (when (and to-delete
-                     (or (not decklet-backup-prune-confirm)
-                         (yes-or-no-p (format "Prune %d backup(s) from %s? "
-                                              (length to-delete)
-                                              (abbreviate-file-name backup-dir)))))
-            (dolist (file to-delete)
-              ;; Always trash, just to be safe.
-              (condition-case err
-                  (delete-file file t)
-                (error
-                 (message "Decklet: backup prune failed for %s: %s"
-                          (abbreviate-file-name file)
-                          (error-message-string err)))))))))))
+           (files (sort (directory-files backup-dir t pattern) #'string<))
+           (to-delete (butlast files decklet-backup-prune-max-count)))
+      (dolist (file to-delete)
+        (condition-case err
+            (delete-file file)
+          (error
+           (message "Decklet: backup prune failed for %s: %s"
+                    (abbreviate-file-name file)
+                    (error-message-string err))))))))
 
 (defun decklet-db--backup ()
   "Create a database backup, fire the post-backup hook, and prune old backups."

@@ -600,15 +600,9 @@ Backup behavior:
 - A backup is only created when the DB file has changed since the latest
   snapshot.
 - Backup files are timestamped and stored in `decklet-backup-directory`.
-- Old backups are pruned by retention/count rules.
-
-Prune settings:
-
-- `decklet-backup-retain-days`: keep backups newer than this many days.
-- `decklet-backup-prune-min-count`: start pruning only after this minimum
-  number of backups is reached.
-- `decklet-backup-prune-max-count`: optional hard cap on backup count.
-- `decklet-backup-prune-confirm`: whether to ask before pruning.
+- Retention is capped at `decklet-backup-prune-max-count` (default 20):
+  once the count exceeds this, the oldest are deleted silently.  Set to
+  nil to disable pruning.
 
 You can also manually back up or restore to a previous snapshot:
 
