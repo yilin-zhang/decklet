@@ -737,9 +737,9 @@ Registered on `window-selection-change-functions'."
     "t" #'decklet-edit-set-hint
     "b" #'decklet-edit-show-card-back
     "D" #'decklet-edit-delete-card
-    "/ r" #'decklet-edit-filter-review
-    "/ l" #'decklet-edit-filter-learning
-    "/ a" #'decklet-edit-filter-toggle-archive
+    ". r" #'decklet-edit-filter-review
+    ". l" #'decklet-edit-filter-learning
+    ". a" #'decklet-edit-filter-toggle-archive
     "; w" (decklet-edit--column-sort-command "Word")
     "; a" (decklet-edit--column-sort-command "Added")
     "; l" (decklet-edit--column-sort-command "Last Review")

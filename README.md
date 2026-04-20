@@ -172,9 +172,9 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `t`   | Edit hint at point                        |
 | `b`   | Show or edit card back                    |
 | `+`   | Quick add card                            |
-| `/ r` | Filter review cards                       |
-| `/ l` | Filter learning cards                     |
-| `/ a` | Toggle archived/all cards                 |
+| `. r` | Filter review cards                       |
+| `. l` | Filter learning cards                     |
+| `. a` | Toggle archived/all cards                 |
 | `; w` | Sort by word                              |
 | `; a` | Sort by added time                        |
 | `; l` | Sort by last review time                  |
@@ -412,7 +412,7 @@ workflow ideas:
 1. Re-check "well-known" words: Use filters/sorting to find cards that look
    mature, then quickly verify whether you still recognize them. If not, rate
    with `R` and choose `1` (Again) to push the card back into relearning queue.
-2. Learn selectively from newer cards: Use `/ l` (learning filter), then sort by
+2. Learn selectively from newer cards: Use `. l` (learning filter), then sort by
    `Added` to focus on recently added words. Now you can use `R` to selectively
    rate cards that interest you.
 3. Archive long-interval cards: Sort by `Due` and inspect cards scheduled far in
