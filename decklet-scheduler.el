@@ -191,18 +191,6 @@ nil or empty (i.e. the card has never been reviewed)."
     (/ (fsrs-timestamp-difference (or now (decklet--now)) last-review)
        86400.0)))
 
-(defun decklet--simulate-review-interval (meta grade)
-  "Return predicted interval in seconds for GRADE on card META.
-Simulates one FSRS review without mutating META."
-  (let* ((scheduler (decklet--get-fsrs-scheduler))
-         (rating (decklet--fsrs-rating-from-grade grade))
-         (review-time (decklet--now))
-         (card (decklet--card-meta->fsrs-card meta))
-         (new-card (cl-nth-value 0
-                                 (fsrs-scheduler-review-card
-                                  scheduler card rating review-time))))
-    (fsrs-timestamp-difference (fsrs-card-due new-card) review-time)))
-
 (defun decklet--card-meta->fsrs-card (meta)
   "Create an FSRS card from card META.
 META's `card-id' is used directly as the FSRS card id."
@@ -217,25 +205,37 @@ META's `card-id' is used directly as the FSRS card id."
 
 (defun decklet--apply-fsrs-card (meta card)
   "Update card META in-place from FSRS CARD and return META."
-  (setf (decklet-card-meta-state meta) (fsrs-card-state card))
-  (setf (decklet-card-meta-step meta) (fsrs-card-step card))
-  (setf (decklet-card-meta-stability meta) (fsrs-card-stability card))
-  (setf (decklet-card-meta-difficulty meta) (fsrs-card-difficulty card))
-  (setf (decklet-card-meta-due meta) (fsrs-card-due card))
-  (setf (decklet-card-meta-last-review meta) (fsrs-card-last-review card))
+  (setf (decklet-card-meta-state meta)       (fsrs-card-state card)
+        (decklet-card-meta-step meta)        (fsrs-card-step card)
+        (decklet-card-meta-stability meta)   (fsrs-card-stability card)
+        (decklet-card-meta-difficulty meta)  (fsrs-card-difficulty card)
+        (decklet-card-meta-due meta)         (fsrs-card-due card)
+        (decklet-card-meta-last-review meta) (fsrs-card-last-review card))
   meta)
+
+(defun decklet--simulate-fsrs-review (meta grade)
+  "Run FSRS scheduler on META with GRADE without mutating META.
+Return the list (NEW-FSRS-CARD REVIEW-TIME)."
+  (let* ((scheduler (decklet--get-fsrs-scheduler))
+         (rating (decklet--fsrs-rating-from-grade grade))
+         (review-time (decklet--now))
+         (card (decklet--card-meta->fsrs-card meta)))
+    (list (cl-nth-value 0 (fsrs-scheduler-review-card
+                           scheduler card rating review-time))
+          review-time)))
+
+(defun decklet--simulate-review-interval (meta grade)
+  "Return predicted interval in seconds for GRADE on card META.
+Simulates one FSRS review without mutating META."
+  (pcase-let ((`(,new-card ,review-time)
+               (decklet--simulate-fsrs-review meta grade)))
+    (fsrs-timestamp-difference (fsrs-card-due new-card) review-time)))
 
 (defun decklet--update-meta-with-grade (meta grade)
   "Return a new card META with GRADE applied via FSRS.
 Does not mutate META; the returned value is a fresh copy with the
 scheduling fields updated."
-  (let* ((scheduler (decklet--get-fsrs-scheduler))
-         (rating (decklet--fsrs-rating-from-grade grade))
-         (review-time (decklet--now))
-         (card (decklet--card-meta->fsrs-card meta))
-         (new-card (cl-nth-value 0
-                                 (fsrs-scheduler-review-card
-                                  scheduler card rating review-time))))
+  (let ((new-card (car (decklet--simulate-fsrs-review meta grade))))
     (decklet--apply-fsrs-card (copy-decklet-card-meta meta) new-card)))
 
 (provide 'decklet-scheduler)
