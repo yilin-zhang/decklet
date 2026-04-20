@@ -187,7 +187,7 @@ Returns nil when the file does not exist or is empty."
          (should (integerp (plist-get rec :card_id))))))))
 
 ;; ---------------------------------------------------------------------------
-;; decklet-rename-card integration
+;; decklet-set-card-word integration
 ;; ---------------------------------------------------------------------------
 
 (ert-deftest decklet-test-rename-card-appends-rename-log-entry ()
@@ -196,7 +196,7 @@ Returns nil when the file does not exist or is empty."
    (decklet--add-card "colour")
    (let* ((meta (decklet-db--row->card-meta (decklet-db--select-card-row-by-word "colour")))
           (card-id (decklet-card-meta-card-id meta)))
-     (decklet-rename-card card-id "color")
+     (decklet-set-card-word card-id "color")
      (let ((rec (car (decklet-test--read-log))))
        (should (equal "rename" (plist-get rec :kind)))
        (should (= card-id (plist-get rec :card_id)))

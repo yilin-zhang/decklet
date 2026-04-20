@@ -59,7 +59,7 @@
         (kill-buffer other-buf)))))
 
 (ert-deftest decklet-test-card-back-show-creates-readonly-buffer-with-content ()
-  "decklet-card-back-show opens a read-only buffer with the stored back content."
+  "decklet-show-card-back opens a read-only buffer with the stored back content."
   (decklet-test--with-temp-db
    (decklet-db--upsert-card "bright"
                             (make-decklet-card-meta
@@ -71,7 +71,7 @@
     "shining example")
    ;; Mock pop-to-buffer to avoid needing a live window during tests.
    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-     (decklet-card-back-show "bright"))
+     (decklet-show-card-back "bright"))
    (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
      (unwind-protect
          (progn
@@ -85,7 +85,7 @@
          (kill-buffer buf))))))
 
 (ert-deftest decklet-test-card-back-show-editable-when-back-absent ()
-  "decklet-card-back-show opens an editable buffer when the card has no back."
+  "decklet-show-card-back opens an editable buffer when the card has no back."
   (decklet-test--with-temp-db
    (decklet-db--upsert-card "glow"
                             (make-decklet-card-meta
@@ -93,7 +93,7 @@
                              :due "20250101T000000Z"
                              :state :new))
    (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-     (decklet-card-back-show "glow"))
+     (decklet-show-card-back "glow"))
    (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
      (unwind-protect
          (with-current-buffer buf
@@ -102,13 +102,13 @@
          (kill-buffer buf))))))
 
 (ert-deftest decklet-test-card-back-save-errors-when-read-only ()
-  "decklet-card-back-save signals user-error when buffer is read-only."
+  "decklet-save-card-back signals user-error when buffer is read-only."
   (with-temp-buffer
     (setq buffer-read-only t)
-    (should-error (decklet-card-back-save) :type 'user-error)))
+    (should-error (decklet-save-card-back) :type 'user-error)))
 
 ;; (ert-deftest decklet-test-card-back-save-updates-db-and-calls-on-save ()
-;;   "decklet-card-back-save writes back to DB and invokes on-save callback."
+;;   "decklet-save-card-back writes back to DB and invokes on-save callback."
 ;;   (decklet-test--with-temp-db
 ;;     (decklet-db--upsert-card "radiant"
 ;;                              (make-decklet-card-meta
@@ -126,7 +126,7 @@
 ;;             (setq-local decklet-card-back--callback (lambda () (setq on-save-called t)))
 ;;             (erase-buffer)
 ;;             (insert "a vivid glow")
-;;             (decklet-card-back-save)
+;;             (decklet-save-card-back)
 ;;             (should (string= "a vivid glow"
 ;;                              (decklet-db--select-card-back
 ;;                               (plist-get (decklet-db--select-card-row-by-word "radiant") :card-id))))

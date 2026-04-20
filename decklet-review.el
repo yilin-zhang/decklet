@@ -470,10 +470,8 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
 
 (defun decklet-review--refresh-visible (&rest _args)
   "Refresh the review buffer if it is visible in a window."
-  (when-let* ((window (get-buffer-window decklet-review-buffer-name 'visible)))
-    (with-current-buffer (window-buffer window)
-      (when (eq major-mode 'decklet-review-mode)
-        (decklet-review--render-buffer t)))))
+  (when (get-buffer-window decklet-review-buffer-name 'visible)
+    (decklet-review--render-buffer t)))
 
 (defun decklet-review--enable-resize-refresh ()
   "Enable refresh hooks for resize and text scaling."
@@ -838,7 +836,7 @@ database until the user re-rates."
     (push (pop decklet-review--trail-past) decklet-review--trail-future)
     (let* ((entry (decklet-review--trail-current-entry))
            (card-id (plist-get entry :card-id))
-           (word (decklet-card-word card-id)))
+           (word (decklet-get-card-word card-id)))
       (if (not (decklet-card-exists-p card-id))
           (progn
             (message "Card \"%s\" no longer exists, undo skipped" word)
@@ -874,26 +872,27 @@ database until the user re-rates."
       (decklet-review--render-buffer))))
 
 (defun decklet-review-set-word ()
-  "Prompt to rename the current word."
+  "Prompt to rename the current word.
+The review buffer re-renders via the `decklet-cards-renamed-functions'
+hook; no explicit refresh is needed here."
   (interactive)
   (let ((card-id (decklet--require-current-card-id "edit")))
-    (message "Updated \"%s\"" (decklet-prompt-set-word card-id))
-    (when (eq major-mode 'decklet-review-mode)
-      (decklet-review--render-buffer))))
+    (message "Updated \"%s\"" (decklet-prompt-set-word card-id))))
 
 (defun decklet-review-set-hint ()
-  "Prompt to update the current card's hint."
+  "Prompt to update the current card's hint.
+The review buffer re-renders via the
+`decklet-cards-field-updated-functions' hook; no explicit refresh
+is needed here."
   (interactive)
   (let ((card-id (decklet--require-current-card-id "edit")))
-    (message "Updated \"%s\"" (decklet-prompt-set-hint card-id))
-    (when (eq major-mode 'decklet-review-mode)
-      (decklet-review--render-buffer))))
+    (message "Updated \"%s\"" (decklet-prompt-set-hint card-id))))
 
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."
   (interactive)
   (let* ((card-id (decklet--require-current-card-id "delete"))
-         (word (decklet-card-word card-id)))
+         (word (decklet-get-card-word card-id)))
     (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
       (decklet-delete-card card-id)
       (message "Deleted \"%s\" from the deck." word)
@@ -904,8 +903,8 @@ database until the user re-rates."
   "Show the card back for the current word in a read-only popup."
   (interactive)
   (let* ((card-id (decklet--require-current-card-id "show card back for"))
-         (word (decklet-card-word card-id)))
-    (decklet-card-back-show word)))
+         (word (decklet-get-card-word card-id)))
+    (decklet-show-card-back word)))
 
 ;; Review mode setup
 

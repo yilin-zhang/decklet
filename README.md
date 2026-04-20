@@ -737,8 +737,8 @@ analytics, ...) without touching Decklet internals.
 | `(decklet-get-card-hint CARD-ID)` | hint string or nil |
 | `(decklet-get-card-back CARD-ID)` | card back content or nil |
 | `(decklet-get-card-meta CARD-ID)` | `decklet-card-meta` struct or nil |
-| `(decklet-card-word CARD-ID)` | current word string or nil |
-| `(decklet-card-id-by-word WORD)` | card id or nil |
+| `(decklet-get-card-word CARD-ID)` | current word string or nil |
+| `(decklet-get-card-id-by-word WORD)` | card id or nil |
 | `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all`, `review`, `learning`, or `archived` |
 
 #### Mutating cards
@@ -747,7 +747,7 @@ analytics, ...) without touching Decklet internals.
 |---|---|
 | `(decklet-set-card-hint CARD-ID HINT)` | update hint; fires field-updated hook |
 | `(decklet-set-card-back CARD-ID CONTENT)` | update card back; fires field-updated hook |
-| `(decklet-rename-card CARD-ID NEW-WORD)` | rename a card's word; fires renamed hook |
+| `(decklet-set-card-word CARD-ID NEW-WORD)` | rename a card's word; fires renamed hook |
 | `(decklet-delete-card CARD-ID)` | delete a card; fires deleted hook |
 | `(decklet-archive-card CARD-ID)` / `(decklet-unarchive-card CARD-ID)` | fire archived/unarchived hooks |
 | `(decklet-rate-card CARD-ID GRADE &optional PRIOR-GRADE)` | grade a card; fires rated hook |
@@ -832,7 +832,7 @@ review UI:
 (defun my/decklet-image-indicator ()
   "Review UI component showing [IMG] when the current word has an image."
   (when-let ((word (and decklet-current-card-id
-                        (decklet-card-word decklet-current-card-id))))
+                        (decklet-get-card-word decklet-current-card-id))))
     (when (file-exists-p (my/decklet-image-path word))
       (decklet-center-text
        (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face)))))

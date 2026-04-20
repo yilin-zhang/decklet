@@ -5,7 +5,7 @@
 (defmacro decklet-test-review--with-card-words (pairs &rest body)
   "Run BODY with CARD-ID to word lookup stubbed from PAIRS."
   (declare (indent 1) (debug t))
-  `(cl-letf (((symbol-function 'decklet-card-word)
+  `(cl-letf (((symbol-function 'decklet-get-card-word)
               (lambda (card-id)
                 (alist-get card-id ',pairs nil nil #'eql)))
              ((symbol-function 'decklet-card-exists-p)
@@ -239,7 +239,7 @@
                                                     ((symbol-function 'decklet-review--render-buffer) (lambda (&rest _) nil)))
                                             (dotimes (_ 3)
                                               (decklet-review-undo)
-                                              (push (decklet-card-word decklet-current-card-id) words-seen))))
+                                              (push (decklet-get-card-word decklet-current-card-id) words-seen))))
     ;; First undo reveals C (most recent), then B, then A.
     (should (equal '("A" "B" "C") words-seen))
     (should (null decklet-review--trail-past))
@@ -587,7 +587,7 @@
          (decklet-review--trail-future nil)
          (decklet-current-card-id 3)
          (decklet-due-card-ids nil))
-    (cl-letf (((symbol-function 'decklet-card-word)
+    (cl-letf (((symbol-function 'decklet-get-card-word)
                (lambda (card-id)
                  (alist-get card-id '((1 . "A") (2 . "B") (3 . "C")) nil nil #'eql)))
               ((symbol-function 'decklet-card-exists-p)

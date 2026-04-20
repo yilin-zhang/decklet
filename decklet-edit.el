@@ -377,7 +377,7 @@ CARD-IDS can be a single card id or a list of card ids."
                    (memq current card-ids)
                  (eql card-ids current)))
       (user-error "Current review word \"%s\" can only be modified in review mode"
-                  (decklet-card-word current)))))
+                  (decklet-get-card-word current)))))
 
 (defun decklet-edit--card-at-point (&optional ensure-not-current)
   "Return the current edit-row card as a plist with `:card-id' and `:word'.
@@ -386,7 +386,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
     (when ensure-not-current
       (decklet-edit--ensure-not-current card-id))
     (list :card-id card-id
-          :word (decklet-card-word card-id))))
+          :word (decklet-get-card-word card-id))))
 
 (defun decklet-edit--entries ()
   "Return tabulated list entries for the edit buffer."
@@ -587,14 +587,14 @@ review buffer, which refreshes if the updated card is on screen."
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
   (interactive)
-  (decklet-card-back-show (plist-get (decklet-edit--card-at-point) :word)))
+  (decklet-show-card-back (plist-get (decklet-edit--card-at-point) :word)))
 
 (defun decklet-edit-delete-card ()
   "Delete marked cards, or the card at point."
   (interactive)
   (let* ((marked (decklet-edit--marked-card-ids))
          (card-ids (or marked (list (decklet-edit--card-id-at-point))))
-         (word (and (not marked) (decklet-card-word (car card-ids)))))
+         (word (and (not marked) (decklet-get-card-word (car card-ids)))))
     (decklet-edit--ensure-not-current card-ids)
     (when (yes-or-no-p (if marked
                            (format "Delete %d marked cards? " (length marked))
@@ -611,7 +611,7 @@ Under the `archived' filter, the action is unarchive instead."
   (interactive)
   (let* ((marked (decklet-edit--marked-card-ids))
          (card-ids (or marked (list (decklet-edit--card-id-at-point))))
-         (word (and (not marked) (decklet-card-word (car card-ids))))
+         (word (and (not marked) (decklet-get-card-word (car card-ids))))
          (unarchive-p (eq decklet-edit--filter 'archived))
          (action (if unarchive-p #'decklet-unarchive-card #'decklet-archive-card))
          (verb (if unarchive-p "Unarchive" "Archive"))
