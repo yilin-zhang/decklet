@@ -275,10 +275,9 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
   (decklet--mint-monotonic-id
    'decklet-db--last-card-id
    (lambda ()
-     (or (caar (sqlite-select
-                (decklet-db--ensure)
-                "SELECT COALESCE(MAX(card_id), 0) FROM cards;"))
-         0))))
+     (caar (sqlite-select
+            (decklet-db--ensure)
+            "SELECT COALESCE(MAX(card_id), 0) FROM cards;")))))
 
 (defun decklet-db--update-word (card-id new-word)
   "Rename CARD-ID to NEW-WORD in the database, return normalized new word."
@@ -342,9 +341,7 @@ database column name string."
     (pcase-let* (((map :card-id :added :last-review :due :state :step :stability :difficulty) row)
                  (is-new (decklet-last-review-empty-p last-review))
                  (state (decklet--normalize-fsrs-state state))
-                 (step (if is-new (or step 0) step))
-                 (stability (and (numberp stability) stability))
-                 (difficulty (and (numberp difficulty) difficulty)))
+                 (step (if is-new (or step 0) step)))
       (make-decklet-card-meta
        :card-id card-id
        :added-date added
@@ -577,15 +574,14 @@ Return a plist with keys:
                    AND due < ?
                  GROUP BY due_date;"
                 (list offset day-start-ts cutoff-ts)))
-         (overdue-row
-          (car (sqlite-select
-                conn
-                "SELECT COUNT(*) FROM cards
-                 WHERE archived_at IS NULL
-                   AND last_review IS NOT NULL
-                   AND due < ?;"
-                (list day-start-ts))))
-         (overdue-count (if overdue-row (car overdue-row) 0)))
+         (overdue-count
+          (caar (sqlite-select
+                 conn
+                 "SELECT COUNT(*) FROM cards
+                  WHERE archived_at IS NULL
+                    AND last_review IS NOT NULL
+                    AND due < ?;"
+                 (list day-start-ts)))))
     (list :rows rows :overdue overdue-count)))
 
 ;; JSON export and import
@@ -967,7 +963,7 @@ their backups to ride in the same rotation; register a handler on
          (pattern (decklet-db--backup-file-pattern base "sqlite"))
          (files (when (file-directory-p backup-dir)
                   (directory-files backup-dir t pattern))))
-    (sort (or files '())
+    (sort files
           (lambda (a b)
             (let ((ta (or (decklet-db--backup-timestamp a)
                           (file-attribute-modification-time (file-attributes a))))

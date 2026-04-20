@@ -30,8 +30,9 @@ When nil, disable daily goal tracking and related UI."
   :group 'decklet-review)
 
 (defcustom decklet-review-hint-delay 1.5
-  "Delay time in seconds for hint display."
-  :type 'float
+  "Delay in seconds before the hint is revealed.
+When nil, the hint is shown immediately alongside the word."
+  :type '(choice (const :tag "No delay" nil) float)
   :group 'decklet-review)
 
 (defcustom decklet-review-hide-cursor t
@@ -447,7 +448,7 @@ separators are skipped so rendering won't stack separator lines."
 (defun decklet-review--hint-delay-enabled-p ()
   "Return non-nil when hint delay is enabled.
 Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
-  (and (numberp decklet-review-hint-delay) (> decklet-review-hint-delay 0)))
+  (and decklet-review-hint-delay (> decklet-review-hint-delay 0)))
 
 (defun decklet-review--reset-ui-state ()
   "Reset UI state."
@@ -681,9 +682,8 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
         (decklet-review--cancel-hint-timer))
       (if (and keep-position window)
           (progn
-            (set-window-point window (min (or saved-point (point-min)) (point-max)))
-            (when saved-start
-              (set-window-start window saved-start t)))
+            (set-window-point window (min saved-point (point-max)))
+            (set-window-start window saved-start t))
         (goto-char (point-min))))))
 
 ;; Review flow and rating commands
@@ -839,7 +839,7 @@ always leave the same amount of state behind."
                (decklet-review--daily-goal-reached-p))
       (run-hooks 'decklet-review-daily-goal-reached-hook))
     (message "Rated \"%s\" as (%s)" word
-             (pcase grade (1 "Again") (2 "Hard") (3 "Good") (4 "Easy") (_ "Unknown")))
+             (pcase grade (1 "Again") (2 "Hard") (3 "Good") (4 "Easy")))
     ;; Advance to the next card.  Do not go through `next-card' since
     ;; that would record a spurious skip on the trail for the word we just rated.
     (decklet-review--advance)))

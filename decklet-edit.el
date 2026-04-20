@@ -395,9 +395,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
      (pcase-let* (((map :card-id :word :hint :back :added :last-review :due
                         :state :stability :difficulty)
                    row)
-                  (added (or added ""))
                   (last-review (or last-review ""))
-                  (due (or due ""))
                   (state (decklet--normalize-fsrs-state state))
                   (effective-state (decklet-card-effective-state state last-review))
                   (word-face (if (eq decklet-edit--filter 'archived)
@@ -407,7 +405,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                                 (:new 'decklet-edit-state-new-face)
                                 (:review 'decklet-edit-state-review-face)
                                 (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
-                  (state-text (or (decklet--fsrs-state-string effective-state) ""))
+                  (state-text (decklet--fsrs-state-string effective-state))
                   (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
                   (hint (if hint
                             (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)

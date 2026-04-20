@@ -536,8 +536,7 @@ and :message-prefix."
 (defun decklet-card-back-show (word)
   "Open the card back popup buffer for WORD."
   (interactive (list (decklet--resolve-word nil "Word: ")))
-  (let* ((card (or (decklet-db--require-card-row-by-word word)
-                   (user-error "No card found for \"%s\"" word)))
+  (let* ((card (decklet-db--require-card-row-by-word word))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
          (buf-name (decklet-card-back--buffer-name word))
