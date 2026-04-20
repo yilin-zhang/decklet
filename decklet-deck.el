@@ -457,15 +457,15 @@ the granularity of `decklet--add-card's status result."
     (when (functionp decklet-add-card-batch--on-confirm)
       (funcall decklet-add-card-batch--on-confirm
                (mapcar (lambda (card) (plist-get card :word)) cards))))
-  (kill-buffer (current-buffer)))
+  (quit-window t))
 
 (defun decklet-add-card-batch-cancel ()
   "Cancel batch import and close the buffer."
   (interactive)
   (when (functionp decklet-add-card-batch--on-cancel)
     (funcall decklet-add-card-batch--on-cancel))
-  (kill-buffer (current-buffer))
-  (message "Batch import canceled"))
+  (message "Batch import canceled")
+  (quit-window t))
 
 ;;;###autoload
 (defun decklet-add-card-batch (&optional words &rest options)
