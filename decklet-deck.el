@@ -452,11 +452,12 @@ the granularity of `decklet--add-card's status result."
     (when hint-events
       (run-hook-with-args 'decklet-cards-field-updated-functions
                           (nreverse hint-events)))
-    (message "Imported %d: %d added, %d refreshed, %d already existed"
-             (length cards) added refreshed exists)
+    ;; TODO: maybe error handling here
     (when (functionp decklet-add-card-batch--on-confirm)
       (funcall decklet-add-card-batch--on-confirm
-               (mapcar (lambda (card) (plist-get card :word)) cards))))
+               (mapcar (lambda (card) (plist-get card :word)) cards)))
+    (message "Imported %d: %d added, %d refreshed, %d already existed"
+             (length cards) added refreshed exists))
   (quit-window t))
 
 (defun decklet-add-card-batch-cancel ()
