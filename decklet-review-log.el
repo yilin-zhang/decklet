@@ -119,11 +119,11 @@ success, nil on write failure."
                        :t now-str
                        :word word
                        :grade grade
-                       :pre_state (decklet--fsrs-state-string
+                       :pre_state (decklet-fsrs-state-string
                                    (decklet-card-meta-state old-meta))
                        :pre_stability (decklet-card-meta-stability old-meta)
                        :pre_difficulty (decklet-card-meta-difficulty old-meta)
-                       :post_state (decklet--fsrs-state-string
+                       :post_state (decklet-fsrs-state-string
                                     (decklet-card-meta-state new-meta))
                        :post_stability (decklet-card-meta-stability new-meta)
                        :post_difficulty (decklet-card-meta-difficulty new-meta)

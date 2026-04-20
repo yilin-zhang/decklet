@@ -51,6 +51,11 @@ review log JSONL) alongside the DB snapshot.")
 (defconst decklet-db--numeric-sort-columns '("stability" "difficulty")
   "DB columns that use numeric COALESCE for sorting.")
 
+(defconst decklet-db--card-columns
+  "card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty"
+  "Column list shared by card SELECTs that feed `decklet-db--normalize-row'.
+Column order must match `decklet-db--normalize-row's `pcase-let'.")
+
 (defun decklet-db--normalize-word (word)
   "Normalize WORD and signal an error if empty."
   (let* ((trimmed (string-trim (or word "")))
@@ -158,8 +163,8 @@ the soon-to-be-gone session buffer does not keep the DB open."
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
      (car (sqlite-select conn
-                         "SELECT card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty
-                           FROM cards WHERE word = ?;"
+                         (format "SELECT %s FROM cards WHERE word = ?;"
+                                 decklet-db--card-columns)
                          (list word))))))
 
 (defun decklet-db--require-card-row-by-word (word)
@@ -172,8 +177,8 @@ the soon-to-be-gone session buffer does not keep the DB open."
   (let ((conn (decklet-db--ensure)))
     (decklet-db--normalize-row
      (car (sqlite-select conn
-                         "SELECT card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty
-                          FROM cards WHERE card_id = ?;"
+                         (format "SELECT %s FROM cards WHERE card_id = ?;"
+                                 decklet-db--card-columns)
                          (list card-id))))))
 
 (defun decklet-db--require-card-row (card-id)
@@ -232,7 +237,7 @@ card's stable identity is preserved across rating updates."
            (decklet-card-meta-added-date card-meta)
            (decklet-card-meta-last-review card-meta)
            (decklet-card-meta-due card-meta)
-           (decklet--fsrs-state-string (decklet-card-meta-state card-meta))
+           (decklet-fsrs-state-string (decklet-card-meta-state card-meta))
            (decklet-card-meta-step card-meta)
            (decklet-card-meta-stability card-meta)
            (decklet-card-meta-difficulty card-meta)))))
@@ -296,9 +301,9 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
 
 (defun decklet-db--edit-filter-sql (filter)
   "Return (SQL . PARAMS) for FILTER."
-  (let ((s-review (decklet--fsrs-state-string :review))
-        (s-learning (decklet--fsrs-state-string :learning))
-        (s-relearning (decklet--fsrs-state-string :relearning)))
+  (let ((s-review (decklet-fsrs-state-string :review))
+        (s-learning (decklet-fsrs-state-string :learning))
+        (s-relearning (decklet-fsrs-state-string :relearning)))
     (pcase filter
       ('review
        (cons " WHERE archived_at IS NULL AND state = ?"
@@ -327,12 +332,10 @@ database column name string."
       (mapcar
        #'decklet-db--normalize-row
        (sqlite-select conn
-                      (concat
-                       "SELECT card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty
-                        FROM cards"
-                       where
-                       (decklet-db--edit-order-sql sort-key)
-                       ";")
+                      (concat (format "SELECT %s FROM cards" decklet-db--card-columns)
+                              where
+                              (decklet-db--edit-order-sql sort-key)
+                              ";")
                       params)))))
 
 (defun decklet-db--row->card-meta (row)
@@ -444,9 +447,9 @@ only `:due' and `:added' are supported.  ORDER can be `:asc' or
   (let ((review-cutoff (decklet--time->fsrs-timestamp
                         (decklet--next-day-start-time now)))
         (learning-cutoff (decklet--time->fsrs-timestamp now))
-        (s-review (decklet--fsrs-state-string :review))
-        (s-learning (decklet--fsrs-state-string :learning))
-        (s-relearning (decklet--fsrs-state-string :relearning)))
+        (s-review (decklet-fsrs-state-string :review))
+        (s-learning (decklet-fsrs-state-string :learning))
+        (s-relearning (decklet-fsrs-state-string :relearning)))
     (pcase target
       (:learning
        (cons "state = ?
@@ -526,9 +529,9 @@ STEP can be a shuffle or sort clause."
          (day-start (decklet--time->fsrs-timestamp (decklet-day-start-time now)))
          (review-cutoff (decklet--time->fsrs-timestamp (decklet--next-day-start-time now)))
          (learning-cutoff (decklet--time->fsrs-timestamp now))
-         (s-review (decklet--fsrs-state-string :review))
-         (s-learning (decklet--fsrs-state-string :learning))
-         (s-relearning (decklet--fsrs-state-string :relearning))
+         (s-review (decklet-fsrs-state-string :review))
+         (s-learning (decklet-fsrs-state-string :learning))
+         (s-relearning (decklet-fsrs-state-string :relearning))
          (conn (decklet-db--ensure))
          (row (car (sqlite-select
                     conn
@@ -748,7 +751,7 @@ Return a plist with :added, :overwritten, and :skipped."
       ;; sidecar extensions only see successful imports.  One batched
       ;; event per successful import.
       (when added-card-ids
-        (decklet-run-cards-hook 'decklet-cards-added-functions
+        (run-hook-with-args 'decklet-cards-added-functions
                                 (mapcar (lambda (card-id) (list :card-id card-id))
                                         (nreverse added-card-ids))))
       (list :added added :overwritten overwritten :skipped skipped))))
@@ -850,11 +853,16 @@ When non-nil, it is called with no arguments inside
   :type 'function
   :group 'decklet-db)
 
+(defconst decklet-db--backup-timestamp-re "[0-9]\\{8\\}T[0-9]\\{6\\}Z"
+  "Regex matching the UTC timestamp produced by `decklet-db--timestamp-utc'.")
+
 (defun decklet-db--backup-file-pattern (base ext)
   "Return a regexp matching timestamped backup files for BASE.EXT.
 Includes an optional collision suffix (e.g. `-1', `-2')."
-  (format "\\`%s-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\(-[0-9]+\\)?\\.%s\\'"
-          (regexp-quote base) (regexp-quote ext)))
+  (format "\\`%s-%s\\(-[0-9]+\\)?\\.%s\\'"
+          (regexp-quote base)
+          decklet-db--backup-timestamp-re
+          (regexp-quote ext)))
 
 (defun decklet-db--backup-target (backup-dir base ext timestamp)
   "Return a unique backup filename in BACKUP-DIR using BASE, EXT, TIMESTAMP."
@@ -872,22 +880,17 @@ Includes an optional collision suffix (e.g. `-1', `-2')."
 
 (defun decklet-db--backup-prune (backup-dir base ext)
   "Prune old backup files in BACKUP-DIR matching BASE.EXT when thresholds are met."
-  ;; Only proceed if config values are valid.
-  ;; This keeps us from pruning on misconfigured or zero-ish values.
   (when (and (integerp decklet-backup-retain-days)
              (> decklet-backup-retain-days 0)
              (integerp decklet-backup-prune-min-count)
              (> decklet-backup-prune-min-count 0))
-    ;; Find all backup files for the current BASE.EXT.
     (let* ((pattern (decklet-db--backup-file-pattern base ext))
            (files (directory-files backup-dir t pattern))
            (count (length files))
            (max-exceeded (and (integerp decklet-backup-prune-max-count)
                               (> decklet-backup-prune-max-count 0)
                               (> count decklet-backup-prune-max-count))))
-      ;; Only prune if we have minimum count or exceeded maximum.
       (when (or (> count decklet-backup-prune-min-count) max-exceeded)
-        ;; Calculate cutoff date and find old files.
         (let* ((cutoff-time (time-subtract (current-time)
                                            (days-to-time decklet-backup-retain-days)))
                (files-by-age (sort (copy-sequence files)
@@ -898,13 +901,11 @@ Includes an optional collision suffix (e.g. `-1', `-2')."
                                         (time-less-p (file-attribute-modification-time (file-attributes file))
                                                      cutoff-time))
                                       files-by-age)))
-          ;; If max exceeded, also mark the oldest excess files for deletion.
-          ;; A file qualifies if it is expired by age OR pushed out by max-count.
+          ;; Qualify by age OR by being pushed out by max-count.
           (when max-exceeded
             (let* ((excess-count (- count decklet-backup-prune-max-count))
                    (excess-files (seq-take files-by-age excess-count)))
               (setq to-delete (seq-union to-delete excess-files))))
-          ;; Ask user (optional) and delete.
           (when (and to-delete
                      (or (not decklet-backup-prune-confirm)
                          (yes-or-no-p (format "Prune %d backup(s) from %s? "
@@ -948,8 +949,9 @@ their backups to ride in the same rotation; register a handler on
 
 (defun decklet-db--backup-timestamp (file)
   "Return the backup timestamp for FILE, or nil if unavailable."
-  (let ((pattern (format "\\`%s-\\([0-9]\\{8\\}T[0-9]\\{6\\}Z\\)"
-                         (regexp-quote (file-name-base decklet-db-file))))
+  (let ((pattern (format "\\`%s-\\(%s\\)"
+                         (regexp-quote (file-name-base decklet-db-file))
+                         decklet-db--backup-timestamp-re))
         (filename (file-name-base file)))
     (when (string-match pattern filename)
       (condition-case nil

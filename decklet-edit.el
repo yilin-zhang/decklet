@@ -405,7 +405,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                                 (:new 'decklet-edit-state-new-face)
                                 (:review 'decklet-edit-state-review-face)
                                 (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
-                  (state-text (decklet--fsrs-state-string effective-state))
+                  (state-text (decklet-fsrs-state-string effective-state))
                   (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
                   (hint (if hint
                             (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
@@ -692,19 +692,10 @@ always leave the same amount of state behind."
 (add-hook 'decklet-edit-start-hook #'decklet-db-backup)
 (add-hook 'decklet-edit-quit-hook #'decklet-db-backup)
 
-;; Refresh the edit table whenever a card changes.  Each mutation in
-;; `decklet-deck.el' fires one of these hooks, so the edit buffer stays
-;; in sync without its own commands needing to call `decklet-edit-refresh'
-;; directly.
-;;
-;; If the edit buffer is not the selected window (e.g. the user is in a
-;; card-back popup or another buffer), we defer the refresh and set
-;; `decklet-edit--refresh-pending' instead.  The pending refresh is
-;; flushed via `window-selection-change-functions' when the edit buffer
-;; becomes selected again, so `tabulated-list-print' runs against the
-;; user's actual point — avoiding the "point jumps to line 1" artifact
-;; caused by `tabulated-list-print t' falling back to `point-min' when
-;; called in a non-focused buffer.
+;; When the edit buffer isn't the selected window, refresh is deferred
+;; and flushed on next focus: `tabulated-list-print t' falls back to
+;; `point-min' when called in a non-focused buffer, which would yank
+;; point off the user's row.
 (defvar-local decklet-edit--refresh-pending nil
   "Non-nil when the edit buffer needs a refresh on next focus.
 Set by `decklet-edit--on-card-change' when the buffer is not selected;

@@ -140,28 +140,6 @@ This hook does NOT fire on:
   - confirming an undone rating (the original event already stands)
   - skip (no rating given)")
 
-(defun decklet-run-cards-hook (hook events)
-  "Run HOOK's handlers on EVENTS, isolating per-handler errors.
-Each handler is invoked inside a `condition-case' so a failing
-handler does not prevent later handlers from running and does not
-propagate the error back to the fire site.  Errors are reported
-via `message'.
-
-HOOK must be one of the `decklet-cards-*-functions' lifecycle
-hooks; EVENTS must be a non-empty list of per-card event plists
-matching that hook's shape.  Sidecar extensions that fire their
-own field-updated events should use this helper instead of calling
-`run-hook-with-args' directly."
-  (run-hook-wrapped hook
-                    (lambda (handler events)
-                      (condition-case err
-                          (progn (funcall handler events) nil)
-                        (error
-                         (message "Decklet %s handler %s failed: %s"
-                                  hook handler (error-message-string err))
-                         nil)))
-                    events))
-
 ;; Utility functions used across modules
 
 (defun decklet--clamp (value min-val max-val)
@@ -169,10 +147,10 @@ own field-updated events should use this helper instead of calling
   (min max-val (max min-val value)))
 
 (defun decklet--shuffle-list (lst)
-  "Return a new randomly shuffled copy of LST."
+  "Return a new randomly shuffled copy of LST.
+Fisher-Yates; Emacs has no built-in shuffle."
   (let* ((vec (vconcat lst))
          (len (length vec)))
-    ;; Fisher-Yates shuffle for unbiased results.
     (dotimes (i len)
       (let* ((j (+ i (random (- len i))))
              (tmp (aref vec i)))

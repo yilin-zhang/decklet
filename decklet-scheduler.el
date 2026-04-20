@@ -141,7 +141,7 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
     (intern (if (string-prefix-p ":" state) state (concat ":" state))))
    (t nil)))
 
-(defun decklet--fsrs-state-string (state)
+(defun decklet-fsrs-state-string (state)
   "Return the serialized string representation of STATE."
   (when state
     (let ((name (symbol-name state)))
