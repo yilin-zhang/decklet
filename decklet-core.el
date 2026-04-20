@@ -140,6 +140,13 @@ This hook does NOT fire on:
   - confirming an undone rating (the original event already stands)
   - skip (no rating given)")
 
+(defun decklet-fire-one-card-event (hook &rest plist)
+  "Fire HOOK with a one-element event list built from PLIST.
+Convenience wrapper around `run-hook-with-args' for the common
+case of a single-card lifecycle event — avoids hand-writing the
+`(list (list ...))' shape at every fire site."
+  (run-hook-with-args hook (list plist)))
+
 ;; Utility functions used across modules
 
 (defun decklet--clamp (value min-val max-val)

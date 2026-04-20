@@ -873,23 +873,21 @@ database until the user re-rates."
       (switch-to-buffer buffer)
       (decklet-review--render-buffer))))
 
-(defun decklet-review--set-card-fields (set-word set-hint)
-  "Set the current card using SET-WORD and SET-HINT flags."
-  (let* ((card-id (decklet--require-current-card-id "edit"))
-         (updated-word (decklet-prompt-set-card-fields card-id set-word set-hint)))
-    (when (eq major-mode 'decklet-review-mode)
-      (decklet-review--render-buffer))
-    (message "Updated \"%s\"" updated-word)))
-
 (defun decklet-review-set-word ()
-  "Set the current word."
+  "Prompt to rename the current word."
   (interactive)
-  (decklet-review--set-card-fields t nil))
+  (let ((card-id (decklet--require-current-card-id "edit")))
+    (message "Updated \"%s\"" (decklet-prompt-set-word card-id))
+    (when (eq major-mode 'decklet-review-mode)
+      (decklet-review--render-buffer))))
 
 (defun decklet-review-set-hint ()
-  "Set the current hint."
+  "Prompt to update the current card's hint."
   (interactive)
-  (decklet-review--set-card-fields nil t))
+  (let ((card-id (decklet--require-current-card-id "edit")))
+    (message "Updated \"%s\"" (decklet-prompt-set-hint card-id))
+    (when (eq major-mode 'decklet-review-mode)
+      (decklet-review--render-buffer))))
 
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."

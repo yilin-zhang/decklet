@@ -567,26 +567,22 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (decklet-edit-refresh)
   (message "Filter: %s" decklet-edit--filter))
 
-(defun decklet-edit--set-card-at-point (set-word set-hint)
-  "Set the card at point using SET-WORD and SET-HINT flags.
-Field updates (word, hint) are allowed on the current review card:
-`decklet-cards-field-updated-functions' and
-`decklet-cards-renamed-functions' carry the change to the review
-buffer, which refreshes if the updated card is on screen."
-  (let* ((card (decklet-edit--card-at-point))
-         (card-id (plist-get card :card-id)))
-    (message "Updated \"%s\""
-             (decklet-prompt-set-card-fields card-id set-word set-hint))))
-
 (defun decklet-edit-set-word ()
-  "Set the word at point."
+  "Rename the card at point.
+Field updates are allowed on the current review card:
+`decklet-cards-renamed-functions' carries the change to the
+review buffer, which refreshes if the renamed card is on screen."
   (interactive)
-  (decklet-edit--set-card-at-point t nil))
+  (message "Updated \"%s\""
+           (decklet-prompt-set-word (decklet-edit--card-id-at-point))))
 
 (defun decklet-edit-set-hint ()
-  "Set the hint at point."
+  "Set the hint for the card at point.
+`decklet-cards-field-updated-functions' carries the change to the
+review buffer, which refreshes if the updated card is on screen."
   (interactive)
-  (decklet-edit--set-card-at-point nil t))
+  (message "Updated \"%s\""
+           (decklet-prompt-set-hint (decklet-edit--card-id-at-point))))
 
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
