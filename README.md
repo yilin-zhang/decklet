@@ -149,8 +149,6 @@ cards just like most flashcard apps.
 | `q` | Quit review                         |
 | `l` | Look up word with default provider  |
 | `L` | Look up word with selected provider |
-| `f` | Show definition popup               |
-| `s` | Play pronunciation audio            |
 
 ### Edit Mode
 
@@ -171,7 +169,6 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `e`   | Edit word at point                        |
 | `t`   | Edit hint at point                        |
 | `b`   | Show or edit card back                    |
-| `+`   | Quick add card                            |
 | `. r` | Filter review cards                       |
 | `. l` | Filter learning cards                     |
 | `. a` | Toggle archived/all cards                 |
@@ -183,8 +180,6 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `; f` | Sort by difficulty                        |
 | `l`   | Look up word with default provider        |
 | `L`   | Look up word with selected provider       |
-| `f`   | Show definition popup                     |
-| `s`   | Play pronunciation audio                  |
 
 ## Additional Setup
 

@@ -39,8 +39,11 @@ Emacs session so the seed is recomputed from the DB on startup.")
 
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
-Use this to clean up any resources that depend on an open DB connection,
-such as card-back popup buffers.")
+Use this to clean up any resources that depend on an open DB connection.
+Core already keeps review, edit, and card-back buffers alive as long as
+the DB is open (see `decklet-db--session-window-open-p'); this hook is
+for sidecar packages that need a last-chance cleanup before the handle
+goes away.")
 
 (defvar decklet-db-post-backup-functions nil
   "Abnormal hook called after a successful database backup.
@@ -136,7 +139,10 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     (setq decklet-db--conn nil)))
 
 (defun decklet-db--session-window-open-p (&optional exclude-buffer)
-  "Return non-nil when a review/edit session buffer is still open.
+  "Return non-nil when any buffer still depends on the DB connection.
+That includes review buffers, edit buffers, and card-back popups —
+card-back buffers save through the DB on write, so disconnecting
+while one is open would strand its edits.
 When EXCLUDE-BUFFER is non-nil, ignore it during the scan — useful
 from `kill-buffer-hook' handlers, where the buffer being killed is
 still present in `buffer-list' but should not be counted as an
@@ -147,7 +153,8 @@ active session for the purpose of deciding whether to disconnect."
           (not (eq buffer exclude-buffer))
           (with-current-buffer buffer
             (or (derived-mode-p 'decklet-review-mode)
-                (derived-mode-p 'decklet-edit-mode)))))
+                (derived-mode-p 'decklet-edit-mode)
+                (bound-and-true-p decklet-card-back-mode)))))
    (buffer-list)))
 
 (defun decklet-db--disconnect-if-idle (&optional excluding-buffer)
@@ -600,17 +607,46 @@ Return a plist with keys:
            (decklet-db--timestamp-utc))
    decklet-directory))
 
-(defun decklet-db--json-alist-get (record key)
-  "Return KEY value from RECORD alist, accepting symbol or string keys."
+(defun decklet-db--json-alist-get-raw (record key)
+  "Return KEY value from RECORD alist, accepting symbol or string keys.
+Preserves the `:json-null' sentinel used by the import parser — callers
+that need to distinguish \"key missing\" from \"key explicitly null\"
+should use this; everyone else should prefer `decklet-db--json-alist-get'."
   (or (alist-get key record nil nil #'equal)
       (alist-get (symbol-name key) record nil nil #'equal)))
+
+(defun decklet-db--json-alist-get (record key)
+  "Return KEY value from RECORD alist, accepting symbol or string keys.
+Collapses the `:json-null' sentinel to nil so fields that treat
+missing and null equivalently (everything except hint/back) don't
+have to care about the import sentinel."
+  (let ((value (decklet-db--json-alist-get-raw record key)))
+    (if (eq value :json-null) nil value)))
+
+(defun decklet-db--import-text-value (raw)
+  "Classify RAW JSON value for an import text field like hint or back.
+Return nil when the field was missing from the record, `:clear' when it
+was present but JSON `null' or blank, or the trimmed non-empty string."
+  (cond
+   ((null raw) nil)
+   ((eq raw :json-null) :clear)
+   ((stringp raw)
+    (let ((trimmed (string-trim raw)))
+      (if (string-empty-p trimmed) :clear trimmed)))
+   (t (user-error "Invalid text value in import: %S" raw))))
 
 (defun decklet-db--import-record->card (record)
   "Convert JSON RECORD alist to a card plist.
 Returns a card plist with keys :card-id, :word, :hint, :back,
 :meta, and :archived-at.  The :archived-at key is specific to the
 import flow and is not present on cards produced by
-`decklet-db--row->card'."
+`decklet-db--row->card'.
+
+:hint and :back use the tri-state encoding from
+`decklet-db--import-text-value': nil (missing — preserve existing
+value on overwrite), `:clear' (present as JSON null or blank —
+clear existing value on overwrite), or a normalized non-empty
+string."
   (unless (listp record)
     (user-error "Invalid JSON record: expected object, got %S" record))
   (let* ((now (decklet--now))
@@ -634,10 +670,10 @@ import flow and is not present on cards produced by
                 :step step
                 :stability (decklet-db--json-alist-get record 'stability)
                 :difficulty (decklet-db--json-alist-get record 'difficulty)))
-         (hint (decklet-db--normalize-optional-text
-                (decklet-db--json-alist-get record 'hint)))
-         (back (decklet-db--normalize-optional-text
-                (decklet-db--json-alist-get record 'back)))
+         (hint (decklet-db--import-text-value
+                (decklet-db--json-alist-get-raw record 'hint)))
+         (back (decklet-db--import-text-value
+                (decklet-db--json-alist-get-raw record 'back)))
          (archived-at (decklet-db--json-alist-get record 'archived_at)))
     (list :card-id (decklet-card-meta-card-id meta)
           :word word
@@ -673,6 +709,22 @@ confirms an \"all\" behavior."
              (message "Canceled \"overwrite all\"; choose for current word."))))))
     (cons resolved global-choice)))
 
+(defun decklet-db--apply-import-text-field (card-id field value overwrite-p)
+  "Apply FIELD (`hint' or `back') VALUE for CARD-ID during import.
+VALUE uses the tri-state encoding from `decklet-db--import-text-value'.
+OVERWRITE-P non-nil means the caller chose overwrite-on-conflict, so a
+`:clear' value should actually null the DB field; for new cards the
+field is already null so `:clear' is a no-op."
+  (let ((setter (pcase field
+                  ('hint #'decklet-db--update-hint)
+                  ('back #'decklet-db--update-back)
+                  (_ (error "Unknown import text field: %S" field)))))
+    (pcase value
+      ('nil nil)
+      (:clear (when overwrite-p (funcall setter card-id nil)))
+      ((pred stringp) (funcall setter card-id value))
+      (_ (error "Invalid import text value for %s: %S" field value)))))
+
 (defun decklet-db--apply-import-card (card overwrite-p)
   "Upsert CARD into the database and apply its archive flag.
 CARD is the plist returned by `decklet-db--import-record->card'.
@@ -686,8 +738,8 @@ unarchived."
         (archived-at (plist-get card :archived-at)))
     (decklet-db--upsert-card word meta)
     (let ((card-id (plist-get (decklet-db--select-card-row-by-word word) :card-id)))
-      (when hint (decklet-db--update-hint card-id hint))
-      (when back (decklet-db--update-back card-id back))
+      (decklet-db--apply-import-text-field card-id 'hint hint overwrite-p)
+      (decklet-db--apply-import-text-field card-id 'back back overwrite-p)
       (if archived-at
           (decklet-db--archive-card card-id archived-at)
         (when overwrite-p
@@ -698,28 +750,41 @@ unarchived."
 Return a plist with :added, :overwritten, and :skipped."
   (unless (file-exists-p file)
     (user-error "Import file does not exist: %s" file))
+  ;; Parse with `:json-null' as the null sentinel so hint/back can
+  ;; distinguish "key missing" (nil) from "key explicitly null"
+  ;; (`:json-null').  `decklet-db--import-text-value' collapses both
+  ;; null and blank strings into the `:clear' marker downstream.
   (let ((records (with-temp-buffer
                    (insert-file-contents file)
                    (json-parse-buffer :object-type 'alist
                                       :array-type 'list
-                                      :null-object nil
+                                      :null-object :json-null
                                       :false-object nil))))
     (unless (listp records)
       (user-error "Import JSON must be an array of card objects"))
     ;; Resolve all conflict decisions before opening a transaction so
     ;; interactive prompts don't block inside a write transaction.
+    ;; Reject intra-file duplicates early: two records with the same word
+    ;; would both get a minted id during planning and both be marked
+    ;; `:add', but the second upsert hits `ON CONFLICT(word)' and keeps
+    ;; the first row's id — so the second minted id is a ghost that
+    ;; would leak into `added' counts and `decklet-cards-added-functions'.
     (let* ((global-conflict-action nil)
+           (seen-words (make-hash-table :test 'equal))
            (planned (mapcar
                      (lambda (record)
                        (let* ((card (decklet-db--import-record->card record))
-                              (word (plist-get card :word))
-                              (action (if (decklet-db--select-card-row-by-word word)
-                                          (or global-conflict-action
-                                              (let ((decision (decklet-db--import-read-conflict-choice word)))
-                                                (setq global-conflict-action (cdr decision))
-                                                (car decision)))
-                                        :add)))
-                         (cons card action)))
+                              (word (plist-get card :word)))
+                         (when (gethash word seen-words)
+                           (user-error "Duplicate word in import file: %s" word))
+                         (puthash word t seen-words)
+                         (let ((action (if (decklet-db--select-card-row-by-word word)
+                                           (or global-conflict-action
+                                               (let ((decision (decklet-db--import-read-conflict-choice word)))
+                                                 (setq global-conflict-action (cdr decision))
+                                                 (car decision)))
+                                         :add)))
+                           (cons card action))))
                      records))
            (added 0) (overwritten 0) (skipped 0)
            (added-card-ids nil))

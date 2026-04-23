@@ -262,6 +262,131 @@
          (should (= 0 (plist-get stats :skipped)))))
      (should (string= "new" (plist-get (decklet-db--select-card-row-by-word "alpha") :hint))))))
 
+(ert-deftest decklet-test-db-import-overwrite-explicit-null-clears-hint-and-back ()
+  "Overwrite with explicit JSON `null' for hint/back clears the old values."
+  (decklet-test--with-temp-db
+   (let* ((file (expand-file-name "import-null.json" tmp-dir))
+          (rows '(((word . "alpha")
+                   (added_date . "20250110T000000Z")
+                   (due . "20250111T000000Z")
+                   (archived_at . nil)
+                   (state . "review")
+                   (step . 0)
+                   (stability . 1.0)
+                   (difficulty . 1.0)
+                   (hint . nil)
+                   (back . nil))))
+          (json-encoding-pretty-print t))
+     (decklet-db--upsert-card
+      "alpha" (decklet-test--make-card-meta :timestamp "20250101T000000Z"
+                                            :due "20250102T000000Z"))
+     (let ((card-id (plist-get (decklet-db--select-card-row-by-word "alpha")
+                               :card-id)))
+       (decklet-db--update-hint card-id "old-hint")
+       (decklet-db--update-back card-id "old-back"))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
+                (lambda (_word) (cons :overwrite nil))))
+       (let ((stats (decklet-db-import-json file)))
+         (should (= 1 (plist-get stats :overwritten)))))
+     (let ((row (decklet-db--select-card-row-by-word "alpha")))
+       (should (null (plist-get row :hint)))
+       (should (null (plist-get row :back)))))))
+
+(ert-deftest decklet-test-db-import-overwrite-blank-string-clears-hint-and-back ()
+  "Overwrite with blank/whitespace-only hint/back is treated like null: clears."
+  (decklet-test--with-temp-db
+   (let* ((file (expand-file-name "import-blank.json" tmp-dir))
+          (rows '(((word . "alpha")
+                   (added_date . "20250110T000000Z")
+                   (due . "20250111T000000Z")
+                   (archived_at . nil)
+                   (state . "review")
+                   (step . 0)
+                   (stability . 1.0)
+                   (difficulty . 1.0)
+                   (hint . "")
+                   (back . "   \n\t"))))
+          (json-encoding-pretty-print t))
+     (decklet-db--upsert-card
+      "alpha" (decklet-test--make-card-meta :timestamp "20250101T000000Z"
+                                            :due "20250102T000000Z"))
+     (let ((card-id (plist-get (decklet-db--select-card-row-by-word "alpha")
+                               :card-id)))
+       (decklet-db--update-hint card-id "old-hint")
+       (decklet-db--update-back card-id "old-back"))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
+                (lambda (_word) (cons :overwrite nil))))
+       (decklet-db-import-json file))
+     (let ((row (decklet-db--select-card-row-by-word "alpha")))
+       (should (null (plist-get row :hint)))
+       (should (null (plist-get row :back)))))))
+
+(ert-deftest decklet-test-db-import-overwrite-missing-field-preserves-hint-and-back ()
+  "Overwrite with hint/back absent from the record preserves existing values."
+  (decklet-test--with-temp-db
+   (let* ((file (expand-file-name "import-missing.json" tmp-dir))
+          ;; No hint or back keys in the record.
+          (rows '(((word . "alpha")
+                   (added_date . "20250110T000000Z")
+                   (due . "20250111T000000Z")
+                   (archived_at . nil)
+                   (state . "review")
+                   (step . 0)
+                   (stability . 1.0)
+                   (difficulty . 1.0))))
+          (json-encoding-pretty-print t))
+     (decklet-db--upsert-card
+      "alpha" (decklet-test--make-card-meta :timestamp "20250101T000000Z"
+                                            :due "20250102T000000Z"))
+     (let ((card-id (plist-get (decklet-db--select-card-row-by-word "alpha")
+                               :card-id)))
+       (decklet-db--update-hint card-id "old-hint")
+       (decklet-db--update-back card-id "old-back"))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (cl-letf (((symbol-function 'decklet-db--import-read-conflict-choice)
+                (lambda (_word) (cons :overwrite nil))))
+       (decklet-db-import-json file))
+     (let ((row (decklet-db--select-card-row-by-word "alpha")))
+       (should (string= "old-hint" (plist-get row :hint)))
+       (should (string= "old-back" (plist-get row :back)))))))
+
+(ert-deftest decklet-test-db-import-rejects-duplicate-word-in-file ()
+  "Two records with the same word inside one JSON file must be rejected
+before any write, so `decklet-cards-added-functions' never fires with a
+ghost card-id and the counters stay consistent."
+  (decklet-test--with-temp-db
+   (let* ((file (expand-file-name "import-dup.json" tmp-dir))
+          (rows '(((word . "alpha")
+                   (added_date . "20250110T000000Z")
+                   (due . "20250111T000000Z")
+                   (state . "review")
+                   (step . 0)
+                   (stability . 1.0)
+                   (difficulty . 1.0)
+                   (hint . "first"))
+                  ((word . "alpha")
+                   (added_date . "20250110T000000Z")
+                   (due . "20250111T000000Z")
+                   (state . "review")
+                   (step . 0)
+                   (stability . 1.0)
+                   (difficulty . 1.0)
+                   (hint . "second"))))
+          (json-encoding-pretty-print t)
+          (added-events nil))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (let ((decklet-cards-added-functions
+            (list (lambda (events) (setq added-events events)))))
+       (should-error (decklet-db-import-json file) :type 'user-error))
+     (should (null added-events))
+     (should (null (decklet-db--select-card-row-by-word "alpha"))))))
+
 (ert-deftest decklet-test-db-import-read-conflict-choice-global-confirm ()
   ;; Choosing all-overwrite and confirming should return current overwrite action
   ;; and persist global overwrite for remaining conflicts.

@@ -912,13 +912,15 @@ is needed here."
 (defun decklet-review ()
   "Start a review session."
   (interactive)
-  (run-hooks 'decklet-review-start-hook)
-  (decklet-review--trail-reset)
   (decklet--refresh-due-card-ids)
   (if (null decklet-due-card-ids)
-      (progn
-        (decklet-review-quit)
-        (message "No words to review"))
+      (message "No words to review")
+    ;; Only fire start-hook once we know a real session will open.
+    ;; Otherwise `decklet-review-quit-hook' (fired from the review buffer's
+    ;; `kill-buffer-hook') would never run, leaving start-hook setup like
+    ;; `decklet-review--enable-resize-refresh' dangling.
+    (run-hooks 'decklet-review-start-hook)
+    (decklet-review--trail-reset)
     (let ((buffer (decklet-review--setup-buffer)))
       (switch-to-buffer buffer)
       (decklet--refresh-counter)

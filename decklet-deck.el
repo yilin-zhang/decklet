@@ -510,20 +510,6 @@ and :message-prefix."
   "Return the buffer name for the card back of WORD."
   (format "*Decklet Card Back: %s*" word))
 
-(defun decklet-card-back--kill-buffers ()
-  "Kill all Decklet card back popup buffers."
-  ;; TODO: silent data-loss path — unsaved card-back buffers are killed
-  ;; without confirmation when the DB disconnects.  Consider prompting
-  ;; via `kill-buffer-query-functions' or offering save-before-kill for
-  ;; buffers that have unsaved edits.
-  (dolist (buffer (buffer-list))
-    (with-current-buffer buffer
-      (when (bound-and-true-p decklet-card-back-mode)
-        (kill-buffer buffer)))))
-
-;; Card back save is not supposed to work after db disconnection.
-(add-hook 'decklet-db-pre-disconnect-hook #'decklet-card-back--kill-buffers)
-
 (defun decklet-save-card-back ()
   "Save the card back content to db."
   (interactive)
@@ -532,15 +518,54 @@ and :message-prefix."
       (user-error "No card associated with this buffer"))
     (let ((content (buffer-substring-no-properties (point-min) (point-max))))
       (decklet-set-card-back card-id content)
+      (set-buffer-modified-p nil)
       (message "Wrote card back of word \"%s\""
                (or (decklet-get-card-word card-id) "")))))
+
+(defun decklet-card-back--write-contents ()
+  "`write-contents-functions' handler for `decklet-card-back-mode'.
+Saves the card back to the DB and returns non-nil so Emacs skips its
+normal file-writing path — the buffer is backed by the DB, not a file."
+  (decklet-save-card-back)
+  t)
+
+(defun decklet-card-back--kill-buffer-query ()
+  "`kill-buffer-query-functions' handler for `decklet-card-back-mode'.
+Prompts to save before killing a modified card-back buffer so edits
+aren't silently lost; returns nil to cancel the kill if the user
+declines both save and discard."
+  (if (not (buffer-modified-p))
+      t
+    (pcase (read-char-choice
+            (format "Card back \"%s\" modified; (s)ave, (d)iscard, or (c)ancel? "
+                    (buffer-name))
+            '(?s ?d ?c))
+      (?s (decklet-save-card-back) t)
+      (?d (set-buffer-modified-p nil) t)
+      (?c nil))))
+
+(defun decklet-card-back--on-kill-buffer ()
+  "`kill-buffer-hook' handler for `decklet-card-back-mode'.
+Releases the DB connection once the last dependent buffer is gone."
+  (decklet-db--disconnect-if-idle (current-buffer)))
 
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
   :lighter " DeckletEdit"
-  (when decklet-card-back-mode
-    (add-hook 'write-contents-functions
-              (lambda () (decklet-save-card-back) t))))
+  (if decklet-card-back-mode
+      (progn
+        (add-hook 'write-contents-functions
+                  #'decklet-card-back--write-contents nil t)
+        (add-hook 'kill-buffer-query-functions
+                  #'decklet-card-back--kill-buffer-query nil t)
+        (add-hook 'kill-buffer-hook
+                  #'decklet-card-back--on-kill-buffer nil t))
+    (remove-hook 'write-contents-functions
+                 #'decklet-card-back--write-contents t)
+    (remove-hook 'kill-buffer-query-functions
+                 #'decklet-card-back--kill-buffer-query t)
+    (remove-hook 'kill-buffer-hook
+                 #'decklet-card-back--on-kill-buffer t)))
 
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."
@@ -562,6 +587,10 @@ and :message-prefix."
       ;; read-only by default
       (when back
         (setq buffer-read-only t))
+      ;; Loading content from the DB isn't a user edit; clear the modified
+      ;; flag so `decklet-card-back--kill-buffer-query' doesn't prompt on a
+      ;; buffer the user hasn't actually touched.
+      (set-buffer-modified-p nil)
       (decklet-card-back-mode 1))
     (pop-to-buffer buffer)))
 
