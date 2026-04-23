@@ -63,6 +63,7 @@
          (progn
            (should (buffer-live-p buf))
            (with-current-buffer buf
+             (should decklet-db--dependent-buffer)
              (should (string= "shining example"
                               (buffer-substring-no-properties
                                (point-min) (point-max))))
@@ -83,6 +84,7 @@
    (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
      (unwind-protect
          (with-current-buffer buf
+           (should decklet-db--dependent-buffer)
            (should-not buffer-read-only))
        (when (buffer-live-p buf)
          (kill-buffer buf))))))

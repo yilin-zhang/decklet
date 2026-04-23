@@ -2,6 +2,11 @@
 
 (require 'decklet-test-helpers)
 
+(ert-deftest decklet-test-edit-mode-registers-db-dependency ()
+  (with-temp-buffer
+    (decklet-edit-mode)
+    (should decklet-db--dependent-buffer)))
+
 ;; ---------------------------------------------------------------------------
 ;; Edit flow: batch operations and delegation branches
 ;; ---------------------------------------------------------------------------

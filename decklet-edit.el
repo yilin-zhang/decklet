@@ -673,10 +673,7 @@ Runs whether the session is ended via `decklet-edit-quit' or by
 killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
   (decklet-edit--clean-up)
-  (run-hooks 'decklet-edit-quit-hook)
-  ;; Pass (current-buffer) so the still-alive edit buffer — we are
-  ;; inside its `kill-buffer-hook' — is not counted as an open session.
-  (decklet-db--disconnect-if-idle (current-buffer)))
+  (run-hooks 'decklet-edit-quit-hook))
 
 (defun decklet-edit-quit ()
   "Quit the edit buffer."
@@ -758,6 +755,7 @@ Registered on `window-selection-change-functions'."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
+  (decklet-db-register-dependent-buffer)
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)

@@ -587,6 +587,11 @@ Decklet stores all card data in a single SQLite file
 (`decklet-db-file`). You can use `decklet-open-db-file`, which uses
 `sqlite-mode-open-file` internally, to open the SQLite file.
 
+#### Connection Management
+
+- `decklet-disconnect-session`: close Decklet session buffers and disconnect
+  the SQLite handle.
+
 #### Backup
 
 Backup behavior:
@@ -748,6 +753,17 @@ analytics, ...) without touching Decklet internals.
 - `(decklet-prompt-word &optional PROMPT)` — resolve the word from an
   active region, the current review word, the word on the current edit
   line, or the minibuffer.
+
+#### Buffer lifetime
+
+If your extension opens its own popup or side buffer and that buffer may
+outlive the review/edit buffer while still reading from or writing to the
+Decklet DB, call `(decklet-db-register-dependent-buffer)` once during that
+buffer's setup. This keeps the shared SQLite connection open until the
+buffer is killed.
+
+Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
+sidecar resources that should go away when Decklet fully disconnects.
 
 ### Lifecycle hooks
 

@@ -127,6 +127,45 @@
      (decklet-db-backup)
      (should (= count-1 (length (decklet-db--backup-files)))))))
 
+(ert-deftest decklet-test-db-restore-errors-while-session-buffers-open ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let* ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir))
+          (buf (generate-new-buffer " *decklet-dependent*")))
+     (with-temp-file backup-file
+       (insert "backup"))
+     (unwind-protect
+         (progn
+           (with-current-buffer buf
+             (decklet-db-register-dependent-buffer))
+           (cl-letf (((symbol-function 'decklet-db--backup-files)
+                      (lambda () (list backup-file)))
+                     ((symbol-function 'decklet-db--read-backup-choice)
+                      (lambda (_choices default) default)))
+             (should-error (decklet-db-restore) :type 'user-error))
+           (should decklet-db--conn))
+       (when (buffer-live-p buf)
+         (kill-buffer buf))))))
+
+(ert-deftest decklet-test-db-restore-auto-disconnects-when-no-session-buffers ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir)))
+     (with-temp-file backup-file
+       (insert "backup-payload"))
+     (cl-letf (((symbol-function 'decklet-db--backup-files)
+                (lambda () (list backup-file)))
+               ((symbol-function 'decklet-db--read-backup-choice)
+                (lambda (_choices default) default))
+               ((symbol-function 'yes-or-no-p)
+                (lambda (_prompt) t)))
+       (decklet-db-restore))
+     (should-not decklet-db--conn)
+     (should (equal (with-temp-buffer
+                      (insert-file-contents decklet-db-file)
+                      (buffer-string))
+                    "backup-payload")))))
+
 ;; ---------------------------------------------------------------------------
 ;; Completion binding hook behavior
 ;; ---------------------------------------------------------------------------

@@ -544,28 +544,20 @@ declines both save and discard."
       (?d (set-buffer-modified-p nil) t)
       (?c nil))))
 
-(defun decklet-card-back--on-kill-buffer ()
-  "`kill-buffer-hook' handler for `decklet-card-back-mode'.
-Releases the DB connection once the last dependent buffer is gone."
-  (decklet-db--disconnect-if-idle (current-buffer)))
-
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
   :lighter " DeckletEdit"
   (if decklet-card-back-mode
       (progn
+        (decklet-db-register-dependent-buffer)
         (add-hook 'write-contents-functions
                   #'decklet-card-back--write-contents nil t)
         (add-hook 'kill-buffer-query-functions
-                  #'decklet-card-back--kill-buffer-query nil t)
-        (add-hook 'kill-buffer-hook
-                  #'decklet-card-back--on-kill-buffer nil t))
+                  #'decklet-card-back--kill-buffer-query nil t))
     (remove-hook 'write-contents-functions
                  #'decklet-card-back--write-contents t)
     (remove-hook 'kill-buffer-query-functions
-                 #'decklet-card-back--kill-buffer-query t)
-    (remove-hook 'kill-buffer-hook
-                 #'decklet-card-back--on-kill-buffer t)))
+                 #'decklet-card-back--kill-buffer-query t)))
 
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."

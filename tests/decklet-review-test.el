@@ -13,6 +13,11 @@
                 (and (alist-get card-id ',pairs nil nil #'eql) t))))
      ,@body))
 
+(ert-deftest decklet-test-review-mode-registers-db-dependency ()
+  (with-temp-buffer
+    (decklet-review-mode)
+    (should decklet-db--dependent-buffer)))
+
 ;; ---------------------------------------------------------------------------
 ;; Review flow: grade handling and hook transitions
 ;; ---------------------------------------------------------------------------

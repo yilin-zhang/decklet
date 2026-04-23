@@ -768,10 +768,7 @@ Runs whether the session is ended via `decklet-review-quit' or by
 killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
   (decklet-review--clean-up)
-  (run-hooks 'decklet-review-quit-hook)
-  ;; Pass (current-buffer) so the still-alive review buffer — we are
-  ;; inside its `kill-buffer-hook' — is not counted as an open session.
-  (decklet-db--disconnect-if-idle (current-buffer)))
+  (run-hooks 'decklet-review-quit-hook))
 
 (defun decklet-review-quit ()
   "Quit Decklet review."
@@ -956,6 +953,7 @@ is needed here."
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
+  (decklet-db-register-dependent-buffer)
   (setq buffer-read-only t)
   (buffer-disable-undo)
   (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))

@@ -33,6 +33,67 @@
      (should row)
      (should (string= (plist-get row :word) "lucid")))))
 
+(ert-deftest decklet-test-db-dependent-buffer-registration-keeps-connection-open ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((buf (generate-new-buffer " *decklet-dependent*")))
+     (unwind-protect
+         (progn
+           (with-current-buffer buf
+             (decklet-db-register-dependent-buffer)
+             (should decklet-db--dependent-buffer))
+           (decklet-db--disconnect-if-idle)
+           (should decklet-db--conn)
+           (kill-buffer buf)
+           (should-not decklet-db--conn))
+       (when (buffer-live-p buf)
+         (kill-buffer buf))))))
+
+(ert-deftest decklet-test-disconnect-session-kills-dependent-buffers-and-closes-db ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((buf-a (generate-new-buffer " *decklet-dependent-a*"))
+         (buf-b (generate-new-buffer " *decklet-dependent-b*"))
+         (hook-count 0))
+     (unwind-protect
+         (progn
+           (with-current-buffer buf-a
+             (decklet-db-register-dependent-buffer))
+           (with-current-buffer buf-b
+             (decklet-db-register-dependent-buffer))
+           (let ((decklet-db-pre-disconnect-hook
+                  (list (lambda () (setq hook-count (1+ hook-count))))))
+             (decklet-disconnect-session))
+           (should-not (buffer-live-p buf-a))
+           (should-not (buffer-live-p buf-b))
+           (should-not decklet-db--conn)
+           (should (= hook-count 1)))
+       (when (buffer-live-p buf-a)
+         (kill-buffer buf-a))
+       (when (buffer-live-p buf-b)
+         (kill-buffer buf-b))))))
+
+(ert-deftest decklet-test-disconnect-session-aborts-when-buffer-cancels-kill ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((buf (generate-new-buffer " *decklet-dependent*"))
+         (hook-count 0))
+     (unwind-protect
+         (progn
+           (with-current-buffer buf
+             (decklet-db-register-dependent-buffer)
+             (add-hook 'kill-buffer-query-functions (lambda () nil) nil t))
+           (let ((decklet-db-pre-disconnect-hook
+                  (list (lambda () (setq hook-count (1+ hook-count))))))
+             (should-error (decklet-disconnect-session) :type 'user-error))
+           (should (buffer-live-p buf))
+           (should decklet-db--conn)
+           (should (= hook-count 0)))
+       (when (buffer-live-p buf)
+         (with-current-buffer buf
+           (setq kill-buffer-query-functions nil))
+         (kill-buffer buf))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Archive/unarchive flow
 ;; ---------------------------------------------------------------------------
