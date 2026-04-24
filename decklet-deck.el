@@ -213,18 +213,26 @@ optional PROMPT, defaulting to the word at point."
     normalized))
 
 (defun decklet-set-card-hint (card-id hint)
-  "Update CARD-ID's card hint to HINT."
-  (decklet-db--require-card-row card-id)
-  (decklet-db--update-hint card-id hint)
-  (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
-                               :card-id card-id :field 'hint))
+  "Update CARD-ID's card hint to HINT.
+Return non-nil when the stored value changed."
+  (let* ((row (decklet-db--require-card-row card-id))
+         (normalized (decklet-db--normalize-optional-text hint)))
+    (unless (equal (plist-get row :hint) normalized)
+      (decklet-db--update-hint card-id normalized)
+      (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
+                                   :card-id card-id :field 'hint)
+      t)))
 
 (defun decklet-set-card-back (card-id content)
-  "Update CARD-ID's card back to CONTENT."
-  (decklet-db--require-card-row card-id)
-  (decklet-db--update-back card-id content)
-  (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
-                               :card-id card-id :field 'back))
+  "Update CARD-ID's card back to CONTENT.
+Return non-nil when the stored value changed."
+  (let* ((row (decklet-db--require-card-row card-id))
+         (normalized (decklet-db--normalize-optional-text content)))
+    (unless (equal (plist-get row :back) normalized)
+      (decklet-db--update-back card-id normalized)
+      (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
+                                   :card-id card-id :field 'back)
+      t)))
 
 (defun decklet-delete-card (card-id)
   "Delete CARD-ID from the deck."
@@ -439,8 +447,7 @@ the granularity of `decklet--add-card's status result."
                             (push (list :card-id card-id) added-events))
                 ('refreshed (cl-incf refreshed))
                 ('exists    (cl-incf exists)))
-              (when hint
-                (decklet-set-card-hint card-id hint)
+              (when (and hint (decklet-set-card-hint card-id hint))
                 (push (list :card-id card-id :field 'hint) hint-events))))
           (sqlite-execute conn "COMMIT;"))
       (error
@@ -568,7 +575,6 @@ declines both save and discard."
          (buf-name (decklet-card-back--buffer-name word))
          (buffer (get-buffer-create buf-name)))
     (with-current-buffer buffer
-      ;; insert buffer content
       (let ((inhibit-read-only t))
         (erase-buffer)
         (funcall decklet-card-back-buffer-major-mode)
@@ -577,8 +583,7 @@ declines both save and discard."
           (insert back))
         (goto-char (point-min)))
       ;; read-only by default
-      (when back
-        (setq buffer-read-only t))
+      (setq buffer-read-only (and back t))
       ;; Loading content from the DB isn't a user edit; clear the modified
       ;; flag so `decklet-card-back--kill-buffer-query' doesn't prompt on a
       ;; buffer the user hasn't actually touched.

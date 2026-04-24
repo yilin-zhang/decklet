@@ -48,10 +48,15 @@ packages that need a last-chance cleanup before the handle goes away.")
   "Non-nil when the current buffer needs the Decklet DB to stay open.
 Set by `decklet-db-register-dependent-buffer'.")
 
+(defvar-local decklet-db--owner-buffer nil
+  "Non-nil when the current buffer owns the active Decklet session.
+Core review/edit buffers set this so the last owner can tear down any
+attached side buffers before the DB disconnects.")
+
 (defvar decklet-db--disconnecting nil
   "Non-nil while an explicit Decklet session teardown is in progress.
 Used to suppress idle-disconnect from per-buffer kill hooks while
-`decklet-disconnect-session' is killing registered dependent buffers.")
+`decklet-disconnect' is killing registered dependent buffers.")
 
 (defvar decklet-db-post-backup-functions nil
   "Abnormal hook called after a successful database backup.
@@ -146,8 +151,8 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 
-(defun decklet-db--on-dependent-buffer-killed ()
-  "Kill-buffer handler for DB-dependent buffers.
+(defun decklet-db--on-session-buffer-killed ()
+  "Kill-buffer handler for Decklet session buffers.
 The buffer being killed is still present in `buffer-list', so pass it
 to `decklet-db--disconnect-if-idle' as an exclusion."
   (decklet-db--disconnect-if-idle (current-buffer)))
@@ -158,7 +163,32 @@ Dependent buffers keep the shared SQLite connection alive until they
 are killed.  Review/edit buffers and any extension-owned popups that
 save or refresh through the DB should call this once during setup."
   (setq-local decklet-db--dependent-buffer t)
-  (add-hook 'kill-buffer-hook #'decklet-db--on-dependent-buffer-killed nil t))
+  (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t))
+
+(defun decklet-db--register-owner-buffer ()
+  "Mark current buffer as a Decklet session owner.
+Owner buffers define session lifetime; when the last one exits,
+Decklet first tries to close all registered dependent buffers,
+then disconnects the DB."
+  (setq-local decklet-db--owner-buffer t)
+  (add-hook 'kill-buffer-query-functions
+            #'decklet-db--owner-kill-buffer-query nil t)
+  (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t))
+
+(defun decklet-db--buffers-with-local-flag (flag &optional exclude-buffer)
+  "Return live buffers whose buffer-local FLAG is non-nil.
+When EXCLUDE-BUFFER is non-nil, ignore it during the scan."
+  (seq-filter
+   (lambda (buffer)
+     (and (buffer-live-p buffer)
+          (not (eq buffer exclude-buffer))
+          (buffer-local-value flag buffer)))
+   (buffer-list)))
+
+(defun decklet-db--owner-buffers (&optional exclude-buffer)
+  "Return live Decklet session owner buffers.
+When EXCLUDE-BUFFER is non-nil, ignore it during the scan."
+  (decklet-db--buffers-with-local-flag 'decklet-db--owner-buffer exclude-buffer))
 
 (defun decklet-db--dependent-buffers (&optional exclude-buffer)
   "Return live DB-dependent buffers, excluding EXCLUDE-BUFFER when non-nil.
@@ -166,46 +196,73 @@ When EXCLUDE-BUFFER is non-nil, ignore it during the scan — useful
 from `kill-buffer-hook' handlers, where the buffer being killed is
 still present in `buffer-list' but should not be counted as an
 active session for the purpose of deciding whether to disconnect."
-  (seq-filter
-   (lambda (buffer)
-     (and (buffer-live-p buffer)
-          (not (eq buffer exclude-buffer))
-          (buffer-local-value 'decklet-db--dependent-buffer buffer)))
-   (buffer-list)))
+  (decklet-db--buffers-with-local-flag 'decklet-db--dependent-buffer exclude-buffer))
 
-(defun decklet-db--dependent-buffer-live-p (&optional exclude-buffer)
-  "Return non-nil when any registered DB-dependent buffer is still live.
+(defun decklet-db--session-buffer-live-p (&optional exclude-buffer)
+  "Return non-nil when any Decklet session buffer is still live.
+That includes both owner buffers (review/edit) and attached dependent
+buffers such as card-back popups.
 EXCLUDE-BUFFER is ignored during the scan."
-  (and (decklet-db--dependent-buffers exclude-buffer) t))
+  (or (decklet-db--owner-buffers exclude-buffer)
+      (decklet-db--dependent-buffers exclude-buffer)))
+
+(defun decklet-db--kill-buffers (buffers)
+  "Try to kill BUFFERS and return the first buffer that refuses.
+Return nil when every buffer was killed."
+  (catch 'blocked
+    (dolist (buffer buffers)
+      (unless (kill-buffer buffer)
+        (throw 'blocked buffer)))
+    nil))
+
+(defun decklet-db--kill-dependent-buffers ()
+  "Try to kill all live Decklet dependent buffers.
+Return the first dependent buffer that refuses to die, or nil when
+every dependent buffer was killed."
+  (decklet-db--kill-buffers (decklet-db--dependent-buffers)))
+
+(defun decklet-db--owner-kill-buffer-query ()
+  "Query hook for Decklet session owner buffers.
+If another owner is still alive, allow the kill immediately.  When the
+current buffer is the last owner, first try to close all attached
+dependent buffers; cancel the owner kill if any attached buffer
+refuses to close."
+  (or (decklet-db--owner-buffers (current-buffer))
+      (not (decklet-db--kill-dependent-buffers))))
 
 (defun decklet-db--disconnect-if-idle (&optional excluding-buffer)
-  "Disconnect DB when no registered dependent buffers are open.
+  "Disconnect DB when no Decklet session buffers are open.
 EXCLUDING-BUFFER, when non-nil, is excluded from the session-open
 check — pass the current buffer from inside `kill-buffer-hook' so
 the soon-to-be-gone session buffer does not keep the DB open."
   (unless (or decklet-db--disconnecting
-              (decklet-db--dependent-buffer-live-p excluding-buffer))
+              (decklet-db--session-buffer-live-p excluding-buffer))
     (decklet-db--disconnect)))
 
 ;;;###autoload
-(defun decklet-disconnect-session ()
+(defun decklet-disconnect ()
   "Close Decklet session buffers, then disconnect the DB.
-Kills every buffer registered with `decklet-db-register-dependent-buffer'.
-If any buffer refuses to die, abort and leave the DB connected."
+If review/edit owner buffers are open, kill them first so the last
+owner can run normal attached-buffer teardown.  Otherwise, kill any
+remaining dependent buffers directly.  If any buffer refuses to die,
+abort and leave the DB connected."
   (interactive)
-  (let ((buffers (decklet-db--dependent-buffers))
+  (let ((buffers (decklet-db--owner-buffers))
         (had-conn decklet-db--conn))
     (let ((decklet-db--disconnecting t))
-      (dolist (buffer buffers)
-        (unless (kill-buffer buffer)
-          (user-error "Decklet session disconnect canceled by buffer %s"
-                      (buffer-name buffer)))))
+      (if buffers
+          (when-let* ((blocked (decklet-db--kill-buffers buffers)))
+            (user-error "Decklet disconnect canceled by buffer %s"
+                        (buffer-name blocked)))
+        (when-let* ((blocked (decklet-db--kill-dependent-buffers)))
+          (user-error "Decklet disconnect canceled by buffer %s"
+                      (buffer-name blocked)))))
     (when decklet-db--conn
       (decklet-db--disconnect))
     (when (called-interactively-p 'any)
       (message (if (or buffers had-conn)
-                   "Decklet session disconnected"
-                 "Decklet session already disconnected")))))
+                   "Decklet disconnected"
+                 "Decklet already disconnected")))))
 
 (defun decklet-db--select-card-row-by-word (word)
   "Return the card row for WORD or nil."
@@ -677,6 +734,15 @@ was present but JSON `null' or blank, or the trimmed non-empty string."
       (if (string-empty-p trimmed) :clear trimmed)))
    (t (user-error "Invalid text value in import: %S" raw))))
 
+(defun decklet-db--import-normalize-state (raw)
+  "Normalize imported RAW scheduler state.
+JSON exports may contain `new' for older Decklet data.  Store it as
+`learning', since newness is derived from an empty last-review value and
+FSRS only accepts learning/review/relearning scheduler states."
+  (condition-case nil
+      (decklet--fsrs-schedulable-state (or raw :learning))
+    (error (user-error "Invalid card state in import: %S" raw))))
+
 (defun decklet-db--import-record->card (record)
   "Convert JSON RECORD alist to a card plist.
 Returns a card plist with keys :card-id, :word, :hint, :back,
@@ -694,9 +760,8 @@ string."
   (let* ((now (decklet--now))
          (word (decklet-db--normalize-word
                 (decklet-db--json-alist-get record 'word)))
-         (state (or (decklet--normalize-fsrs-state
-                     (decklet-db--json-alist-get record 'state))
-                    :learning))
+         (state (decklet-db--import-normalize-state
+                 (decklet-db--json-alist-get record 'state)))
          (step-raw (decklet-db--json-alist-get record 'step))
          ;; Step is meaningful for learning/relearning.
          ;; Keep review cards at nil when step is missing.
@@ -877,7 +942,8 @@ file under `decklet-directory'."
   (unless (file-exists-p decklet-db-file)
     (user-error "No database file found; nothing to export"))
   (unwind-protect
-      (let* ((rows (sqlite-select
+      (let* ((file (or file (decklet-db--export-default-file)))
+             (rows (sqlite-select
                     (decklet-db--ensure)
                     "SELECT word, hint, back, added_date, last_review, due,
                         archived_at, state, step, stability, difficulty
@@ -891,7 +957,8 @@ file under `decklet-directory'."
              (json-encoding-pretty-print t)
              (json-encoding-default-indentation "  "))
 
-        (make-directory (file-name-directory file) t)
+        (when-let* ((dir (file-name-directory file)))
+          (make-directory dir t))
         (let ((coding-system-for-write 'utf-8-unix))
           (with-temp-file file
             (insert (json-encode payload))))
@@ -1092,9 +1159,9 @@ their backups to ride in the same rotation; register a handler on
            (backup-file (cdr (assoc selection choices))))
       (unless backup-file
         (user-error "No backup selected"))
-      (when (decklet-db--dependent-buffer-live-p)
+      (when (decklet-db--session-buffer-live-p)
         (user-error
-         "Please disconnect the Decklet session before restore; use `decklet-disconnect-session'"))
+         "Please disconnect Decklet before restore; use `decklet-disconnect'"))
       (when (yes-or-no-p (format "Restore %s to %s? "
                                  (file-name-nondirectory backup-file)
                                  decklet-db-file))

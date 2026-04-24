@@ -774,8 +774,8 @@ always leave the same amount of state behind."
   "Quit Decklet review."
   (interactive)
   (when-let* ((buffer (get-buffer decklet-review-buffer-name)))
-    (kill-buffer buffer))
-  (message "Review session finished"))
+    (when (kill-buffer buffer)
+      (message "Review session finished"))))
 
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next card."
@@ -953,7 +953,7 @@ is needed here."
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
-  (decklet-db-register-dependent-buffer)
+  (decklet-db--register-owner-buffer)
   (setq buffer-read-only t)
   (buffer-disable-undo)
   (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))

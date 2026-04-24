@@ -141,6 +141,16 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
     (intern (if (string-prefix-p ":" state) state (concat ":" state))))
    (t nil)))
 
+(defun decklet--fsrs-schedulable-state (state)
+  "Return the FSRS scheduler state for STATE.
+Decklet uses `:new' as an effective display state for never-reviewed
+cards, but FSRS schedules those cards from the learning state."
+  (let ((state (decklet--normalize-fsrs-state state)))
+    (cond
+     ((eq state :new) :learning)
+     ((memq state '(:learning :review :relearning)) state)
+     (t (error "Invalid FSRS state: %S" state)))))
+
 (defun decklet-fsrs-state-string (state)
   "Return the serialized string representation of STATE."
   (when state
@@ -196,7 +206,8 @@ nil or empty (i.e. the card has never been reviewed)."
 META's `card-id' is used directly as the FSRS card id."
   (fsrs-make-card
    :card-id (decklet-card-meta-card-id meta)
-   :state (decklet-card-meta-state meta)
+   :state (decklet--fsrs-schedulable-state
+           (decklet-card-meta-state meta))
    :step (decklet-card-meta-step meta)
    :stability (decklet-card-meta-stability meta)
    :difficulty (decklet-card-meta-difficulty meta)

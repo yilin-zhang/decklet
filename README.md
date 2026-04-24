@@ -589,8 +589,8 @@ Decklet stores all card data in a single SQLite file
 
 #### Connection Management
 
-- `decklet-disconnect-session`: close Decklet session buffers and disconnect
-  the SQLite handle.
+- `decklet-disconnect`: close Decklet session buffers and disconnect the
+  SQLite handle.
 
 #### Backup
 
@@ -760,7 +760,8 @@ If your extension opens its own popup or side buffer and that buffer may
 outlive the review/edit buffer while still reading from or writing to the
 Decklet DB, call `(decklet-db-register-dependent-buffer)` once during that
 buffer's setup. This keeps the shared SQLite connection open until the
-buffer is killed.
+buffer is killed. When the last review/edit buffer exits, Decklet tries to
+close all such dependent buffers before disconnecting.
 
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.

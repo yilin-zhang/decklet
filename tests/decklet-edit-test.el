@@ -5,7 +5,7 @@
 (ert-deftest decklet-test-edit-mode-registers-db-dependency ()
   (with-temp-buffer
     (decklet-edit-mode)
-    (should decklet-db--dependent-buffer)))
+    (should decklet-db--owner-buffer)))
 
 ;; ---------------------------------------------------------------------------
 ;; Edit flow: batch operations and delegation branches
@@ -145,6 +145,11 @@
     (should (equal flag-values '(t t)))
     ;; Flag unwinds on macro exit.
     (should (null decklet-edit--preserving-point))))
+
+(ert-deftest decklet-test-edit-db-sort-key-maps-last-review ()
+  "The Last Review UI column sorts by the matching DB column."
+  (should (equal (decklet-edit--db-sort-key '("Last Review" . t))
+                 '("last_review" . t))))
 
 (ert-deftest decklet-test-edit-entries-render-multiline-word-and-hint-inline ()
   (cl-letf (((symbol-function 'decklet-db--select-card-rows)

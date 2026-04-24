@@ -151,6 +151,7 @@ Sidecar columns are inserted after the built-in `Back' column.")
   '(("Word" . "word")
     ("Hint" . "hint")
     ("Added" . "added_date")
+    ("Last Review" . "last_review")
     ("Due" . "due")
     ("State" . "state")
     ("Stability" . "stability")
@@ -441,9 +442,12 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
   "Apply mark overlays to all currently-marked rows."
   (decklet-edit--clear-mark-overlays)
   (save-excursion
-    (dolist (card-id (decklet-edit--marked-card-ids))
-      (when (decklet-edit--goto-card-id card-id)
-        (decklet-edit--add-mark-overlay)))))
+    (goto-char (point-min))
+    (while (< (point) (point-max))
+      (when-let* ((card-id (tabulated-list-get-id)))
+        (when (gethash card-id decklet-edit--marked)
+          (decklet-edit--add-mark-overlay)))
+      (forward-line 1))))
 
 (defun decklet-edit--marked-card-ids ()
   "Return a list of marked card ids."
@@ -755,7 +759,7 @@ Registered on `window-selection-change-functions'."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
-  (decklet-db-register-dependent-buffer)
+  (decklet-db--register-owner-buffer)
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)

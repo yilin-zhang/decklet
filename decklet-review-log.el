@@ -61,9 +61,8 @@ treat the file as append-only and parse it one JSON object per line."
 Seeded lazily on the first mint; cross-session monotonicity holds
 as long as the system clock advances.")
 
-(defvar decklet-review-log--dir-ensured nil
-  "Non-nil once the review log directory has been created this session.
-Skips a `make-directory' stat on every subsequent append.")
+(defvar decklet-review-log--ensured-directory nil
+  "Directory already created for `decklet-review-log-file' this session.")
 
 (defun decklet-review-log--mint-record-id ()
   "Return a fresh monotonic microsecond record id."
@@ -72,12 +71,11 @@ Skips a `make-directory' stat on every subsequent append.")
 ;; Low-level writer
 
 (defun decklet-review-log--ensure-directory ()
-  "Ensure the directory for `decklet-review-log-file' exists, once per session."
-  (unless decklet-review-log--dir-ensured
-    (let ((dir (file-name-directory decklet-review-log-file)))
-      (when dir
-        (make-directory dir t)))
-    (setq decklet-review-log--dir-ensured t)))
+  "Ensure the directory for `decklet-review-log-file' exists."
+  (let ((dir (file-name-directory decklet-review-log-file)))
+    (when (and dir (not (equal dir decklet-review-log--ensured-directory)))
+      (make-directory dir t)
+      (setq decklet-review-log--ensured-directory dir))))
 
 (defun decklet-review-log--append-line (record)
   "Append RECORD plist as one JSONL line to `decklet-review-log-file'.

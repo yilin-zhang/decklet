@@ -63,5 +63,25 @@ next review without a manual cache clear."
               (copy-sequence fsrs-default-parameters))
      (should-not decklet--fsrs-scheduler))))
 
+;; ---------------------------------------------------------------------------
+;; State normalization at the FSRS boundary
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-fsrs-scheduler-accepts-effective-new-state ()
+  "Legacy `:new' metadata is scheduled as FSRS learning state."
+  (decklet-test--with-temp-db
+   (let* ((now (decklet--now))
+          (meta (make-decklet-card-meta
+                 :card-id 1
+                 :added-date now
+                 :last-review nil
+                 :due now
+                 :state :new
+                 :step 0))
+          (updated (decklet--update-meta-with-grade meta 3)))
+     (should (memq (decklet-card-meta-state updated)
+                   '(:learning :review :relearning)))
+     (should (decklet-card-meta-last-review updated)))))
+
 (provide 'decklet-scheduler-test)
 ;;; decklet-scheduler-test.el ends here

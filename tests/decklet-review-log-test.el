@@ -263,6 +263,22 @@ Returns nil when the file does not exist or is empty."
      (should-not (decklet-review-log--append-line
                   (list :kind "void" :voids 1 :t (decklet--now)))))))
 
+(ert-deftest decklet-test-review-log-directory-cache-follows-file-changes ()
+  "Changing `decklet-review-log-file' still creates the new parent directory."
+  (decklet-test--with-temp-db
+   (let* ((dir-a (expand-file-name "logs-a" tmp-dir))
+          (dir-b (expand-file-name "logs-b" tmp-dir))
+          (file-a (expand-file-name "review-log.jsonl" dir-a))
+          (file-b (expand-file-name "review-log.jsonl" dir-b)))
+     (let ((decklet-review-log-file file-a))
+       (should (decklet-review-log--append-line
+                (list :kind "void" :voids 1 :t (decklet--now)))))
+     (let ((decklet-review-log-file file-b))
+       (should (decklet-review-log--append-line
+                (list :kind "void" :voids 2 :t (decklet--now)))))
+     (should (file-exists-p file-a))
+     (should (file-exists-p file-b)))))
+
 (ert-deftest decklet-test-review-log-append-rated-returns-nil-on-write-failure ()
   (decklet-test--with-temp-db
    (let* ((old (make-decklet-card-meta :card-id 1 :state :review

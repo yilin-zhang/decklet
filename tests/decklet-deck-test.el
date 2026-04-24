@@ -26,6 +26,30 @@
        :learning)))
 
 ;; ---------------------------------------------------------------------------
+;; Field update events
+;; ---------------------------------------------------------------------------
+
+(ert-deftest decklet-test-field-update-hooks-only-fire-on-change ()
+  "Hint/back setters skip DB writes and hooks when normalization is unchanged."
+  (decklet-test--with-temp-db
+   (decklet-db--upsert-card "glow"
+                            (make-decklet-card-meta
+                             :added-date "20250101T000000Z"
+                             :due "20250101T000000Z"
+                             :state :learning))
+   (let ((card-id (plist-get (decklet-db--select-card-row-by-word "glow")
+                             :card-id))
+         (events nil))
+     (let ((decklet-cards-field-updated-functions
+            (list (lambda (evs) (setq events (append events evs))))))
+       (should (decklet-set-card-hint card-id "old hint"))
+       (should-not (decklet-set-card-hint card-id " old hint "))
+       (should (decklet-set-card-back card-id "old back"))
+       (should-not (decklet-set-card-back card-id "old back")))
+     (should (equal (mapcar (lambda (event) (plist-get event :field)) events)
+                    '(hint back))))))
+
+;; ---------------------------------------------------------------------------
 ;; Batch card collection mode
 ;; ---------------------------------------------------------------------------
 
@@ -88,6 +112,32 @@
            (should-not buffer-read-only))
        (when (buffer-live-p buf)
          (kill-buffer buf))))))
+
+(ert-deftest decklet-test-card-back-show-resets-read-only-when-back-cleared ()
+  "Reusing a card-back buffer must not keep stale read-only state."
+  (decklet-test--with-temp-db
+   (decklet-db--upsert-card "bright"
+                            (make-decklet-card-meta
+                             :added-date "20250101T000000Z"
+                             :due "20250101T000000Z"
+                             :state :new))
+   (let ((card-id (plist-get (decklet-db--select-card-row-by-word "bright")
+                             :card-id)))
+     (decklet-db--update-back card-id "old back")
+     (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
+       (decklet-show-card-back "bright"))
+     (with-current-buffer (decklet-card-back--buffer-name "bright")
+       (should buffer-read-only))
+     (decklet-db--update-back card-id nil)
+     (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
+       (decklet-show-card-back "bright"))
+     (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
+       (unwind-protect
+           (with-current-buffer buf
+             (should-not buffer-read-only)
+             (should (string-empty-p (buffer-string))))
+         (when (buffer-live-p buf)
+           (kill-buffer buf)))))))
 
 (ert-deftest decklet-test-card-back-save-errors-when-read-only ()
   "decklet-save-card-back signals user-error when buffer is read-only."

@@ -49,7 +49,31 @@
        (when (buffer-live-p buf)
          (kill-buffer buf))))))
 
-(ert-deftest decklet-test-disconnect-session-kills-dependent-buffers-and-closes-db ()
+(ert-deftest decklet-test-owner-close-keeps-dependents-while-another-owner-live ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((review (generate-new-buffer " *decklet-review-owner*"))
+         (edit (generate-new-buffer " *decklet-edit-owner*"))
+         (attached (generate-new-buffer " *decklet-attached*")))
+     (unwind-protect
+         (progn
+           (with-current-buffer review
+             (decklet-review-mode))
+           (with-current-buffer edit
+             (decklet-edit-mode))
+           (with-current-buffer attached
+             (decklet-card-back-mode 1))
+           (kill-buffer review)
+           (should-not (buffer-live-p review))
+           (should (buffer-live-p edit))
+           (should (buffer-live-p attached))
+           (should decklet-db--conn))
+       (when (buffer-live-p edit)
+         (kill-buffer edit))
+       (when (buffer-live-p attached)
+         (kill-buffer attached))))))
+
+(ert-deftest decklet-test-disconnect-kills-dependent-buffers-and-closes-db ()
   (decklet-test--with-temp-db
    (decklet-db--ensure)
    (let ((buf-a (generate-new-buffer " *decklet-dependent-a*"))
@@ -63,7 +87,7 @@
              (decklet-db-register-dependent-buffer))
            (let ((decklet-db-pre-disconnect-hook
                   (list (lambda () (setq hook-count (1+ hook-count))))))
-             (decklet-disconnect-session))
+             (decklet-disconnect))
            (should-not (buffer-live-p buf-a))
            (should-not (buffer-live-p buf-b))
            (should-not decklet-db--conn)
@@ -73,7 +97,7 @@
        (when (buffer-live-p buf-b)
          (kill-buffer buf-b))))))
 
-(ert-deftest decklet-test-disconnect-session-aborts-when-buffer-cancels-kill ()
+(ert-deftest decklet-test-disconnect-aborts-when-buffer-cancels-kill ()
   (decklet-test--with-temp-db
    (decklet-db--ensure)
    (let ((buf (generate-new-buffer " *decklet-dependent*"))
@@ -85,7 +109,7 @@
              (add-hook 'kill-buffer-query-functions (lambda () nil) nil t))
            (let ((decklet-db-pre-disconnect-hook
                   (list (lambda () (setq hook-count (1+ hook-count))))))
-             (should-error (decklet-disconnect-session) :type 'user-error))
+             (should-error (decklet-disconnect) :type 'user-error))
            (should (buffer-live-p buf))
            (should decklet-db--conn)
            (should (= hook-count 0)))
@@ -627,6 +651,42 @@ ghost card-id and the counters stay consistent."
                       (decklet-db--select-card-back
                        (plist-get (decklet-db--select-card-row-by-word "crisp") :card-id)))))))
 
+(ert-deftest decklet-test-db-import-json-new-state-is-schedulable ()
+  "Importing exported `new' state stores a schedulable learning state."
+  (decklet-test--with-temp-db
+   (let* ((file (expand-file-name "import-new-state.json" tmp-dir))
+          (rows '(((word . "sprout")
+                   (added_date . "20250101T010101Z")
+                   (last_review . nil)
+                   (due . "20250101T010101Z")
+                   (archived_at . nil)
+                   (state . "new")
+                   (step . 0)
+                   (stability . nil)
+                   (difficulty . nil))))
+          (json-encoding-pretty-print t))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (decklet-db-import-json file)
+     (let* ((row (decklet-db--select-card-row-by-word "sprout"))
+            (card-id (plist-get row :card-id)))
+       (should (equal (plist-get row :state) "learning"))
+       (should (decklet-rate-card card-id 3))))))
+
+(ert-deftest decklet-test-db-import-json-rejects-invalid-state ()
+  "Import rejects unknown scheduler states before writing any cards."
+  (decklet-test--with-temp-db
+   (let* ((file (expand-file-name "import-invalid-state.json" tmp-dir))
+          (rows '(((word . "bad-state")
+                   (added_date . "20250101T010101Z")
+                   (due . "20250101T010101Z")
+                   (state . "bogus"))))
+          (json-encoding-pretty-print t))
+     (with-temp-file file
+       (insert (json-encode rows)))
+     (should-error (decklet-db-import-json file) :type 'user-error)
+     (should-not (decklet-db--select-card-row-by-word "bad-state")))))
+
 (ert-deftest decklet-test-card-back-json-import-nil-back ()
   "JSON import with null back leaves back as nil."
   (decklet-test--with-temp-db
@@ -679,6 +739,17 @@ ghost card-id and the counters stay consistent."
          (should (equal (alist-get 'hint sun) "star"))
          (should (equal (alist-get 'back sun) "notes about sun"))
          (should (equal (alist-get 'state sun) "review")))))))
+
+(ert-deftest decklet-test-db-export-json-accepts-relative-file ()
+  "Export works when FILE has no directory component."
+  (decklet-test--with-temp-db
+   (let* ((default-directory tmp-dir)
+          (file "relative-export.json")
+          (meta (decklet-test--make-card-meta
+                 :timestamp "20250101T010101Z")))
+     (decklet-db--upsert-card "sun" meta)
+     (decklet-db-export-json file)
+     (should (file-exists-p (expand-file-name file tmp-dir))))))
 
 ;; ---------------------------------------------------------------------------
 ;; JSON round-trip (export → import)

@@ -16,7 +16,50 @@
 (ert-deftest decklet-test-review-mode-registers-db-dependency ()
   (with-temp-buffer
     (decklet-review-mode)
-    (should decklet-db--dependent-buffer)))
+    (should decklet-db--owner-buffer)))
+
+(ert-deftest decklet-test-review-quit-kills-attached-buffers-on-last-owner ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((review (get-buffer-create decklet-review-buffer-name))
+         (attached (generate-new-buffer " *decklet-attached*")))
+     (unwind-protect
+         (progn
+           (with-current-buffer review
+             (decklet-review-mode))
+           (with-current-buffer attached
+             (decklet-card-back-mode 1))
+           (decklet-review-quit)
+           (should-not (buffer-live-p review))
+           (should-not (buffer-live-p attached))
+           (should-not decklet-db--conn))
+       (when (buffer-live-p review)
+         (kill-buffer review))
+       (when (buffer-live-p attached)
+         (kill-buffer attached))))))
+
+(ert-deftest decklet-test-review-quit-aborts-when-attached-buffer-cancels-kill ()
+  (decklet-test--with-temp-db
+   (decklet-db--ensure)
+   (let ((review (get-buffer-create decklet-review-buffer-name))
+         (attached (generate-new-buffer " *decklet-attached*")))
+     (unwind-protect
+         (progn
+           (with-current-buffer review
+             (decklet-review-mode))
+           (with-current-buffer attached
+             (decklet-card-back-mode 1)
+             (add-hook 'kill-buffer-query-functions (lambda () nil) nil t))
+           (decklet-review-quit)
+           (should (buffer-live-p review))
+           (should (buffer-live-p attached))
+           (should decklet-db--conn))
+       (when (buffer-live-p attached)
+         (with-current-buffer attached
+           (setq kill-buffer-query-functions nil))
+         (kill-buffer attached))
+       (when (buffer-live-p review)
+         (kill-buffer review))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Review flow: grade handling and hook transitions
