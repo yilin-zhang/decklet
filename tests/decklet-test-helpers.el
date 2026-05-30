@@ -2,6 +2,7 @@
 
 (require 'ert)
 (require 'cl-lib)
+(require 'json)
 (require 'decklet)
 
 ;; `cl-letf' on C primitives triggers native-compilation of a
@@ -11,11 +12,13 @@
 ;; from ~5.6 s to ~0.65 s with no behavioral change.
 (setq native-comp-enable-subr-trampolines nil)
 
+;;; Database fixture
+
 (defmacro decklet-test--with-temp-db (&rest body)
   "Run BODY with an isolated temporary Decklet database.
 Binds a fresh SQLite file, a fresh review log file, resets all UI
 state variables and id counters, and cleans up the temp directory
-on exit."
+on exit.  BODY can refer to `tmp-dir', the temporary directory."
   (declare (indent 0) (debug t))
   `(let* ((tmp-dir (make-temp-file "decklet-test-" t))
           (decklet-directory (file-name-as-directory tmp-dir))
@@ -46,8 +49,10 @@ on exit."
          (setq decklet-db--conn nil))
        (delete-directory tmp-dir t))))
 
+;;; Card construction
+
 (defun decklet-test--ts (time)
-  "Convert TIME to Decklet timestamp string."
+  "Convert TIME to a Decklet timestamp string."
   (decklet--time->fsrs-timestamp time))
 
 (cl-defun decklet-test--make-card-meta (&rest args
@@ -61,18 +66,103 @@ STATE defaults to `:review'.  TIMESTAMP, when provided, is used for
 explicitly in ARGS.  When TIMESTAMP is nil, the current time is
 used.  Any additional keys in ARGS override the defaults."
   (let* ((ts (or timestamp (decklet-test--ts (current-time))))
-         (defaults (list :added-date ts :last-review ts :due ts :state state))
-         (merged (copy-sequence defaults)))
+	 (defaults (list :added-date ts :last-review ts :due ts :state state))
+	 (merged (copy-sequence defaults)))
     ;; Strip our own keyword args so we don't forward :timestamp to
     ;; `make-decklet-card-meta' (which would signal).
     (let ((clean args))
       (while clean
-        (let ((k (car clean))
-              (v (cadr clean)))
-          (unless (eq k :timestamp)
-            (setq merged (plist-put merged k v))))
-        (setq clean (cddr clean))))
+	(unless (eq (car clean) :timestamp)
+	  (setq merged (plist-put merged (car clean) (cadr clean))))
+	(setq clean (cddr clean))))
     (apply #'make-decklet-card-meta merged)))
+
+(defun decklet-test--card-id (word)
+  "Return the card id stored for WORD, or nil when absent."
+  (plist-get (decklet-db--select-card-row-by-word word) :card-id))
+
+(defun decklet-test--add-card-meta (word &rest keys)
+  "Upsert WORD with a scheduled card-meta built from KEYS, return its card id.
+KEYS are forwarded to `decklet-test--make-card-meta'."
+  (decklet-db--upsert-card word (apply #'decklet-test--make-card-meta keys))
+  (decklet-test--card-id word))
+
+(cl-defun decklet-test--trail-entry (card-id &key (grade 3) pre-meta)
+  "Return a trail entry plist for CARD-ID.
+GRADE defaults to 3; pass `:grade nil' for a skip entry.  PRE-META
+defaults to a fresh `decklet-card-meta'."
+  (list :card-id card-id
+	:grade grade
+	:pre-meta (or pre-meta (make-decklet-card-meta))))
+
+;;; JSON import / review-log readback
+
+(defun decklet-test--import (rows)
+  "Write ROWS to a temp JSON file in the test directory and import it.
+Return the import stats plist from `decklet-db-import-json'."
+  (let ((file (expand-file-name "import.json" decklet-directory))
+        (json-encoding-pretty-print t))
+    (with-temp-file file (insert (json-encode rows)))
+    (decklet-db-import-json file)))
+
+(defun decklet-test--read-log ()
+  "Return the review-log records as plists, or nil when the file is empty.
+Reads `decklet-review-log-file', one JSON object per line."
+  (when (file-exists-p decklet-review-log-file)
+    (with-temp-buffer
+      (insert-file-contents decklet-review-log-file)
+      (let (records)
+        (goto-char (point-min))
+        (while (not (eobp))
+          (let ((line (buffer-substring-no-properties
+                       (line-beginning-position) (line-end-position))))
+            (unless (string-empty-p line)
+              (push (json-parse-string line :object-type 'plist
+                                       :null-object nil :false-object nil)
+                    records)))
+          (forward-line 1))
+        (nreverse records)))))
+
+;;; Buffers, faces, backups
+
+(defmacro decklet-test--with-temp-buffers (names &rest body)
+  "Bind each symbol in NAMES to a fresh buffer, run BODY, kill them on exit.
+Teardown clears `kill-buffer-query-functions' in each buffer first, so a
+buffer that installed a blocking query (e.g. a dirty card back) still dies."
+  (declare (indent 1) (debug t))
+  `(let ,(mapcar (lambda (n) `(,n (generate-new-buffer ,(format " *%s*" n)))) names)
+     (unwind-protect
+         (progn ,@body)
+       ,@(mapcar (lambda (n)
+                   `(when (buffer-live-p ,n)
+                      (with-current-buffer ,n
+                        (setq kill-buffer-query-functions nil))
+                      (kill-buffer ,n)))
+                 names))))
+
+(defun decklet-test--string-has-face-p (string face)
+  "Return non-nil when FACE is the `face' text property anywhere in STRING."
+  (cl-loop for i below (length string)
+           thereis (eq (get-text-property i 'face string) face)))
+
+(defmacro decklet-test--with-backup-dir (&rest body)
+  "Run BODY with the backup directory created and bound.
+Binds `backup-dir' (a directory name) and `base' (the DB file base name)."
+  (declare (indent 0) (debug t))
+  `(let* ((backup-dir (file-name-as-directory decklet-backup-directory))
+          (base (file-name-base decklet-db-file)))
+     (make-directory backup-dir t)
+     ,@body))
+
+(defun decklet-test--touch (file &optional content)
+  "Create FILE with CONTENT (default \"dummy\")."
+  (with-temp-file file (insert (or content "dummy"))))
+
+(defun decklet-test--file-string (file)
+  "Return the contents of FILE as a string."
+  (with-temp-buffer (insert-file-contents file) (buffer-string)))
+
+;;; Review UI stubs
 
 (defmacro decklet-test--with-silent-review-ui (&rest body)
   "Run BODY with review-mode UI side effects stubbed to no-ops.
@@ -80,12 +170,9 @@ Stubs `decklet-review--reset-ui-state', `decklet-review--render-buffer',
 and `run-hooks' so unit tests can exercise review logic without
 touching a real buffer or firing user hooks."
   (declare (indent 0) (debug t))
-  `(cl-letf (((symbol-function 'decklet-review--reset-ui-state)
-              (lambda (&rest _) nil))
-             ((symbol-function 'decklet-review--render-buffer)
-              (lambda (&rest _) nil))
-             ((symbol-function 'run-hooks)
-              (lambda (&rest _) nil)))
+  `(cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
+             ((symbol-function 'decklet-review--render-buffer) #'ignore)
+             ((symbol-function 'run-hooks) #'ignore))
      ,@body))
 
 (provide 'decklet-test-helpers)

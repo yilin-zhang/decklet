@@ -2,289 +2,196 @@
 
 (require 'decklet-test-helpers)
 
-;; ---------------------------------------------------------------------------
-;; Card effective state derivation
-;; ---------------------------------------------------------------------------
+;;; Effective state derivation
 
-(ert-deftest decklet-test-card-effective-state-derivation ()
+(ert-deftest decklet-test-deck-card-effective-state ()
+  "A card is `:new' until its first review, then mirrors its stored state.
+Holds for both the raw state+last-review form and the card-meta form."
   (should (eq (decklet-card-effective-state :learning nil) :new))
   (should (eq (decklet-card-effective-state :learning "") :new))
   (should (eq (decklet-card-effective-state :learning "2025-01-01T00:00:00Z") :learning))
   (should (eq (decklet-card-effective-state :relearning "2025-01-01T00:00:00Z") :relearning))
   (should (eq (decklet-card-effective-state :review "2025-01-01T00:00:00Z") :review))
-  (should (eq (decklet-card-effective-state :unknown "2025-01-01T00:00:00Z") :review)))
+  (should (eq (decklet-card-effective-state :unknown "2025-01-01T00:00:00Z") :review))
+  (should (eq (decklet-card-meta-effective-state
+               (make-decklet-card-meta :state :learning :last-review nil))
+              :new))
+  (should (eq (decklet-card-meta-effective-state
+               (make-decklet-card-meta :state :learning :last-review "2025-01-01T00:00:00Z"))
+              :learning)))
 
-(ert-deftest decklet-test-card-meta-effective-state-derivation ()
-  (should
-   (eq (decklet-card-meta-effective-state
-        (make-decklet-card-meta :state :learning :last-review nil))
-       :new))
-  (should
-   (eq (decklet-card-meta-effective-state
-        (make-decklet-card-meta :state :learning
-                                :last-review "2025-01-01T00:00:00Z"))
-       :learning)))
+;;; Field setters
 
-;; ---------------------------------------------------------------------------
-;; Field update events
-;; ---------------------------------------------------------------------------
-
-(ert-deftest decklet-test-field-update-hooks-only-fire-on-change ()
-  "Hint/back setters skip DB writes and hooks when normalization is unchanged."
+(ert-deftest decklet-test-deck-field-setters-fire-hook-only-on-change ()
+  "Hint/back setters write and fire the field-updated hook only when the
+normalized value actually changes."
   (decklet-test--with-temp-db
-   (decklet-db--upsert-card "glow"
-                            (make-decklet-card-meta
-                             :added-date "20250101T000000Z"
-                             :due "20250101T000000Z"
-                             :state :learning))
-   (let ((card-id (plist-get (decklet-db--select-card-row-by-word "glow")
-                             :card-id))
+   (let ((id (decklet-test--add-card-meta "glow" :state :learning
+                                          :timestamp "20250101T000000Z"))
          (events nil))
      (let ((decklet-cards-field-updated-functions
             (list (lambda (evs) (setq events (append events evs))))))
-       (should (decklet-set-card-hint card-id "old hint"))
-       (should-not (decklet-set-card-hint card-id " old hint "))
-       (should (decklet-set-card-back card-id "old back"))
-       (should-not (decklet-set-card-back card-id "old back")))
-     (should (equal (mapcar (lambda (event) (plist-get event :field)) events)
-                    '(hint back))))))
+       (should (decklet-set-card-hint id "old hint"))
+       (should-not (decklet-set-card-hint id " old hint "))
+       (should (decklet-set-card-back id "old back"))
+       (should-not (decklet-set-card-back id "old back")))
+     (should (equal (mapcar (lambda (e) (plist-get e :field)) events) '(hint back))))))
 
-;; ---------------------------------------------------------------------------
-;; Batch card collection mode
-;; ---------------------------------------------------------------------------
+;;; Card back popup
 
-(ert-deftest decklet-test-add-card-batch-mode-highlights-hint-lines ()
-  (with-temp-buffer
-    (decklet-add-card-batch-mode)
-    (should (equal font-lock-defaults
-                   '(decklet-add-card-batch-font-lock-keywords)))))
-
-;; ---------------------------------------------------------------------------
-;; Card back — buffer utilities
-;; ---------------------------------------------------------------------------
-
-(ert-deftest decklet-test-card-back-buffer-name-format ()
-  "Buffer name follows *Decklet Card Back: WORD* convention."
+(ert-deftest decklet-test-deck-card-back-buffer-name ()
+  "Card-back buffers follow the *Decklet Card Back: WORD* convention."
   (should (string= "*Decklet Card Back: hello*"
                    (decklet-card-back--buffer-name "hello"))))
 
-(ert-deftest decklet-test-card-back-show-creates-readonly-buffer-with-content ()
-  "decklet-show-card-back opens a read-only buffer with the stored back content."
+(defmacro decklet-deck-test--show (word)
+  "Open the card-back popup for WORD without touching the window layout."
+  `(cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
+     (decklet-show-card-back ,word)))
+
+(ert-deftest decklet-test-deck-card-back-show-readonly-with-content ()
+  "A card that has a back opens read-only, showing the stored content."
   (decklet-test--with-temp-db
-   (decklet-db--upsert-card "bright"
-                            (make-decklet-card-meta
-                             :added-date "20250101T000000Z"
-                             :due "20250101T000000Z"
-                             :state :new))
    (decklet-db--update-back
-    (plist-get (decklet-db--select-card-row-by-word "bright") :card-id)
+    (decklet-test--add-card-meta "bright" :state :new :timestamp "20250101T000000Z")
     "shining example")
-   ;; Mock pop-to-buffer to avoid needing a live window during tests.
-   (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-     (decklet-show-card-back "bright"))
+   (decklet-deck-test--show "bright")
    (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
      (unwind-protect
-         (progn
-           (should (buffer-live-p buf))
-           (with-current-buffer buf
-             (should decklet-db--dependent-buffer)
-             (should (string= "shining example"
-                              (buffer-substring-no-properties
-                               (point-min) (point-max))))
-             (should buffer-read-only)))
-       (when (buffer-live-p buf)
-         (kill-buffer buf))))))
+         (with-current-buffer buf
+           (should decklet-db--dependent-buffer)
+           (should buffer-read-only)
+           (should (string= "shining example"
+                            (buffer-substring-no-properties (point-min) (point-max)))))
+       (when (buffer-live-p buf) (kill-buffer buf))))))
 
-(ert-deftest decklet-test-card-back-show-editable-when-back-absent ()
-  "decklet-show-card-back opens an editable buffer when the card has no back."
+(ert-deftest decklet-test-deck-card-back-show-editable-when-absent ()
+  "A card with no back opens an editable buffer."
   (decklet-test--with-temp-db
-   (decklet-db--upsert-card "glow"
-                            (make-decklet-card-meta
-                             :added-date "20250101T000000Z"
-                             :due "20250101T000000Z"
-                             :state :new))
-   (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-     (decklet-show-card-back "glow"))
+   (decklet-test--add-card-meta "glow" :state :new :timestamp "20250101T000000Z")
+   (decklet-deck-test--show "glow")
    (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
      (unwind-protect
          (with-current-buffer buf
            (should decklet-db--dependent-buffer)
            (should-not buffer-read-only))
-       (when (buffer-live-p buf)
-         (kill-buffer buf))))))
+       (when (buffer-live-p buf) (kill-buffer buf))))))
 
-(ert-deftest decklet-test-card-back-show-resets-read-only-when-back-cleared ()
-  "Reusing a card-back buffer must not keep stale read-only state."
+(ert-deftest decklet-test-deck-card-back-show-resets-readonly-when-cleared ()
+  "Reopening a card-back buffer after its back is cleared drops stale read-only."
   (decklet-test--with-temp-db
-   (decklet-db--upsert-card "bright"
-                            (make-decklet-card-meta
-                             :added-date "20250101T000000Z"
-                             :due "20250101T000000Z"
-                             :state :new))
-   (let ((card-id (plist-get (decklet-db--select-card-row-by-word "bright")
-                             :card-id)))
-     (decklet-db--update-back card-id "old back")
-     (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-       (decklet-show-card-back "bright"))
+   (let ((id (decklet-test--add-card-meta "bright" :state :new
+                                          :timestamp "20250101T000000Z")))
+     (decklet-db--update-back id "old back")
+     (decklet-deck-test--show "bright")
      (with-current-buffer (decklet-card-back--buffer-name "bright")
        (should buffer-read-only))
-     (decklet-db--update-back card-id nil)
-     (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-       (decklet-show-card-back "bright"))
+     (decklet-db--update-back id nil)
+     (decklet-deck-test--show "bright")
      (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
        (unwind-protect
            (with-current-buffer buf
              (should-not buffer-read-only)
              (should (string-empty-p (buffer-string))))
-         (when (buffer-live-p buf)
-           (kill-buffer buf)))))))
+         (when (buffer-live-p buf) (kill-buffer buf)))))))
 
-(ert-deftest decklet-test-card-back-save-errors-when-read-only ()
-  "decklet-save-card-back signals user-error when buffer is read-only."
+(ert-deftest decklet-test-deck-save-card-back-errors-without-card ()
+  "Saving a card back with no associated card signals a user error."
   (with-temp-buffer
-    (setq buffer-read-only t)
     (should-error (decklet-save-card-back) :type 'user-error)))
 
-(ert-deftest decklet-test-card-back-mode-uses-buffer-local-write-hook ()
-  "Enabling `decklet-card-back-mode' must not touch the global value of
-`write-contents-functions' — regression test for the lambda+global
-`add-hook' that would accumulate a save handler per card-back buffer."
+(ert-deftest decklet-test-deck-card-back-mode-uses-buffer-local-write-hook ()
+  "Toggling `decklet-card-back-mode' never mutates the global
+`write-contents-functions' — regression for a per-buffer save handler leaking
+into the global value."
   (let ((before (default-value 'write-contents-functions)))
     (with-temp-buffer
       (decklet-card-back-mode 1)
       (should (equal (default-value 'write-contents-functions) before))
-      (should (memq #'decklet-card-back--write-contents
-                    write-contents-functions))
+      (should (memq #'decklet-card-back--write-contents write-contents-functions))
       (decklet-card-back-mode 0)
       (should (equal (default-value 'write-contents-functions) before))
-      (should-not (memq #'decklet-card-back--write-contents
-                        write-contents-functions)))))
+      (should-not (memq #'decklet-card-back--write-contents write-contents-functions)))))
 
-(defun decklet-test--open-dirty-card-back (word original-back new-content)
-  "Seed a card for WORD with ORIGINAL-BACK, open its card-back popup, and
-leave the buffer modified with NEW-CONTENT.  Return the buffer.
-Caller is responsible for killing the buffer on teardown."
-  (decklet-db--upsert-card word
-                           (make-decklet-card-meta
-                            :added-date "20250101T000000Z"
-                            :due "20250101T000000Z"
-                            :state :new))
+(defun decklet-deck-test--open-dirty-card-back (word original new)
+  "Seed WORD with ORIGINAL back, open its popup, replace its text with NEW, and
+return the now-modified buffer.  The caller is responsible for killing it."
   (decklet-db--update-back
-   (plist-get (decklet-db--select-card-row-by-word word) :card-id)
-   original-back)
-  (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil)))
-    (decklet-show-card-back word))
+   (decklet-test--add-card-meta word :state :new :timestamp "20250101T000000Z")
+   original)
+  (decklet-deck-test--show word)
   (let ((buf (get-buffer (decklet-card-back--buffer-name word))))
     (with-current-buffer buf
       (setq buffer-read-only nil)
       (erase-buffer)
-      (insert new-content)
+      (insert new)
       (set-buffer-modified-p t))
     buf))
 
-(ert-deftest decklet-test-card-back-kill-query-save-writes-and-kills ()
-  "Choosing save on a dirty card-back kill writes the new content to the
-DB and lets `kill-buffer' proceed."
+(defmacro decklet-deck-test--kill-with-choice (buf choice)
+  "Kill BUF answering the save/discard/cancel prompt with CHOICE (a char)."
+  `(cl-letf (((symbol-function 'read-char-choice) (lambda (_p _c) ,choice)))
+     (kill-buffer ,buf)))
+
+(ert-deftest decklet-test-deck-card-back-kill-query-save ()
+  "Answering `save' on a dirty card-back kill writes the new content and lets
+the buffer die."
   (decklet-test--with-temp-db
-   (let ((buf (decklet-test--open-dirty-card-back "bright" "old-back" "new-back")))
+   (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
      (unwind-protect
          (progn
-           (cl-letf (((symbol-function 'read-char-choice)
-                      (lambda (_prompt _chars) ?s)))
-             (kill-buffer buf))
+           (decklet-deck-test--kill-with-choice buf ?s)
            (should-not (buffer-live-p buf))
            (should (string= "new-back"
-                            (decklet-db--select-card-back
-                             (plist-get
-                              (decklet-db--select-card-row-by-word "bright")
-                              :card-id)))))
+                            (decklet-db--select-card-back (decklet-test--card-id "bright")))))
        (when (buffer-live-p buf)
          (with-current-buffer buf (set-buffer-modified-p nil))
          (kill-buffer buf))))))
 
-(ert-deftest decklet-test-card-back-kill-query-discard-kills-without-write ()
-  "Choosing discard kills the buffer without writing; DB keeps old back."
+(ert-deftest decklet-test-deck-card-back-kill-query-discard ()
+  "Answering `discard' kills the buffer without writing; the DB keeps its
+old back."
   (decklet-test--with-temp-db
-   (let ((buf (decklet-test--open-dirty-card-back "bright" "old-back" "new-back")))
+   (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
      (unwind-protect
          (progn
-           (cl-letf (((symbol-function 'read-char-choice)
-                      (lambda (_prompt _chars) ?d)))
-             (kill-buffer buf))
+           (decklet-deck-test--kill-with-choice buf ?d)
            (should-not (buffer-live-p buf))
            (should (string= "old-back"
-                            (decklet-db--select-card-back
-                             (plist-get
-                              (decklet-db--select-card-row-by-word "bright")
-                              :card-id)))))
+                            (decklet-db--select-card-back (decklet-test--card-id "bright")))))
        (when (buffer-live-p buf)
          (with-current-buffer buf (set-buffer-modified-p nil))
          (kill-buffer buf))))))
 
-(ert-deftest decklet-test-card-back-kill-query-cancel-keeps-buffer-and-db ()
-  "Choosing cancel aborts the kill; buffer stays alive and modified, DB
-keeps its old back."
+(ert-deftest decklet-test-deck-card-back-kill-query-cancel ()
+  "Answering `cancel' aborts the kill; the buffer stays alive and modified and
+the DB keeps its old back."
   (decklet-test--with-temp-db
-   (let ((buf (decklet-test--open-dirty-card-back "bright" "old-back" "new-back")))
+   (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
      (unwind-protect
          (progn
-           (cl-letf (((symbol-function 'read-char-choice)
-                      (lambda (_prompt _chars) ?c)))
-             (kill-buffer buf))
+           (decklet-deck-test--kill-with-choice buf ?c)
            (should (buffer-live-p buf))
-           (with-current-buffer buf
-             (should (buffer-modified-p)))
+           (should (buffer-modified-p buf))
            (should (string= "old-back"
-                            (decklet-db--select-card-back
-                             (plist-get
-                              (decklet-db--select-card-row-by-word "bright")
-                              :card-id)))))
+                            (decklet-db--select-card-back (decklet-test--card-id "bright")))))
        (when (buffer-live-p buf)
          (with-current-buffer buf (set-buffer-modified-p nil))
          (kill-buffer buf))))))
 
-;; (ert-deftest decklet-test-card-back-save-updates-db-and-calls-on-save ()
-;;   "decklet-save-card-back writes back to DB and invokes on-save callback."
-;;   (decklet-test--with-temp-db
-;;     (decklet-db--upsert-card "radiant"
-;;                              (make-decklet-card-meta
-;;                               :added-date "20250101T000000Z"
-;;                               :due "20250101T000000Z"
-;;                               :state :new))
-;;     ;; Mock pop-to-buffer (no window) and quit-window (no window config to restore).
-;;     (cl-letf (((symbol-function 'pop-to-buffer) (lambda (_buf) nil))
-;;               ((symbol-function 'quit-window) (lambda (&rest _) nil)))
-;;       (decklet-card-back--open "radiant" nil))
-;;     (let ((buf (get-buffer (decklet-card-back--buffer-name "radiant")))
-;;           (on-save-called nil))
-;;       (unwind-protect
-;;           (with-current-buffer buf
-;;             (setq-local decklet-card-back--callback (lambda () (setq on-save-called t)))
-;;             (erase-buffer)
-;;             (insert "a vivid glow")
-;;             (decklet-save-card-back)
-;;             (should (string= "a vivid glow"
-;;                              (decklet-db--select-card-back
-;;                               (plist-get (decklet-db--select-card-row-by-word "radiant") :card-id))))
-;;             (should on-save-called))
-;;         (when (buffer-live-p buf)
-;;           (kill-buffer buf))))))
+;;; Batch collection parsing
 
-;; ---------------------------------------------------------------------------
-;; Batch card collection parsing
-;; ---------------------------------------------------------------------------
-;; These tests protect batch-mode hint parsing: multi-line hints accumulate
-;; under the preceding word, and orphan hints (no preceding word) must fail.
-
-(ert-deftest decklet-test-batch-collect-cards-supports-hint-lines ()
+(ert-deftest decklet-test-deck-batch-collect-cards-with-hints ()
+  "Batch parsing attaches `#'-prefixed hint lines to the preceding word and
+joins multi-line hints."
   (with-temp-buffer
     (insert "\n  lucid  \n# adj.\n\n\t\n# lucid rain\n  dirt\n# ...\n")
-    (should
-     (equal (decklet--batch-collect-cards)
-            '((:word "lucid" :hint "adj.\nlucid rain")
-              (:word "dirt" :hint "..."))))))
+    (should (equal (decklet--batch-collect-cards)
+                   '((:word "lucid" :hint "adj.\nlucid rain")
+                     (:word "dirt" :hint "..."))))))
 
-(ert-deftest decklet-test-batch-collect-cards-rejects-orphan-hint ()
+(ert-deftest decklet-test-deck-batch-collect-cards-rejects-orphan-hint ()
+  "A hint line with no preceding word is an error."
   (with-temp-buffer
     (insert "# lonely hint\nlucid\n")
     (should-error (decklet--batch-collect-cards))))

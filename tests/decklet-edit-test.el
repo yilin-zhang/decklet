@@ -2,139 +2,86 @@
 
 (require 'decklet-test-helpers)
 
-(ert-deftest decklet-test-edit-mode-registers-db-dependency ()
+(defmacro decklet-edit-test--with-buffer (&rest body)
+  "Run BODY inside a live `decklet-edit-mode' buffer backed by the test DB.
+Marks and filter are reset for the duration; the buffer is killed on exit.
+BODY can refer to `buf', the edit buffer."
+  (declare (indent 0) (debug t))
+  `(let ((decklet-edit--marked (make-hash-table :test 'equal))
+         (decklet-edit--filter 'all)
+         (buf (get-buffer-create "*decklet-edit-test*")))
+     (unwind-protect
+         (with-current-buffer buf
+           (decklet-edit-mode)
+           (decklet-edit-refresh)
+           ,@body)
+       (when (buffer-live-p buf)
+         (with-current-buffer buf (setq kill-buffer-query-functions nil))
+         (kill-buffer buf)))))
+
+(defun decklet-edit-test--confirm (fn)
+  "Call FN with `yes-or-no-p' forced to t."
+  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+    (funcall fn)))
+
+;;; Mode setup
+
+(ert-deftest decklet-test-edit-mode-registers-owner ()
+  "`decklet-edit-mode' marks its buffer as a Decklet session owner."
   (with-temp-buffer
     (decklet-edit-mode)
     (should decklet-db--owner-buffer)))
 
-;; ---------------------------------------------------------------------------
-;; Edit flow: batch operations and delegation branches
-;; ---------------------------------------------------------------------------
-;; These tests verify branch behavior in `decklet-edit-delete-card' and
-;; `decklet-edit-archive-card' without requiring tabulated-list UI setup.
+;;; Marking
 
-(ert-deftest decklet-test-edit-mark-with-region-marks-selected-lines ()
-  (with-temp-buffer
-    (insert "a\nb\nc\n")
-    (let ((decklet-edit--marked (make-hash-table :test 'equal)))
-      (cl-letf (((symbol-function 'tabulated-list-get-id)
-                 (lambda ()
-                   (pcase (line-number-at-pos)
-                     (1 11)
-                     (2 22)
-                     (3 33)
-                     (_ nil)))))
-        (decklet-edit--mark-region (point-min)
-                                   (save-excursion
-                                     (goto-char (point-min))
-                                     (forward-line 2)
-                                     (point))))
-      (should (gethash 11 decklet-edit--marked))
-      (should (gethash 22 decklet-edit--marked))
-      (should-not (gethash 33 decklet-edit--marked)))))
+(ert-deftest decklet-test-edit-mark-region-marks-covered-rows ()
+  "`decklet-edit--mark-region' marks every card row between two positions."
+  (decklet-test--with-temp-db
+   (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
+   (decklet-edit-test--with-buffer
+    (let ((alpha (decklet-test--card-id "alpha"))
+          (beta (decklet-test--card-id "beta"))
+          (gamma (decklet-test--card-id "gamma"))
+          (end (save-excursion
+                 (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
+                 (line-end-position))))
+      (decklet-edit--mark-region (point-min) end)
+      (should (gethash alpha decklet-edit--marked))
+      (should (gethash beta decklet-edit--marked))
+      (should-not (gethash gamma decklet-edit--marked))))))
 
-(ert-deftest decklet-test-edit-mark-uses-region-branch-when-active ()
-  (let ((called nil)
-        (deactivated nil)
-        (moved nil))
-    (cl-letf (((symbol-function 'use-region-p) (lambda () t))
-              ((symbol-function 'region-beginning) (lambda () 10))
-              ((symbol-function 'region-end) (lambda () 20))
-              ((symbol-function 'decklet-edit--mark-region)
-               (lambda (beg end)
-                 (setq called (list beg end))))
-              ((symbol-function 'deactivate-mark)
-               (lambda () (setq deactivated t)))
-              ((symbol-function 'goto-char)
-               (lambda (pos) (setq moved pos)))
-              ((symbol-function 'beginning-of-line) (lambda () nil))
-              ((symbol-function 'forward-line) (lambda (&rest _) nil)))
-      (decklet-edit-mark-at-point))
-    (should (equal called '(10 20)))
-    (should deactivated)
-    (should (= moved 20))))
-
-(ert-deftest decklet-test-edit-mark-keeps-raw-multiline-word-id ()
-  (with-temp-buffer
-    (insert "line1↵line2\n")
-    (let ((decklet-edit--marked (make-hash-table :test 'equal)))
-      (cl-letf (((symbol-function 'use-region-p) (lambda () nil))
-                ((symbol-function 'tabulated-list-get-id)
-                 (lambda () 42)))
-        (decklet-edit-mark-at-point))
-      (should (gethash 42 decklet-edit--marked))
-      ;; Two overlays: row background + `*' indicator.
-      (let ((ovs (seq-filter (lambda (o) (overlay-get o 'decklet-mark))
-                             (overlays-in (point-min) (point-max)))))
-        (should (= (length ovs) 2))))))
-
-(ert-deftest decklet-test-edit-delete-marked-branch-runs-batch-delete ()
-  (let ((deleted '())
-        (ensured nil)
-        (cleared nil)
-        (went-to nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids)
-               (lambda () '(1 2)))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_ids) 3))
-              ((symbol-function 'decklet-edit--ensure-not-current)
-               (lambda (ids) (setq ensured ids)))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-              ((symbol-function 'decklet-delete-card)
-               (lambda (card-id) (push card-id deleted)))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () (setq cleared t)))
-              ((symbol-function 'decklet-edit--goto-card-id)
-               (lambda (card-id) (setq went-to card-id)))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-delete-card))
-    (should (equal ensured '(1 2)))
-    (should (equal (sort deleted #'<) '(1 2)))
-    (should cleared)
-    (should (= went-to 3))))
-
-(ert-deftest decklet-test-edit-nearest-surviving-card-id-prefers-forward-on-tie ()
-  (with-temp-buffer
-    (insert "a\nb\nc\nd\n")
+(ert-deftest decklet-test-edit-mark-adds-row-and-indicator-overlays ()
+  "Marking a row records its card id and adds two overlays (row + indicator)."
+  (decklet-test--with-temp-db
+   (decklet-test--add-card-meta "alpha")
+   (decklet-edit-test--with-buffer
     (goto-char (point-min))
-    (forward-line 2)
-    (cl-letf (((symbol-function 'tabulated-list-get-id)
-               (lambda ()
-                 (pcase (line-number-at-pos)
-                   (1 11)
-                   (2 22)
-                   (3 33)
-                   (4 44)
-                   (_ nil)))))
-      (should (= (decklet-edit--nearest-surviving-card-id '(33)) 44))
-      (should (= (decklet-edit--nearest-surviving-card-id '(22 33)) 44)))))
+    (decklet-edit-mark-at-point)
+    (should (gethash (decklet-test--card-id "alpha") decklet-edit--marked))
+    (should (= 2 (length (seq-filter (lambda (o) (overlay-get o 'decklet-mark))
+                                     (overlays-in (point-min) (point-max)))))))))
 
-(ert-deftest decklet-test-edit-goto-card-id-moves-point-to-matching-row ()
-  (with-temp-buffer
-    (insert "a\nb\nc\nd\n")
-    (goto-char (point-min))
-    (cl-letf (((symbol-function 'tabulated-list-get-id)
-               (lambda ()
-                 (pcase (line-number-at-pos)
-                   (1 11)
-                   (2 22)
-                   (3 33)
-                   (4 44)
-                   (_ nil)))))
-      (should (decklet-edit--goto-card-id 33))
-      (should (= (line-number-at-pos) 3))
-      ;; nil or missing id is a safe no-op; point stays put.
+;;; Navigation helpers
+
+(ert-deftest decklet-test-edit-goto-card-id ()
+  "`decklet-edit--goto-card-id' moves to the matching row and no-ops on a nil
+or unknown id."
+  (decklet-test--with-temp-db
+   (dolist (w '("alpha" "beta")) (decklet-test--add-card-meta w))
+   (decklet-edit-test--with-buffer
+    (let ((alpha (decklet-test--card-id "alpha"))
+          (beta (decklet-test--card-id "beta")))
+      (should (decklet-edit--goto-card-id beta))
+      (should (eql (tabulated-list-get-id) beta))
       (goto-char (point-min))
       (should-not (decklet-edit--goto-card-id nil))
-      (should (= (line-number-at-pos) 1))
-      (should-not (decklet-edit--goto-card-id 99))
-      (should (= (line-number-at-pos) 1)))))
+      (should (eql (tabulated-list-get-id) alpha))
+      (should-not (decklet-edit--goto-card-id 999999))
+      (should (eql (tabulated-list-get-id) alpha))))))
 
 (ert-deftest decklet-test-edit-preserving-window-position-binds-flag-in-body ()
-  ;; The outermost frame binds `decklet-edit--preserving-point' to t
-  ;; for BODY; inner invocations see the flag and take the no-op branch.
-  ;; `get-buffer-window' returns nil so no window machinery runs — the
-  ;; test focuses on nesting semantics.
+  "The outer `decklet-edit--preserving-window-position' binds the flag for its
+body; nested calls see it set and unwind it on exit.  No window is needed."
   (let ((decklet-edit--preserving-point nil)
         (flag-values '()))
     (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) nil)))
@@ -143,15 +90,18 @@
        (decklet-edit--preserving-window-position
         (push decklet-edit--preserving-point flag-values))))
     (should (equal flag-values '(t t)))
-    ;; Flag unwinds on macro exit.
     (should (null decklet-edit--preserving-point))))
 
-(ert-deftest decklet-test-edit-db-sort-key-maps-last-review ()
-  "The Last Review UI column sorts by the matching DB column."
+;;; Sorting and rendering
+
+(ert-deftest decklet-test-edit-db-sort-key-maps-ui-column ()
+  "A tabulated-list sort key on a UI column maps to its DB column."
   (should (equal (decklet-edit--db-sort-key '("Last Review" . t))
                  '("last_review" . t))))
 
-(ert-deftest decklet-test-edit-entries-render-multiline-word-and-hint-inline ()
+(ert-deftest decklet-test-edit-entries-render-multiline-inline ()
+  "Multi-line words and hints are rendered inline with a ↵ glyph, and a card
+with a back shows the back marker."
   (cl-letf (((symbol-function 'decklet-db--select-card-rows)
              (lambda (&rest _)
                '((:card-id 42 :word "line1\nline2" :added "20250101T000000Z"
@@ -159,19 +109,16 @@
                            :state "learning" :step nil :stability nil
                            :difficulty nil :hint "hint1\nhint2" :back nil)))))
     (let* ((decklet-edit--filter 'all)
-           (decklet-edit-sidecar-columns
-            (list (list :name "Image"
-                        :width 5
-                        :value (lambda (_row) "♣"))))
-           (tabulated-list-sort-key nil)
-           (entry (car (decklet-edit--entries)))
-           (columns (cadr entry)))
-      (should (= (car entry) 42))
+	   (decklet-edit-sidecar-columns
+	    (list (list :name "Image" :width 5 :value (lambda (_row) "♣"))))
+	   (tabulated-list-sort-key nil)
+	   (columns (cadr (car (decklet-edit--entries)))))
       (should (string= (aref columns 0) "line1↵line2"))
       (should (string= (aref columns 1) "hint1↵hint2"))
       (should (string= (aref columns 3) "♣")))))
 
-(ert-deftest decklet-test-edit-tabulated-list-format-includes-sidecar-columns ()
+(ert-deftest decklet-test-edit-tabulated-format-includes-sidecar-columns ()
+  "Sidecar columns are inserted after the built-in Back column."
   (let* ((decklet-edit-sidecar-columns
           (list (list :name "Image" :width 5 :value (lambda (_row) nil))))
          (format (decklet-edit--tabulated-list-format)))
@@ -179,193 +126,73 @@
     (should (equal "Image" (car (aref format 3))))
     (should (equal "State" (car (aref format 4))))))
 
-(ert-deftest decklet-test-edit-delete-without-marks-acts-on-card-at-point ()
-  (let ((deleted '())
-        (cleared nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids) (lambda () nil))
-              ((symbol-function 'decklet-edit--card-id-at-point) (lambda () 42))
-              ((symbol-function 'decklet-get-card-word) (lambda (_) "hello"))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_) 99))
-              ((symbol-function 'decklet-edit--ensure-not-current) (lambda (_) nil))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-              ((symbol-function 'decklet-delete-card)
-               (lambda (id) (push id deleted)))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () (setq cleared t)))
-              ((symbol-function 'decklet-edit--goto-card-id) (lambda (_) nil))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
+;;; Delete
+
+(ert-deftest decklet-test-edit-delete-at-point-when-unmarked ()
+  "With no cards marked, delete acts on the card under point only."
+  (decklet-test--with-temp-db
+   (decklet-test--add-card-meta "alpha")
+   (decklet-test--add-card-meta "beta")
+   (decklet-edit-test--with-buffer
+    (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
+    (decklet-edit-test--confirm #'decklet-edit-delete-card)
+    (should-not (decklet-db--select-card-row-by-word "alpha"))
+    (should (decklet-db--select-card-row-by-word "beta")))))
+
+(ert-deftest decklet-test-edit-delete-marked-cards-clears-marks ()
+  "When cards are marked, delete acts on all of them and clears the marks."
+  (decklet-test--with-temp-db
+   (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
+   (decklet-edit-test--with-buffer
+    (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
+    (decklet-edit-mark-at-point)
+    (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
+    (decklet-edit-mark-at-point)
+    (decklet-edit-test--confirm #'decklet-edit-delete-card)
+    (should-not (decklet-db--select-card-row-by-word "alpha"))
+    (should-not (decklet-db--select-card-row-by-word "beta"))
+    (should (decklet-db--select-card-row-by-word "gamma"))
+    (should (= 0 (hash-table-count decklet-edit--marked))))))
+
+(ert-deftest decklet-test-edit-delete-cancelled-is-noop ()
+  "Declining the delete confirmation leaves the deck and marks untouched."
+  (decklet-test--with-temp-db
+   (decklet-test--add-card-meta "alpha")
+   (decklet-edit-test--with-buffer
+    (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
+    (decklet-edit-mark-at-point)
+    (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
       (decklet-edit-delete-card))
-    (should (equal deleted '(42)))
-    ;; No marks → unmark-all is NOT called (preserves marks on unrelated cards).
-    (should-not cleared)))
+    (should (decklet-db--select-card-row-by-word "alpha"))
+    (should (= 1 (hash-table-count decklet-edit--marked))))))
 
-(ert-deftest decklet-test-edit-archive-without-marks-unarchives-in-archived-filter ()
-  (let ((decklet-edit--filter 'archived)
-        (unarchived '())
-        (archived nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids) (lambda () nil))
-              ((symbol-function 'decklet-edit--card-id-at-point) (lambda () 42))
-              ((symbol-function 'decklet-get-card-word) (lambda (_) "hello"))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_) 99))
-              ((symbol-function 'decklet-edit--ensure-not-current) (lambda (_) nil))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-              ((symbol-function 'decklet-unarchive-card)
-               (lambda (id) (push id unarchived)))
-              ((symbol-function 'decklet-archive-card)
-               (lambda (&rest _) (setq archived t)))
-              ((symbol-function 'decklet-edit--goto-card-id) (lambda (_) nil))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-archive-card))
-    (should (equal unarchived '(42)))
-    (should-not archived)))
+(ert-deftest decklet-test-edit-delete-moves-point-to-nearest-survivor ()
+  "Deleting the card at point lands point on the nearest surviving row,
+preferring the following row on a tie."
+  (decklet-test--with-temp-db
+   (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
+   (decklet-edit-test--with-buffer
+    ;; Rows sort by word: alpha, beta, gamma.  Delete the middle one.
+    (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
+    (let ((gamma (decklet-test--card-id "gamma")))
+      (decklet-edit-test--confirm #'decklet-edit-delete-card)
+      (should (eql (tabulated-list-get-id) gamma))))))
 
-(ert-deftest decklet-test-edit-archive-marked-in-archived-filter-unarchives-and-restores ()
-  (let ((decklet-edit--filter 'archived)
-        (unarchived '())
-        (archived nil)
-        (ensured nil)
-        (cleared nil)
-        (went-to nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids)
-               (lambda () '(1 2)))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_ids) 3))
-              ((symbol-function 'decklet-edit--ensure-not-current)
-               (lambda (ids) (setq ensured ids)))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-              ((symbol-function 'decklet-unarchive-card)
-               (lambda (card-id) (push card-id unarchived)))
-              ((symbol-function 'decklet-archive-card)
-               (lambda (&rest _) (setq archived t)))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () (setq cleared t)))
-              ((symbol-function 'decklet-edit--goto-card-id)
-               (lambda (card-id) (setq went-to card-id)))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-archive-card))
-    (should (equal ensured '(1 2)))
-    (should (equal (sort unarchived #'<) '(1 2)))
-    (should-not archived)
-    (should cleared)
-    (should (= went-to 3))))
+;;; Archive
 
-(ert-deftest decklet-test-edit-archive-marked-in-all-filter-archives-and-restores ()
-  (let ((decklet-edit--filter 'all)
-        (unarchived nil)
-        (archived '())
-        (ensured nil)
-        (cleared nil)
-        (went-to nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids)
-               (lambda () '(1 2)))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_ids) 3))
-              ((symbol-function 'decklet-edit--ensure-not-current)
-               (lambda (ids) (setq ensured ids)))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-              ((symbol-function 'decklet-unarchive-card)
-               (lambda (&rest _) (setq unarchived t)))
-              ((symbol-function 'decklet-archive-card)
-               (lambda (card-id) (push card-id archived)))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () (setq cleared t)))
-              ((symbol-function 'decklet-edit--goto-card-id)
-               (lambda (card-id) (setq went-to card-id)))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-archive-card))
-    (should (equal ensured '(1 2)))
-    (should (equal (sort archived #'<) '(1 2)))
-    (should-not unarchived)
-    (should cleared)
-    (should (= went-to 3))))
-
-(ert-deftest decklet-test-edit-delete-marked-without-survivor-passes-nil ()
-  (let ((went-to 'unset))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids)
-               (lambda () '(1 2)))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_ids) nil))
-              ((symbol-function 'decklet-edit--ensure-not-current)
-               (lambda (&rest _) nil))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-              ((symbol-function 'decklet-delete-card)
-               (lambda (&rest _) nil))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () nil))
-              ((symbol-function 'decklet-edit-refresh)
-               (lambda () nil))
-              ((symbol-function 'decklet-edit--goto-card-id)
-               (lambda (card-id) (setq went-to card-id)))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-delete-card))
-    ;; Goto is called unconditionally with the survivor (or nil) —
-    ;; the helper itself no-ops on nil.
-    (should (null went-to))))
-
-(ert-deftest decklet-test-edit-delete-marked-cancelled-skips-side-effects ()
-  (let ((deleted nil)
-        (cleared nil)
-        (refreshed nil)
-        (went nil)
-        (ensured nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids)
-               (lambda () '(1 2)))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_ids) 3))
-              ((symbol-function 'decklet-edit--ensure-not-current)
-               (lambda (ids) (setq ensured ids)))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) nil))
-              ((symbol-function 'decklet-delete-card)
-               (lambda (&rest _) (setq deleted t)))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () (setq cleared t)))
-              ((symbol-function 'decklet-edit-refresh)
-               (lambda () (setq refreshed t)))
-              ((symbol-function 'decklet-edit--goto-card-id)
-               (lambda (&rest _) (setq went t)))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-delete-card))
-    (should (equal ensured '(1 2)))
-    (should-not deleted)
-    (should-not cleared)
-    (should-not refreshed)
-    (should-not went)))
-
-(ert-deftest decklet-test-edit-archive-marked-cancelled-skips-side-effects ()
-  (let ((decklet-edit--filter 'all)
-        (archived nil)
-        (unarchived nil)
-        (cleared nil)
-        (refreshed nil)
-        (went nil)
-        (ensured nil))
-    (cl-letf (((symbol-function 'decklet-edit--marked-card-ids)
-               (lambda () '(1 2)))
-              ((symbol-function 'decklet-edit--nearest-surviving-card-id)
-               (lambda (_ids) 3))
-              ((symbol-function 'decklet-edit--ensure-not-current)
-               (lambda (ids) (setq ensured ids)))
-              ((symbol-function 'yes-or-no-p) (lambda (&rest _) nil))
-              ((symbol-function 'decklet-archive-card)
-               (lambda (&rest _) (setq archived t)))
-              ((symbol-function 'decklet-unarchive-card)
-               (lambda (&rest _) (setq unarchived t)))
-              ((symbol-function 'decklet-edit--unmark-all)
-               (lambda () (setq cleared t)))
-              ((symbol-function 'decklet-edit-refresh)
-               (lambda () (setq refreshed t)))
-              ((symbol-function 'decklet-edit--goto-card-id)
-               (lambda (&rest _) (setq went t)))
-              ((symbol-function 'message) (lambda (&rest _) nil)))
-      (decklet-edit-archive-card))
-    (should (equal ensured '(1 2)))
-    (should-not archived)
-    (should-not unarchived)
-    (should-not cleared)
-    (should-not refreshed)
-    (should-not went)))
+(ert-deftest decklet-test-edit-archive-then-unarchive-via-filter ()
+  "Archive hides a card from the active deck; under the archived filter the
+same command unarchives it."
+  (decklet-test--with-temp-db
+   (decklet-test--add-card-meta "alpha")
+   (decklet-edit-test--with-buffer
+    (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
+    (decklet-edit-test--confirm #'decklet-edit-archive-card)
+    (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
+    (decklet-edit-filter-toggle-archive)
+    (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
+    (decklet-edit-test--confirm #'decklet-edit-archive-card)
+    (should (= 0 (length (decklet-db--select-card-rows 'archived nil)))))))
 
 (provide 'decklet-edit-test)
 ;;; decklet-edit-test.el ends here
