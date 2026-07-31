@@ -153,6 +153,10 @@ case of a single-card lifecycle event — avoids hand-writing the
   "Clamp VALUE to be between MIN-VAL and MAX-VAL."
   (min max-val (max min-val value)))
 
+(defun decklet--timestamp-utc (&optional time)
+  "Return TIME formatted as a UTC timestamp for filenames."
+  (format-time-string "%Y%m%dT%H%M%SZ" (or time (current-time)) "UTC0"))
+
 (defun decklet--shuffle-list (lst)
   "Return a new randomly shuffled copy of LST.
 Fisher-Yates; Emacs has no built-in shuffle."

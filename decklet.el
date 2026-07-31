@@ -35,6 +35,8 @@
 (require 'decklet-scheduler)
 (require 'decklet-db)
 (require 'decklet-review-log)
+(require 'decklet-transfer)
+(require 'decklet-backup)
 (require 'decklet-deck)
 (require 'decklet-edit)
 (require 'decklet-review)

@@ -2,32 +2,6 @@
 
 (require 'decklet-test-helpers)
 
-;;; Card-id minting
-
-(ert-deftest decklet-test-mint-card-id-is-positive-and-monotonic ()
-  "Minted card ids are positive integers that strictly increase."
-  (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (let ((ids (cl-loop repeat 20 collect (decklet-db--mint-card-id))))
-     (should (cl-every #'integerp ids))
-     (should (> (car ids) 0))
-     (should (equal ids (sort (copy-sequence ids) #'<)))
-     (should (= (length ids) (length (delete-dups (copy-sequence ids))))))))
-
-(ert-deftest decklet-test-mint-card-id-seeds-above-existing-max ()
-  "A freshly seeded counter mints above the largest existing card_id."
-  (decklet-test--with-temp-db
-   (let ((conn (decklet-db--ensure))
-         (now (decklet--now)))
-     (sqlite-execute
-      conn
-      "INSERT INTO cards (word, added_date, due, state, card_id)
-        VALUES ('one', ?, ?, 'review', 9999999999),
-               ('two', ?, ?, 'review', 8888888888);"
-      (list now now now now))
-     (setq decklet-db--last-card-id nil)
-     (should (> (decklet-db--mint-card-id) 9999999999)))))
-
 ;;; Appending records
 
 (ert-deftest decklet-test-review-log-append-rated-writes-record ()
@@ -124,30 +98,6 @@ and zero elapsed days."
        (should (= id (plist-get rec :card_id)))
        (should (equal "colour" (plist-get rec :old)))
        (should (equal "color" (plist-get rec :new)))))))
-
-;;; Card-id assignment via `decklet--add-card'
-
-(ert-deftest decklet-test-add-card-refresh-preserves-id ()
-  "Re-adding an existing new card refreshes it in place, keeping its card_id."
-  (decklet-test--with-temp-db
-   (let ((decklet-add-and-refresh t))
-     (decklet--add-card "alpha")
-     (let ((first (decklet-test--card-id "alpha")))
-       (should (integerp first))
-       (should (> first 0))
-       (decklet--add-card "alpha")
-       (should (= first (decklet-test--card-id "alpha")))))))
-
-(ert-deftest decklet-test-add-card-delete-re-add-mints-new-id ()
-  "Deleting then re-adding the same word yields a fresh, larger card_id."
-  (decklet-test--with-temp-db
-   (decklet--add-card "beta")
-   (let ((first (decklet-test--card-id "beta")))
-     (decklet-delete-card first)
-     (decklet--add-card "beta")
-     (let ((second (decklet-test--card-id "beta")))
-       (should (not (= first second)))
-       (should (> second first))))))
 
 ;;; Writer failure path
 ;; A dropped log record is preferable to a lost rating, so the writer swallows

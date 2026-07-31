@@ -147,14 +147,6 @@ Consumers skip any rated record whose `id' appears as a void's
          :new new-word
          :t (decklet--now))))
 
-;; Backup integration
-
-(defun decklet-review-log--on-db-backup (backup-dir timestamp)
-  "Back up the review log alongside the DB via `decklet-db-post-backup-functions'."
-  (decklet-db-backup-auxiliary-file decklet-review-log-file backup-dir timestamp))
-
-(add-hook 'decklet-db-post-backup-functions #'decklet-review-log--on-db-backup)
-
 (provide 'decklet-review-log)
 
 ;;; decklet-review-log.el ends here

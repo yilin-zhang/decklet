@@ -7,7 +7,9 @@ FSRS_DIR="$(./scripts/check-deps.sh)"
 
 emacs --batch -L "$FSRS_DIR" -L . -L tests \
   -l tests/decklet-test-helpers.el \
+  -l tests/decklet-core-test.el \
   -l tests/decklet-db-test.el \
+  -l tests/decklet-transfer-test.el \
   -l tests/decklet-review-test.el \
   -l tests/decklet-edit-test.el \
   -l tests/decklet-deck-test.el \

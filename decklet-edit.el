@@ -16,6 +16,7 @@
 (require 'decklet-core)
 (require 'decklet-scheduler)
 (require 'decklet-db)
+(require 'decklet-backup)
 (require 'decklet-deck)
 
 (defvar decklet-review-buffer-name)

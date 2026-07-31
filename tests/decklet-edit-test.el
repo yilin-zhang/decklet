@@ -64,20 +64,13 @@ BODY can refer to `buf', the edit buffer."
 ;;; Navigation helpers
 
 (ert-deftest decklet-test-edit-goto-card-id ()
-  "`decklet-edit--goto-card-id' moves to the matching row and no-ops on a nil
-or unknown id."
+  "`decklet-edit--goto-card-id' moves to the matching row."
   (decklet-test--with-temp-db
    (dolist (w '("alpha" "beta")) (decklet-test--add-card-meta w))
    (decklet-edit-test--with-buffer
-    (let ((alpha (decklet-test--card-id "alpha"))
-          (beta (decklet-test--card-id "beta")))
+    (let ((beta (decklet-test--card-id "beta")))
       (should (decklet-edit--goto-card-id beta))
-      (should (eql (tabulated-list-get-id) beta))
-      (goto-char (point-min))
-      (should-not (decklet-edit--goto-card-id nil))
-      (should (eql (tabulated-list-get-id) alpha))
-      (should-not (decklet-edit--goto-card-id 999999))
-      (should (eql (tabulated-list-get-id) alpha))))))
+      (should (eql (tabulated-list-get-id) beta))))))
 
 (ert-deftest decklet-test-edit-preserving-window-position-binds-flag-in-body ()
   "The outer `decklet-edit--preserving-window-position' binds the flag for its

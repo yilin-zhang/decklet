@@ -37,17 +37,40 @@ normalized value actually changes."
        (should-not (decklet-set-card-back id "old back")))
      (should (equal (mapcar (lambda (e) (plist-get e :field)) events) '(hint back))))))
 
-;;; Card back popup
+;;; Card identity
 
-(ert-deftest decklet-test-deck-card-back-buffer-name ()
-  "Card-back buffers follow the *Decklet Card Back: WORD* convention."
-  (should (string= "*Decklet Card Back: hello*"
-                   (decklet-card-back--buffer-name "hello"))))
+(ert-deftest decklet-test-deck-add-card-refresh-preserves-id ()
+  "Re-adding an existing new card refreshes it in place with the same id."
+  (decklet-test--with-temp-db
+   (let ((decklet-add-and-refresh t))
+     (decklet--add-card "alpha")
+     (let ((first (decklet-test--card-id "alpha")))
+       (decklet--add-card "alpha")
+       (should (= first (decklet-test--card-id "alpha")))))))
+
+(ert-deftest decklet-test-deck-delete-and-readd-mints-new-id ()
+  "Deleting then re-adding a word gives the new card a fresh id."
+  (decklet-test--with-temp-db
+   (decklet--add-card "beta")
+   (let ((first (decklet-test--card-id "beta")))
+     (decklet-delete-card first)
+     (decklet--add-card "beta")
+     (should-not (= first (decklet-test--card-id "beta"))))))
+
+;;; Card back popup
 
 (defmacro decklet-deck-test--show (word)
   "Open the card-back popup for WORD without touching the window layout."
   `(cl-letf (((symbol-function 'pop-to-buffer) #'ignore))
      (decklet-show-card-back ,word)))
+
+(defun decklet-deck-test--card-back-buffer (word)
+  "Return the open card-back buffer associated with WORD."
+  (let ((card-id (decklet-test--card-id word)))
+    (seq-find (lambda (buffer)
+                (eql card-id
+                     (buffer-local-value 'decklet-card-back--card-id buffer)))
+              (buffer-list))))
 
 (ert-deftest decklet-test-deck-card-back-show-readonly-with-content ()
   "A card that has a back opens read-only, showing the stored content."
@@ -56,7 +79,7 @@ normalized value actually changes."
     (decklet-test--add-card-meta "bright" :state :new :timestamp "20250101T000000Z")
     "shining example")
    (decklet-deck-test--show "bright")
-   (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
+   (let ((buf (decklet-deck-test--card-back-buffer "bright")))
      (unwind-protect
          (with-current-buffer buf
            (should decklet-db--dependent-buffer)
@@ -70,7 +93,7 @@ normalized value actually changes."
   (decklet-test--with-temp-db
    (decklet-test--add-card-meta "glow" :state :new :timestamp "20250101T000000Z")
    (decklet-deck-test--show "glow")
-   (let ((buf (get-buffer (decklet-card-back--buffer-name "glow"))))
+   (let ((buf (decklet-deck-test--card-back-buffer "glow")))
      (unwind-protect
          (with-current-buffer buf
            (should decklet-db--dependent-buffer)
@@ -84,11 +107,11 @@ normalized value actually changes."
                                           :timestamp "20250101T000000Z")))
      (decklet-db--update-back id "old back")
      (decklet-deck-test--show "bright")
-     (with-current-buffer (decklet-card-back--buffer-name "bright")
+     (with-current-buffer (decklet-deck-test--card-back-buffer "bright")
        (should buffer-read-only))
      (decklet-db--update-back id nil)
      (decklet-deck-test--show "bright")
-     (let ((buf (get-buffer (decklet-card-back--buffer-name "bright"))))
+     (let ((buf (decklet-deck-test--card-back-buffer "bright")))
        (unwind-protect
            (with-current-buffer buf
              (should-not buffer-read-only)
@@ -100,19 +123,6 @@ normalized value actually changes."
   (with-temp-buffer
     (should-error (decklet-save-card-back) :type 'user-error)))
 
-(ert-deftest decklet-test-deck-card-back-mode-uses-buffer-local-write-hook ()
-  "Toggling `decklet-card-back-mode' never mutates the global
-`write-contents-functions' — regression for a per-buffer save handler leaking
-into the global value."
-  (let ((before (default-value 'write-contents-functions)))
-    (with-temp-buffer
-      (decklet-card-back-mode 1)
-      (should (equal (default-value 'write-contents-functions) before))
-      (should (memq #'decklet-card-back--write-contents write-contents-functions))
-      (decklet-card-back-mode 0)
-      (should (equal (default-value 'write-contents-functions) before))
-      (should-not (memq #'decklet-card-back--write-contents write-contents-functions)))))
-
 (defun decklet-deck-test--open-dirty-card-back (word original new)
   "Seed WORD with ORIGINAL back, open its popup, replace its text with NEW, and
 return the now-modified buffer.  The caller is responsible for killing it."
@@ -120,7 +130,7 @@ return the now-modified buffer.  The caller is responsible for killing it."
    (decklet-test--add-card-meta word :state :new :timestamp "20250101T000000Z")
    original)
   (decklet-deck-test--show word)
-  (let ((buf (get-buffer (decklet-card-back--buffer-name word))))
+  (let ((buf (decklet-deck-test--card-back-buffer word)))
     (with-current-buffer buf
       (setq buffer-read-only nil)
       (erase-buffer)

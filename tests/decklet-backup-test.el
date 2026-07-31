@@ -11,19 +11,19 @@
     (let ((timestamp "20260206T120000Z"))
       (decklet-test--touch
        (expand-file-name (format "%s-%s.sqlite" base timestamp) backup-dir))
-      (should (string= (decklet-db--backup-target backup-dir base "sqlite" timestamp)
+      (should (string= (decklet-backup--backup-target backup-dir base "sqlite" timestamp)
                        (expand-file-name (format "%s-%s-1.sqlite" base timestamp)
                                          backup-dir)))))))
 
 (ert-deftest decklet-test-backup-files-sorted-newest-first ()
-  "`decklet-db--backup-files' lists backups newest-first by embedded timestamp."
+  "`decklet-backup--backup-files' lists backups newest-first by embedded timestamp."
   (decklet-test--with-temp-db
    (decklet-test--with-backup-dir
     (let ((older  (expand-file-name (format "%s-20250101T010101Z.sqlite" base) backup-dir))
           (middle (expand-file-name (format "%s-20250102T010101Z.sqlite" base) backup-dir))
           (newest (expand-file-name (format "%s-20250103T010101Z.sqlite" base) backup-dir)))
       (mapc #'decklet-test--touch (list middle newest older))
-      (should (equal (decklet-db--backup-files) (list newest middle older)))))))
+      (should (equal (decklet-backup--backup-files) (list newest middle older)))))))
 
 (ert-deftest decklet-test-backup-timestamp-parses-suffixed-filename ()
   "Backup timestamps parse out of names carrying a collision suffix."
@@ -31,7 +31,7 @@
    (let* ((base (file-name-base decklet-db-file))
           (file (expand-file-name (format "%s-20260101T123456Z-2.sqlite" base)
                                   temporary-file-directory))
-          (parsed (decklet-db--backup-timestamp file)))
+          (parsed (decklet-backup--backup-timestamp file)))
      (should parsed)
      (should (string= (format-time-string "%Y%m%dT%H%M%SZ" parsed "UTC0")
                       "20260101T123456Z")))))
@@ -46,7 +46,7 @@
       (dolist (day '("01" "02" "03" "04"))
         (decklet-test--touch
          (expand-file-name (format "%s-202501%sT010101Z.sqlite" base day) backup-dir)))
-      (decklet-db--backup-prune backup-dir base "sqlite")
+      (decklet-backup--backup-prune backup-dir base "sqlite")
       (should (equal (sort (mapcar #'file-name-nondirectory
                                    (directory-files backup-dir t "\\.sqlite\\'"))
                            #'string<)
@@ -61,10 +61,10 @@
       (decklet-test--touch
        (expand-file-name (format "%s-202501%sT010101Z.sqlite" base day) backup-dir)))
     (let ((decklet-backup-prune-max-count 5))
-      (decklet-db--backup-prune backup-dir base "sqlite")
+      (decklet-backup--backup-prune backup-dir base "sqlite")
       (should (= 3 (length (directory-files backup-dir t "\\.sqlite\\'")))))
     (let ((decklet-backup-prune-max-count nil))
-      (decklet-db--backup-prune backup-dir base "sqlite")
+      (decklet-backup--backup-prune backup-dir base "sqlite")
       (should (= 3 (length (directory-files backup-dir t "\\.sqlite\\'"))))))))
 
 ;;; Interactive backup
@@ -74,9 +74,9 @@
   (decklet-test--with-temp-db
    (decklet-test--add-card-meta "backup-word")
    (decklet-db-backup)
-   (should (= 1 (length (decklet-db--backup-files))))
+   (should (= 1 (length (decklet-backup--backup-files))))
    (decklet-db-backup)
-   (should (= 1 (length (decklet-db--backup-files))))))
+   (should (= 1 (length (decklet-backup--backup-files))))))
 
 ;;; Restore
 
@@ -88,9 +88,9 @@
      (decklet-test--touch backup-file "backup")
      (decklet-test--with-temp-buffers (buf)
 				      (with-current-buffer buf (decklet-db-register-dependent-buffer))
-				      (cl-letf (((symbol-function 'decklet-db--backup-files)
+				      (cl-letf (((symbol-function 'decklet-backup--backup-files)
 						 (lambda () (list backup-file)))
-						((symbol-function 'decklet-db--read-backup-choice)
+						((symbol-function 'decklet-backup--read-backup-choice)
 						 (lambda (_choices default) default)))
 					(should-error (decklet-db-restore) :type 'user-error))
 				      (should decklet-db--conn)))))
@@ -108,9 +108,9 @@
      (make-directory decklet-backup-directory t)
      (decklet-test--touch backup-file "backup-payload")
      (decklet-test--touch log-backup "log-payload")
-     (cl-letf (((symbol-function 'decklet-db--backup-files)
+     (cl-letf (((symbol-function 'decklet-backup--backup-files)
                 (lambda () (list backup-file)))
-               ((symbol-function 'decklet-db--read-backup-choice)
+               ((symbol-function 'decklet-backup--read-backup-choice)
                 (lambda (_choices default) default))
                ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
        (decklet-db-restore))
@@ -127,9 +127,9 @@
                        decklet-backup-directory)))
      (make-directory decklet-backup-directory t)
      (decklet-test--touch backup-file "backup-payload")
-     (cl-letf (((symbol-function 'decklet-db--backup-files)
+     (cl-letf (((symbol-function 'decklet-backup--backup-files)
                 (lambda () (list backup-file)))
-               ((symbol-function 'decklet-db--read-backup-choice)
+               ((symbol-function 'decklet-backup--read-backup-choice)
                 (lambda (_choices default) default)))
        (should-error (decklet-db-restore) :type 'user-error))
      (should-not (file-exists-p decklet-db-file)))))
@@ -145,7 +145,7 @@
                  (setq captured (list :choices choices :require-match require-match
                                       :default def))
                  (number-to-string (symbol-value 'decklet-test--temp-binding)))))
-      (should (string= (decklet-db--read-backup-choice '("a" "b") "a") "42"))
+      (should (string= (decklet-backup--read-backup-choice '("a" "b") "a") "42"))
       (should (equal (plist-get captured :choices) '("a" "b")))
       (should (equal (plist-get captured :default) "a"))
       (should (eq (plist-get captured :require-match) t)))))

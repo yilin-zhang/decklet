@@ -542,10 +542,6 @@ and :message-prefix."
 (defvar-local decklet-card-back--card-id nil
   "Card id associated with the current card back buffer.")
 
-(defun decklet-card-back--buffer-name (word)
-  "Return the buffer name for the card back of WORD."
-  (format "*Decklet Card Back: %s*" word))
-
 (defun decklet-save-card-back ()
   "Save the card back content to db."
   (interactive)
@@ -601,7 +597,7 @@ declines both save and discard."
   (let* ((card (decklet-db--require-card-row-by-word word))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
-         (buf-name (decklet-card-back--buffer-name word))
+         (buf-name (format "*Decklet Card Back: %s*" word))
          (buffer (get-buffer-create buf-name)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))

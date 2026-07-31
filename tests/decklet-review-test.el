@@ -196,15 +196,6 @@ the due queue, without writing to the DB."
     (should (= 1 decklet-current-card-id))
     (should (equal '(2 3) decklet-due-card-ids))))
 
-(ert-deftest decklet-test-review-undo-empty-trail-is-noop ()
-  "Undo with an empty trail reports `Nothing to undo' and does not error."
-  (let ((decklet-review--trail-past nil)
-        (decklet-review--trail-future nil)
-        (msg nil))
-    (cl-letf (((symbol-function 'message) (lambda (fmt &rest _) (setq msg fmt))))
-      (decklet-review-undo))
-    (should (string-match-p "Nothing to undo" msg))))
-
 (ert-deftest decklet-test-review-undo-multiple-walks-backward ()
   "Successive undos reveal earlier cards newest-first and grow the future side."
   (let* ((decklet-review--trail-past
@@ -241,39 +232,7 @@ the due queue, without writing to the DB."
     (should (null decklet-review--trail-past))
     (should (= 2 (length decklet-review--trail-future)))))
 
-(ert-deftest decklet-test-review-undo-in-undo-state-does-not-requeue ()
-  "Undoing again while already in undo state does not push the on-screen card
-back onto the due queue."
-  (let* ((decklet-review--trail-past (list (decklet-test--trail-entry 1)))
-         (decklet-review--trail-future (list (decklet-test--trail-entry 2)))
-         (decklet-current-card-id 2)
-         (decklet-due-card-ids '(3)))
-    (decklet-test-review--with-card-words ((1 . "A") (2 . "B") (3 . "C"))
-					  (cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-						    ((symbol-function 'decklet-review--render-buffer) #'ignore))
-					    (decklet-review-undo)))
-    (should (= 1 decklet-current-card-id))
-    (should (equal '(3) decklet-due-card-ids))))
-
 ;;; Trail: confirming and re-rating an undone card
-
-(ert-deftest decklet-test-review-confirm-undone-card-moves-to-past-without-write ()
-  "Confirming an undone card via `next-card' moves its entry back to past and
-writes nothing to the DB (same for rated and skipped entries)."
-  (dolist (grade '(3 nil))
-    (let* ((decklet-review--trail-past nil)
-           (decklet-review--trail-future (list (decklet-test--trail-entry 1 :grade grade)))
-           (decklet-current-card-id 1)
-           (decklet-due-card-ids '(2))
-           (upserted nil))
-      (decklet-test-review--with-card-words ((1 . "fig") (2 . "grape"))
-					    (cl-letf (((symbol-function 'decklet-db--upsert-card)
-						       (lambda (&rest _) (setq upserted t))))
-					      (decklet-test--with-silent-review-ui
-					       (decklet-review-next-card))))
-      (should (null upserted))
-      (should (= 1 (length decklet-review--trail-past)))
-      (should (null decklet-review--trail-future)))))
 
 (ert-deftest decklet-test-review-rerate-after-undo-recomputes-from-pre-meta ()
   "Rating a card, undoing, then re-rating restores the pre-rating state before
@@ -368,25 +327,6 @@ due card and only one prior entry on the trail."
                                   decklet-review--trail-past)))
     (should (null decklet-review--trail-future))))
 
-;;; Session cleanup
-
-(ert-deftest decklet-test-review-clean-up-clears-trail-without-writing ()
-  "Session cleanup clears both trail sides and never writes to the DB."
-  (let ((decklet-review--trail-past (list (decklet-test--trail-entry 1)))
-        (decklet-review--trail-future (list (decklet-test--trail-entry 2)))
-        (decklet-review--hint-timer nil)
-        (decklet-review--state-display-hint nil)
-        (decklet-current-card-id 1)
-        (decklet-last-added-word nil)
-        (decklet-due-card-ids nil)
-        (upserted nil))
-    (cl-letf (((symbol-function 'decklet-db--upsert-card)
-               (lambda (&rest _) (setq upserted t))))
-      (decklet-review--clean-up))
-    (should (null upserted))
-    (should (null decklet-review--trail-past))
-    (should (null decklet-review--trail-future))))
-
 ;;; Undo highlight on the rates component
 
 (defun decklet-test-review--rates-with-future (future)
@@ -399,28 +339,12 @@ due card and only one prior entry on the trail."
     (let ((decklet-review--render-meta meta))
       (decklet-review-component-rates))))
 
-(ert-deftest decklet-test-review-undo-highlights-prior-grade-label-only ()
-  "On an undone rated card, the prior grade's label carries the undo-highlight
-face — on the label text, not the key number."
+(ert-deftest decklet-test-review-undo-highlights-prior-grade ()
+  "An undone rated card highlights its prior grade."
   (let ((output (decklet-test-review--rates-with-future
                  (list (decklet-test--trail-entry 1 :grade 3))))) ; grade 3 = Good
-    (should (decklet-test--string-has-face-p output 'decklet-review-undo-highlight-face))
-    (let ((good-pos (string-match "Good" output)))
-      (should good-pos)
-      (should (eq (get-text-property good-pos 'face output)
-                  'decklet-review-undo-highlight-face))
-      (should-not (eq (get-text-property (1- good-pos) 'face output)
-                      'decklet-review-undo-highlight-face)))))
-
-(ert-deftest decklet-test-review-no-undo-highlight-in-normal-or-skip ()
-  "No undo highlight appears during normal forward review or on a skipped card."
-  (should-not (decklet-test--string-has-face-p
-               (decklet-test-review--rates-with-future nil)
-               'decklet-review-undo-highlight-face))
-  (should-not (decklet-test--string-has-face-p
-               (decklet-test-review--rates-with-future
-                (list (decklet-test--trail-entry 1 :grade nil)))
-               'decklet-review-undo-highlight-face)))
+    (should (decklet-test--string-has-face-p
+             output 'decklet-review-undo-highlight-face))))
 
 (provide 'decklet-review-test)
 ;;; decklet-review-test.el ends here

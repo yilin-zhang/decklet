@@ -16,6 +16,7 @@
 (require 'decklet-db)
 (require 'decklet-deck)
 (require 'decklet-review-log)
+(require 'decklet-backup)
 
 (defgroup decklet-review nil
   "Review mode for Decklet."
