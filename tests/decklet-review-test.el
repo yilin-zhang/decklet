@@ -297,16 +297,39 @@ new-card base), not the stability left behind by the undone rating."
      ;; The trail holds a single entry, now graded Good.
      (should (= 1 (length decklet-review--trail-past)))
      (should (= 3 (plist-get (car decklet-review--trail-past) :grade)))
-     ;; Log: rated(Again) -> void(that id) -> rated(Good from the new-card base).
+     ;; Log: rated(Again) -> rated(Good) -> void(the prior record).
      (let* ((records (decklet-test--read-log))
             (again (nth 0 records))
-            (good (car (last records))))
-       (should (equal '("rated" "void" "rated")
+            (good (nth 1 records)))
+       (should (equal '("rated" "rated" "void")
                       (mapcar (lambda (r) (plist-get r :kind)) records)))
        (should (= 1 (plist-get again :grade)))
-       (should (= (plist-get again :id) (plist-get (nth 1 records) :voids)))
+       (should (= (plist-get again :id) (plist-get (nth 2 records) :voids)))
        (should (= 3 (plist-get good :grade)))
        (should (null (plist-get good :pre_stability)))))))
+
+(ert-deftest decklet-test-review-rerate-log-failure-keeps-prior-rating ()
+  "A failed replacement log write leaves the prior DB rating and log intact."
+  (decklet-test--with-temp-db
+   (decklet--add-card "w")
+   (let ((decklet-current-card-id (decklet-test--card-id "w"))
+         (decklet-due-card-ids nil)
+         (decklet-review--trail-past nil)
+         (decklet-review--trail-future nil))
+     (cl-letf (((symbol-function 'decklet-review--advance) #'ignore)
+               ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
+               ((symbol-function 'decklet-review--render-buffer) #'ignore))
+       (decklet-review--handle-grade 1)
+       (let ((prior-meta (decklet-get-card-meta decklet-current-card-id)))
+         (decklet-review-undo)
+         (cl-letf (((symbol-function 'decklet-review-log-append-rated)
+                    (lambda (&rest _) nil)))
+           (should-error (decklet-review--handle-grade 3) :type 'user-error))
+         (should (equal prior-meta
+                        (decklet-get-card-meta decklet-current-card-id)))
+         (should (equal '("rated")
+                        (mapcar (lambda (record) (plist-get record :kind))
+                                (decklet-test--read-log)))))))))
 
 (ert-deftest decklet-test-review-next-card-after-confirm-resumes-forward ()
   "After confirming the last undone card, forward flow resumes with the next

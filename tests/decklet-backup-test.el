@@ -99,8 +99,15 @@
   "With no session buffers open, restore disconnects and overwrites the DB."
   (decklet-test--with-temp-db
    (decklet-db--ensure)
-   (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir)))
+   (let ((backup-file (expand-file-name
+                       "decklet-20260101T010101Z.sqlite"
+                       decklet-backup-directory))
+         (log-backup (expand-file-name
+                      "review-log-20260101T010101Z.jsonl"
+                      decklet-backup-directory)))
+     (make-directory decklet-backup-directory t)
      (decklet-test--touch backup-file "backup-payload")
+     (decklet-test--touch log-backup "log-payload")
      (cl-letf (((symbol-function 'decklet-db--backup-files)
                 (lambda () (list backup-file)))
                ((symbol-function 'decklet-db--read-backup-choice)
@@ -108,7 +115,24 @@
                ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
        (decklet-db-restore))
      (should-not decklet-db--conn)
-     (should (string= (decklet-test--file-string decklet-db-file) "backup-payload")))))
+     (should (string= (decklet-test--file-string decklet-db-file) "backup-payload"))
+     (should (string= (decklet-test--file-string decklet-review-log-file)
+                      "log-payload")))))
+
+(ert-deftest decklet-test-backup-restore-requires-matching-review-log ()
+  "Restore refuses a database backup whose paired review log is missing."
+  (decklet-test--with-temp-db
+   (let ((backup-file (expand-file-name
+                       "decklet-20260101T010101Z.sqlite"
+                       decklet-backup-directory)))
+     (make-directory decklet-backup-directory t)
+     (decklet-test--touch backup-file "backup-payload")
+     (cl-letf (((symbol-function 'decklet-db--backup-files)
+                (lambda () (list backup-file)))
+               ((symbol-function 'decklet-db--read-backup-choice)
+                (lambda (_choices default) default)))
+       (should-error (decklet-db-restore) :type 'user-error))
+     (should-not (file-exists-p decklet-db-file)))))
 
 (ert-deftest decklet-test-backup-read-choice-binds-completion-vars ()
   "The restore completer applies the dynamic bindings from

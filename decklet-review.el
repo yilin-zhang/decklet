@@ -784,21 +784,21 @@ always leave the same amount of state behind."
          (word (plist-get row :word))
          (goal-was-reached (decklet-review--daily-goal-reached-p)))
     (if (decklet-review--undo-in-progress-p)
-        ;; Re-rate: restore pre-meta so FSRS computes from the
-        ;; correct base state, then rate and update the entry.  Also
-        ;; void the prior review-log entry so the log cleanly reflects
-        ;; the user's final intent rather than both the typo and the
-        ;; correction.
+        ;; Re-rate from the original base state, then retire the old log
+        ;; record only after its replacement and the DB update succeed.
         (let* ((entry (decklet-review--trail-current-entry))
                (pre-meta (plist-get entry :pre-meta))
                (prior-grade (plist-get entry :grade))
                (prior-log-id (plist-get entry :log-id)))
-          (decklet-db--upsert-card word pre-meta)
-          (when prior-log-id
-            (decklet-review-log-append-void prior-log-id))
-          (let ((new-log-id (decklet--rate-card-state
+          (let ((new-log-id (decklet--rerate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
+          (when (and prior-log-id
+                     (not (decklet-review-log-append-void prior-log-id)))
+            (display-warning
+             'decklet
+             "Could not retire the prior rating in the review log; both ratings remain"
+             :error))
           (decklet-review--trail-update-and-advance grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
       (let* ((old-meta (decklet-db--row->card-meta row))

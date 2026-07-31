@@ -292,6 +292,16 @@ ghost card-id leaks to `decklet-cards-added-functions'."
                  :type 'user-error)
    (should-not (decklet-db--select-card-row-by-word "bad-state"))))
 
+(ert-deftest decklet-test-db-import-rejects-invalid-scheduler-metadata ()
+  "Import rejects malformed timestamps and scheduler numbers before writing."
+  (decklet-test--with-temp-db
+   (dolist (record '(((word . "bad-date") (due . "tomorrow"))
+                     ((word . "bad-step") (step . "one"))
+                     ((word . "bad-stability") (stability . -1))
+                     ((word . "bad-difficulty") (difficulty . 11))))
+     (should-error (decklet-test--import (list record)) :type 'user-error))
+   (should (null (decklet-list-words)))))
+
 (ert-deftest decklet-test-db-import-new-state-is-schedulable ()
   "An imported `new' state is stored as learning and can be rated."
   (decklet-test--with-temp-db

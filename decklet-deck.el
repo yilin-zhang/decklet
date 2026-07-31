@@ -185,18 +185,47 @@ optional PROMPT, defaulting to the word at point."
          (old-meta (decklet-db--row->card-meta row)))
     (decklet--rate-card-state card-id word old-meta grade prior-grade)))
 
+(defun decklet--commit-card-rating (card-id word old-meta new-meta grade prior-grade)
+  "Store CARD-ID's rating and notify consumers.
+WORD, OLD-META, NEW-META, GRADE, and PRIOR-GRADE describe the rating."
+  (decklet-db--upsert-card word new-meta)
+  (decklet--refresh-counter)
+  (decklet-fire-one-card-event 'decklet-cards-rated-functions
+                               :card-id card-id
+                               :old-meta old-meta
+                               :grade grade
+                               :new-meta new-meta
+                               :prior-grade prior-grade))
+
 (defun decklet--rate-card-state (card-id word old-meta grade &optional prior-grade)
   "Update CARD-ID using WORD and OLD-META with review GRADE (1-4)."
   (let ((new-meta (decklet--update-meta-with-grade old-meta grade)))
-    (decklet-db--upsert-card word new-meta)
+    (decklet--commit-card-rating
+     card-id word old-meta new-meta grade prior-grade)
+    (decklet-review-log-append-rated word card-id grade old-meta new-meta)))
+
+(defun decklet--rerate-card-state (card-id word old-meta grade prior-grade)
+  "Replace CARD-ID's PRIOR-GRADE with GRADE using WORD and OLD-META.
+Write the replacement log record before changing the database, so a log
+write failure leaves the prior rating intact."
+  (let* ((new-meta (decklet--update-meta-with-grade old-meta grade))
+         (log-id (decklet-review-log-append-rated
+                  word card-id grade old-meta new-meta)))
+    (unless log-id
+      (user-error "Could not write replacement rating to the review log"))
+    (condition-case err
+        (decklet-db--upsert-card word new-meta)
+      (error
+       (decklet-review-log-append-void log-id)
+       (signal (car err) (cdr err))))
     (decklet--refresh-counter)
-    (prog1 (decklet-review-log-append-rated word card-id grade old-meta new-meta)
-      (decklet-fire-one-card-event 'decklet-cards-rated-functions
-                                   :card-id card-id
-                                   :old-meta old-meta
-                                   :grade grade
-                                   :new-meta new-meta
-                                   :prior-grade prior-grade))))
+    (decklet-fire-one-card-event 'decklet-cards-rated-functions
+                                 :card-id card-id
+                                 :old-meta old-meta
+                                 :grade grade
+                                 :new-meta new-meta
+                                 :prior-grade prior-grade)
+    log-id))
 
 (defun decklet-set-card-word (card-id new-word)
   "Rename CARD-ID to NEW-WORD and return the normalized new value."

@@ -743,6 +743,51 @@ FSRS only accepts learning/review/relearning scheduler states."
       (decklet--fsrs-schedulable-state (or raw :learning))
     (error (user-error "Invalid card state in import: %S" raw))))
 
+(defun decklet-db--import-valid-timestamp-p (value)
+  "Return non-nil when VALUE is nil or a valid FSRS timestamp string."
+  (or (null value)
+      (and (stringp value)
+           (condition-case nil
+               (progn
+                 (fsrs-timestamp-difference value value)
+                 t)
+             (error nil)))))
+
+(defun decklet-db--import-validate-number (word field value predicate description)
+  "Validate WORD's FIELD VALUE with PREDICATE, expecting DESCRIPTION."
+  (unless (or (null value)
+              (and (numberp value) (funcall predicate value)))
+    (user-error "Card %S: %s must be %s, got %S"
+                word field description value)))
+
+(defun decklet-db--import-validate-card (card)
+  "Validate imported CARD metadata and return CARD."
+  (let* ((word (plist-get card :word))
+         (meta (plist-get card :meta))
+         (state (decklet-card-meta-state meta))
+         (step (decklet-card-meta-step meta))
+         (last-review (decklet-card-meta-last-review meta)))
+    (dolist (field-value
+             `(("added_date" ,(decklet-card-meta-added-date meta))
+               ("last_review" ,last-review)
+               ("due" ,(decklet-card-meta-due meta))
+               ("archived_at" ,(plist-get card :archived-at))))
+      (unless (decklet-db--import-valid-timestamp-p (cadr field-value))
+        (user-error "Card %S: %s must be a valid FSRS timestamp, got %S"
+                    word (car field-value) (cadr field-value))))
+    (unless (or (and (eq state :review) (null step))
+                (and (integerp step) (>= step 0)))
+      (user-error "Card %S: step must be a non-negative integer, got %S"
+                  word step))
+    (decklet-db--import-validate-number
+     word "stability" (decklet-card-meta-stability meta)
+     (lambda (value) (> value 0)) "a positive number")
+    (decklet-db--import-validate-number
+     word "difficulty" (decklet-card-meta-difficulty meta)
+     (lambda (value) (and (>= value 1) (<= value 10)))
+     "a number between 1 and 10")
+    card))
+
 (defun decklet-db--import-record->card (record)
   "Convert JSON RECORD alist to a card plist.
 Returns a card plist with keys :card-id, :word, :hint, :back,
@@ -765,9 +810,10 @@ string."
          (step-raw (decklet-db--json-alist-get record 'step))
          ;; Step is meaningful for learning/relearning.
          ;; Keep review cards at nil when step is missing.
-         (step (if (numberp step-raw)
-                   step-raw
-                 (if (eq state :review) nil 0)))
+         (step (cond
+                ((null step-raw) (if (eq state :review) nil 0))
+                ((numberp step-raw) step-raw)
+                (t step-raw)))
          (meta (make-decklet-card-meta
                 :card-id (decklet-db--mint-card-id)
                 :added-date (or (decklet-db--json-alist-get record 'added_date) now)
@@ -782,12 +828,13 @@ string."
          (back (decklet-db--import-text-value
                 (decklet-db--json-alist-get-raw record 'back)))
          (archived-at (decklet-db--json-alist-get record 'archived_at)))
-    (list :card-id (decklet-card-meta-card-id meta)
-          :word word
-          :hint hint
-          :back back
-          :meta meta
-          :archived-at archived-at)))
+    (decklet-db--import-validate-card
+     (list :card-id (decklet-card-meta-card-id meta)
+           :word word
+           :hint hint
+           :back back
+           :meta meta
+           :archived-at archived-at))))
 
 (defun decklet-db--import-read-conflict-choice (word)
   "Prompt conflict action for WORD.
@@ -1019,7 +1066,7 @@ When non-nil, it is called with no arguments inside
 (defun decklet-db--backup-file-pattern (base ext)
   "Return a regexp matching timestamped backup files for BASE.EXT.
 Includes an optional collision suffix (e.g. `-1', `-2')."
-  (format "\\`%s-%s\\(-[0-9]+\\)?\\.%s\\'"
+  (format "\\`%s-\\(%s\\(?:-[0-9]+\\)?\\)\\.%s\\'"
           (regexp-quote base)
           decklet-db--backup-timestamp-re
           (regexp-quote ext)))
@@ -1094,6 +1141,57 @@ their backups to ride in the same rotation; register a handler on
           (date-to-time (match-string 1 filename))
         (error nil)))))
 
+(defun decklet-db--backup-token (file base ext)
+  "Return FILE's timestamp-and-suffix token for BASE.EXT, or nil."
+  (let ((name (file-name-nondirectory file))
+        (pattern (decklet-db--backup-file-pattern base ext)))
+    (when (string-match pattern name)
+      (match-string 1 name))))
+
+(defun decklet-db--matching-review-log-backup (database-backup)
+  "Return the review-log backup paired with DATABASE-BACKUP, or nil."
+  (require 'decklet-review-log)
+  (let* ((db-base (file-name-base decklet-db-file))
+         (token (decklet-db--backup-token database-backup db-base "sqlite"))
+         (log-base (file-name-base decklet-review-log-file))
+         (log-ext (file-name-extension decklet-review-log-file))
+         (candidate (and token
+                         (expand-file-name
+                          (format "%s-%s.%s" log-base token log-ext)
+                          decklet-backup-directory))))
+    (and candidate (file-exists-p candidate) candidate)))
+
+(defun decklet-db--restore-file-pairs (pairs)
+  "Restore source/target PAIRS, rolling back all targets on failure."
+  (let ((saved nil))
+    (unwind-protect
+        (condition-case err
+            (progn
+              (dolist (pair pairs)
+                (pcase-let* ((`(,_source ,target) pair)
+                             (target-dir (file-name-directory target)))
+                  (when target-dir
+                    (make-directory target-dir t))
+                  (if (file-exists-p target)
+                      (let ((copy (make-temp-file
+                                   (expand-file-name ".decklet-restore-"
+                                                     target-dir))))
+                        (copy-file target copy t t t)
+                        (push (cons target copy) saved))
+                    (push (cons target nil) saved))))
+              (dolist (pair pairs)
+                (copy-file (car pair) (cadr pair) t t t)))
+          (error
+           (dolist (entry saved)
+             (if (cdr entry)
+                 (copy-file (cdr entry) (car entry) t t t)
+               (when (file-exists-p (car entry))
+                 (delete-file (car entry)))))
+           (signal (car err) (cdr err))))
+      (dolist (entry saved)
+        (when (and (cdr entry) (file-exists-p (cdr entry)))
+          (delete-file (cdr entry)))))))
+
 (defun decklet-db--backup-files ()
   "Return backup files sorted by newest timestamp first."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
@@ -1156,9 +1254,14 @@ their backups to ride in the same rotation; register a handler on
                             files))
            (default (caar choices))
            (selection (decklet-db--read-backup-choice choices default))
-           (backup-file (cdr (assoc selection choices))))
+           (backup-file (cdr (assoc selection choices)))
+           (review-log-backup
+            (and backup-file
+                 (decklet-db--matching-review-log-backup backup-file))))
       (unless backup-file
         (user-error "No backup selected"))
+      (unless review-log-backup
+        (user-error "The selected database backup has no matching review log"))
       (when (decklet-db--session-buffer-live-p)
         (user-error
          "Please disconnect Decklet before restore; use `decklet-disconnect'"))
@@ -1170,8 +1273,11 @@ their backups to ride in the same rotation; register a handler on
         ;; can drop the handle internally and proceed.
         (when decklet-db--conn
           (decklet-db--disconnect))
-        (copy-file backup-file decklet-db-file t t t)
-        (message "Restored database from %s" (file-name-nondirectory backup-file))))))
+        (decklet-db--restore-file-pairs
+         (list (list backup-file decklet-db-file)
+               (list review-log-backup decklet-review-log-file)))
+        (message "Restored database and review log from %s"
+                 (file-name-nondirectory backup-file))))))
 
 ;; Maintenance command
 
