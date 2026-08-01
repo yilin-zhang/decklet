@@ -42,8 +42,8 @@ optional back field (absent back becomes nil)."
      (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                 (lambda (_w) (cons :skip nil))))
        (let ((stats (decklet-test--import (list row))))
-	 (should (= 0 (plist-get stats :added)))
-	 (should (= 1 (plist-get stats :skipped)))))
+	     (should (= 0 (plist-get stats :added)))
+	     (should (= 1 (plist-get stats :skipped)))))
      (should (string= "old" (plist-get (decklet-db--select-card-row-by-word "alpha") :hint)))
      (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                 (lambda (_w) (cons :overwrite nil))))
@@ -63,10 +63,11 @@ preserves the existing value."
              (overwrite (extra)
                (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                           (lambda (_w) (cons :overwrite nil))))
-		 (decklet-test--import
-		  (list (append '((word . "alpha") (added_date . "20250110T000000Z")
-				  (due . "20250111T000000Z") (state . "review")
-				  (step . 0) (stability . 1.0) (difficulty . 1.0))
+		         (decklet-test--import
+		          (list (append '((word . "alpha") (added_date . "20250110T000000Z")
+				                  (last_review . "20250110T000000Z")
+				                  (due . "20250111T000000Z") (state . "review")
+				                  (step . 0) (stability . 1.0) (difficulty . 1.0))
                                 extra)))))
              (alpha (key) (plist-get (decklet-db--select-card-row-by-word "alpha") key)))
      ;; Explicit JSON null clears.
@@ -87,6 +88,7 @@ preserves the existing value."
 ghost card-id leaks to `decklet-cards-added-functions'."
   (decklet-test--with-temp-db
    (let* ((rec '((word . "alpha") (added_date . "20250110T000000Z")
+                 (last_review . "20250110T000000Z")
                  (due . "20250111T000000Z") (state . "review") (step . 0)
                  (stability . 1.0) (difficulty . 1.0)))
           (added-events nil)
@@ -105,6 +107,22 @@ ghost card-id leaks to `decklet-cards-added-functions'."
                  :type 'user-error)
    (should-not (decklet-db--select-card-row-by-word "bad-state"))))
 
+(ert-deftest decklet-test-transfer-import-rejects-json-false-values ()
+  "JSON false is an invalid field value, not an alias for a missing key."
+  (decklet-test--with-temp-db
+   (let ((file (expand-file-name "false.json" tmp-dir)))
+     (with-temp-file file
+       (insert "[{\"word\":\"bad\",\"state\":false}]"))
+     (should-error (decklet-db-import-json file) :type 'user-error)
+     (should-not (decklet-get-card-id-by-word "bad")))))
+
+(ert-deftest decklet-test-transfer-import-requires-array-root ()
+  "An object root is rejected even when it is empty."
+  (decklet-test--with-temp-db
+   (let ((file (expand-file-name "object.json" tmp-dir)))
+     (with-temp-file file (insert "{}"))
+     (should-error (decklet-db-import-json file) :type 'user-error))))
+
 (ert-deftest decklet-test-transfer-import-rejects-invalid-scheduler-metadata ()
   "Import rejects malformed timestamps and scheduler numbers before writing."
   (decklet-test--with-temp-db
@@ -114,6 +132,36 @@ ghost card-id leaks to `decklet-cards-added-functions'."
                      ((word . "bad-difficulty") (difficulty . 11))))
      (should-error (decklet-test--import (list record)) :type 'user-error))
    (should (null (decklet-list-words)))))
+
+(ert-deftest decklet-test-transfer-import-rejects-inconsistent-fsrs-metadata ()
+  "Import rejects new/review state combinations FSRS cannot schedule safely."
+  (decklet-test--with-temp-db
+   (dolist (record
+            '(((word . "new-as-review") (state . "review"))
+              ((word . "new-with-memory") (state . "learning")
+               (stability . 1.0) (difficulty . 3.0))
+              ((word . "review-without-memory") (state . "review")
+               (last_review . "20250101T010101Z"))))
+     (should-error (decklet-test--import (list record)) :type 'user-error))
+   (should-not (decklet-list-words))))
+
+(ert-deftest decklet-test-transfer-overwrite-notifies-card-change ()
+  "Overwriting an imported card emits one refresh event after commit."
+  (decklet-test--with-temp-db
+   (let* ((card-id (decklet-test--add-card-meta
+                    "alpha" :timestamp "20250101T000000Z"
+                    :stability 1.0 :difficulty 3.0))
+          (events nil)
+          (decklet-cards-field-updated-functions
+           (list (lambda (received) (setq events received))))
+          (record '((word . "alpha") (added_date . "20250110T000000Z")
+                    (last_review . "20250110T000000Z")
+                    (due . "20250111T000000Z") (state . "review")
+                    (step . nil) (stability . 2.0) (difficulty . 4.0))))
+     (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
+                (lambda (_word) (cons :overwrite nil))))
+       (decklet-test--import (list record)))
+     (should (equal events (list (list :card-id card-id :field 'import)))))))
 
 (ert-deftest decklet-test-transfer-import-new-state-is-schedulable ()
   "An imported `new' state is stored as learning and can be rated."

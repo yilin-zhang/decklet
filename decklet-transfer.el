@@ -17,6 +17,9 @@
 
 ;; JSON export and import
 
+(defconst decklet-transfer--missing :decklet-transfer-missing
+  "Sentinel distinguishing a missing JSON key from null and false.")
+
 (defun decklet-transfer--export-default-file ()
   "Return the default JSON export file path."
   (expand-file-name
@@ -29,8 +32,9 @@
 Preserves the `:json-null' sentinel used by the import parser — callers
 that need to distinguish \"key missing\" from \"key explicitly null\"
 should use this; everyone else should prefer `decklet-transfer--json-alist-get'."
-  (or (alist-get key record nil nil #'equal)
-      (alist-get (symbol-name key) record nil nil #'equal)))
+  (let ((cell (or (assoc key record)
+                  (assoc (symbol-name key) record))))
+    (if cell (cdr cell) decklet-transfer--missing)))
 
 (defun decklet-transfer--json-alist-get (record key)
   "Return KEY value from RECORD alist, accepting symbol or string keys.
@@ -38,14 +42,17 @@ Collapses the `:json-null' sentinel to nil so fields that treat
 missing and null equivalently (everything except hint/back) don't
 have to care about the import sentinel."
   (let ((value (decklet-transfer--json-alist-get-raw record key)))
-    (if (eq value :json-null) nil value)))
+    (if (or (eq value decklet-transfer--missing)
+            (eq value :json-null))
+        nil
+      value)))
 
 (defun decklet-transfer--import-text-value (raw)
   "Classify RAW JSON value for an import text field like hint or back.
 Return nil when the field was missing from the record, `:clear' when it
 was present but JSON `null' or blank, or the trimmed non-empty string."
   (cond
-   ((null raw) nil)
+   ((eq raw decklet-transfer--missing) nil)
    ((eq raw :json-null) :clear)
    ((stringp raw)
     (let ((trimmed (string-trim raw)))
@@ -104,6 +111,20 @@ FSRS only accepts learning/review/relearning scheduler states."
      word "difficulty" (decklet-card-meta-difficulty meta)
      (lambda (value) (and (>= value 1) (<= value 10)))
      "a number between 1 and 10")
+    (if (null last-review)
+        (progn
+          (unless (eq state :learning)
+            (user-error "Card %S: a never-reviewed card must use learning state"
+                        word))
+          (when (or (decklet-card-meta-stability meta)
+                    (decklet-card-meta-difficulty meta))
+            (user-error
+             "Card %S: a never-reviewed card cannot have stability or difficulty"
+             word)))
+      (unless (and (decklet-card-meta-stability meta)
+                   (decklet-card-meta-difficulty meta))
+        (user-error
+         "Card %S: a reviewed card requires stability and difficulty" word)))
     card))
 
 (defun decklet-transfer--import-record->card (record)
@@ -215,13 +236,12 @@ unarchived."
       (if archived-at
           (decklet-db--archive-card card-id archived-at)
         (when overwrite-p
-          (decklet-db--unarchive-card card-id))))))
+          (decklet-db--unarchive-card card-id)))
+      card-id)))
 
 (defun decklet-transfer--import-json-file (file)
   "Import cards from JSON FILE.
 Return a plist with :added, :overwritten, and :skipped."
-  (unless (file-exists-p file)
-    (user-error "Import file does not exist: %s" file))
   ;; Parse with `:json-null' as the null sentinel so hint/back can
   ;; distinguish "key missing" (nil) from "key explicitly null"
   ;; (`:json-null').  `decklet-transfer--import-text-value' collapses both
@@ -229,11 +249,12 @@ Return a plist with :added, :overwritten, and :skipped."
   (let ((records (with-temp-buffer
                    (insert-file-contents file)
                    (json-parse-buffer :object-type 'alist
-                                      :array-type 'list
+                                      :array-type 'array
                                       :null-object :json-null
-                                      :false-object nil))))
-    (unless (listp records)
+                                      :false-object :json-false))))
+    (unless (vectorp records)
       (user-error "Import JSON must be an array of card objects"))
+    (setq records (append records nil))
     ;; Resolve all conflict decisions before opening a transaction so
     ;; interactive prompts don't block inside a write transaction.
     ;; Reject intra-file duplicates early: two records with the same word
@@ -259,7 +280,8 @@ Return a plist with :added, :overwritten, and :skipped."
                            (cons card action))))
                      records))
            (added 0) (overwritten 0) (skipped 0)
-           (added-card-ids nil))
+           (added-card-ids nil)
+           (overwritten-card-ids nil))
       ;; Write all cards in a single transaction.
       (let ((conn (decklet-db--ensure)))
         (sqlite-execute conn "BEGIN;")
@@ -270,13 +292,14 @@ Return a plist with :added, :overwritten, and :skipped."
                       (action (cdr entry)))
                   (pcase action
                     (:add
-                     (decklet-transfer--apply-import-card card nil)
-                     (push (plist-get card :card-id) added-card-ids)
+                     (push (decklet-transfer--apply-import-card card nil)
+                           added-card-ids)
                      (cl-incf added))
                     (:skip
                      (cl-incf skipped))
                     (:overwrite
-                     (decklet-transfer--apply-import-card card t)
+                     (push (decklet-transfer--apply-import-card card t)
+                           overwritten-card-ids)
                      (cl-incf overwritten))
                     (_
                      (error "Unknown import action: %S" action)))))
@@ -288,9 +311,15 @@ Return a plist with :added, :overwritten, and :skipped."
       ;; sidecar extensions only see successful imports.  One batched
       ;; event per successful import.
       (when added-card-ids
-        (run-hook-with-args 'decklet-cards-added-functions
-                            (mapcar (lambda (card-id) (list :card-id card-id))
-                                    (nreverse added-card-ids))))
+        (decklet-run-hook-isolated
+         'decklet-cards-added-functions
+         (mapcar (lambda (card-id) (list :card-id card-id))
+                 (nreverse added-card-ids))))
+      (when overwritten-card-ids
+        (decklet-run-hook-isolated
+         'decklet-cards-field-updated-functions
+         (mapcar (lambda (card-id) (list :card-id card-id :field 'import))
+                 (nreverse overwritten-card-ids))))
       (list :added added :overwritten overwritten :skipped skipped))))
 
 ;;;###autoload

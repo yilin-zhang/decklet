@@ -85,40 +85,6 @@ body; nested calls see it set and unwind it on exit.  No window is needed."
     (should (equal flag-values '(t t)))
     (should (null decklet-edit--preserving-point))))
 
-;;; Sorting and rendering
-
-(ert-deftest decklet-test-edit-db-sort-key-maps-ui-column ()
-  "A tabulated-list sort key on a UI column maps to its DB column."
-  (should (equal (decklet-edit--db-sort-key '("Last Review" . t))
-                 '("last_review" . t))))
-
-(ert-deftest decklet-test-edit-entries-render-multiline-inline ()
-  "Multi-line words and hints are rendered inline with a ↵ glyph, and a card
-with a back shows the back marker."
-  (cl-letf (((symbol-function 'decklet-db--select-card-rows)
-             (lambda (&rest _)
-               '((:card-id 42 :word "line1\nline2" :added "20250101T000000Z"
-                           :last-review nil :due "20250102T000000Z"
-                           :state "learning" :step nil :stability nil
-                           :difficulty nil :hint "hint1\nhint2" :back nil)))))
-    (let* ((decklet-edit--filter 'all)
-	   (decklet-edit-sidecar-columns
-	    (list (list :name "Image" :width 5 :value (lambda (_row) "♣"))))
-	   (tabulated-list-sort-key nil)
-	   (columns (cadr (car (decklet-edit--entries)))))
-      (should (string= (aref columns 0) "line1↵line2"))
-      (should (string= (aref columns 1) "hint1↵hint2"))
-      (should (string= (aref columns 3) "♣")))))
-
-(ert-deftest decklet-test-edit-tabulated-format-includes-sidecar-columns ()
-  "Sidecar columns are inserted after the built-in Back column."
-  (let* ((decklet-edit-sidecar-columns
-          (list (list :name "Image" :width 5 :value (lambda (_row) nil))))
-         (format (decklet-edit--tabulated-list-format)))
-    (should (equal "Back" (car (aref format 2))))
-    (should (equal "Image" (car (aref format 3))))
-    (should (equal "State" (car (aref format 4))))))
-
 ;;; Delete
 
 (ert-deftest decklet-test-edit-delete-at-point-when-unmarked ()

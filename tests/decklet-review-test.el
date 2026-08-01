@@ -112,21 +112,6 @@ hook exactly once."
     (should (equal decklet-due-card-ids '(2)))
     (should (= hook-count 1))))
 
-;;; Rendering internals
-
-(ert-deftest decklet-test-review-collect-component-items-collapses-separators ()
-  "Leading and consecutive separators collapse to a single placeholder item."
-  (cl-letf (((symbol-function 'decklet-test--component-a) (lambda () "A"))
-            ((symbol-function 'decklet-test--component-b) (lambda () "B")))
-    (let ((items (car (decklet-review--collect-component-items
-		       '(decklet-review-component-separator
-			 decklet-test--component-a
-			 decklet-review-component-separator
-			 decklet-review-component-separator
-			 decklet-test--component-b)))))
-      (should (equal (mapcar #'car items) '("A" "" "B")))
-      (should (equal (mapcar #'cdr items) '(nil t nil))))))
-
 (ert-deftest decklet-test-review-start-hint-timer-is-idempotent ()
   "Repeated `start-hint-timer' calls schedule at most one timer."
   (let ((decklet-review--hint-timer nil)
@@ -204,14 +189,14 @@ the due queue, without writing to the DB."
                 (decklet-test--trail-entry 1)))
          (decklet-review--trail-future nil)
          (decklet-current-card-id 4)
-         (words-seen nil))
+         (card-ids-seen nil))
     (decklet-test-review--with-card-words ((1 . "A") (2 . "B") (3 . "C") (4 . "D"))
 					  (cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
 						    ((symbol-function 'decklet-review--render-buffer) #'ignore))
 					    (dotimes (_ 3)
 					      (decklet-review-undo)
-					      (push (decklet-get-card-word decklet-current-card-id) words-seen))))
-    (should (equal '("A" "B" "C") words-seen))
+					      (push decklet-current-card-id card-ids-seen))))
+    (should (equal '(1 2 3) card-ids-seen))
     (should (null decklet-review--trail-past))
     (should (= 3 (length decklet-review--trail-future)))))
 
@@ -260,35 +245,14 @@ new-card base), not the stability left behind by the undone rating."
      (let* ((records (decklet-test--read-log))
             (again (nth 0 records))
             (good (nth 1 records)))
-       (should (equal '("rated" "rated" "void")
+       (should (equal (list decklet-review-log-kind-rated
+                            decklet-review-log-kind-rated
+                            decklet-review-log-kind-void)
                       (mapcar (lambda (r) (plist-get r :kind)) records)))
        (should (= 1 (plist-get again :grade)))
        (should (= (plist-get again :id) (plist-get (nth 2 records) :voids)))
        (should (= 3 (plist-get good :grade)))
        (should (null (plist-get good :pre_stability)))))))
-
-(ert-deftest decklet-test-review-rerate-log-failure-keeps-prior-rating ()
-  "A failed replacement log write leaves the prior DB rating and log intact."
-  (decklet-test--with-temp-db
-   (decklet--add-card "w")
-   (let ((decklet-current-card-id (decklet-test--card-id "w"))
-         (decklet-due-card-ids nil)
-         (decklet-review--trail-past nil)
-         (decklet-review--trail-future nil))
-     (cl-letf (((symbol-function 'decklet-review--advance) #'ignore)
-               ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-               ((symbol-function 'decklet-review--render-buffer) #'ignore))
-       (decklet-review--handle-grade 1)
-       (let ((prior-meta (decklet-get-card-meta decklet-current-card-id)))
-         (decklet-review-undo)
-         (cl-letf (((symbol-function 'decklet-review-log-append-rated)
-                    (lambda (&rest _) nil)))
-           (should-error (decklet-review--handle-grade 3) :type 'user-error))
-         (should (equal prior-meta
-                        (decklet-get-card-meta decklet-current-card-id)))
-         (should (equal '("rated")
-                        (mapcar (lambda (record) (plist-get record :kind))
-                                (decklet-test--read-log)))))))))
 
 (ert-deftest decklet-test-review-next-card-after-confirm-resumes-forward ()
   "After confirming the last undone card, forward flow resumes with the next

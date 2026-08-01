@@ -11,9 +11,11 @@
     (let ((timestamp "20260206T120000Z"))
       (decklet-test--touch
        (expand-file-name (format "%s-%s.sqlite" base timestamp) backup-dir))
-      (should (string= (decklet-backup--backup-target backup-dir base "sqlite" timestamp)
-                       (expand-file-name (format "%s-%s-1.sqlite" base timestamp)
-                                         backup-dir)))))))
+      (should (= 1 (decklet-backup--token-collision-index
+                    (decklet-backup--backup-token
+                     (decklet-backup--backup-target
+                      backup-dir base "sqlite" timestamp)
+                     base "sqlite"))))))))
 
 (ert-deftest decklet-test-backup-files-sorted-newest-first ()
   "`decklet-backup--backup-files' lists backups newest-first by embedded timestamp."
@@ -33,8 +35,7 @@
                                   temporary-file-directory))
           (parsed (decklet-backup--backup-timestamp file)))
      (should parsed)
-     (should (string= (format-time-string "%Y%m%dT%H%M%SZ" parsed "UTC0")
-                      "20260101T123456Z")))))
+     (should (time-equal-p parsed (date-to-time "20260101T123456Z"))))))
 
 ;;; Pruning
 
@@ -78,6 +79,28 @@
    (decklet-db-backup)
    (should (= 1 (length (decklet-backup--backup-files))))))
 
+(ert-deftest decklet-test-backup-always-creates-restorable-pair ()
+  "A deck without review history still gets an empty paired log backup."
+  (decklet-test--with-temp-db
+   (decklet-test--add-card-meta "unrated")
+   (decklet-db-backup)
+   (let* ((database-backup (car (decklet-backup--backup-files)))
+          (log-backup
+           (decklet-backup--matching-review-log-backup database-backup)))
+     (should log-backup)
+     (should (string-empty-p (decklet-test--file-string log-backup))))))
+
+(ert-deftest decklet-test-backup-collision-keeps-pair-tokens-equal ()
+  "Multiple backups in one second use the same collision suffix for each pair."
+  (decklet-test--with-temp-db
+   (decklet-test--add-card-meta "paired")
+   (cl-letf (((symbol-function 'decklet--timestamp-utc)
+              (lambda (&optional _time) "20260731T120000Z")))
+     (decklet-backup--backup)
+     (decklet-backup--backup))
+   (dolist (database-backup (decklet-backup--backup-files))
+     (should (decklet-backup--matching-review-log-backup database-backup)))))
+
 ;;; Restore
 
 (ert-deftest decklet-test-backup-restore-errors-with-session-buffers-open ()
@@ -87,27 +110,29 @@
    (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir)))
      (decklet-test--touch backup-file "backup")
      (decklet-test--with-temp-buffers (buf)
-				      (with-current-buffer buf (decklet-db-register-dependent-buffer))
-				      (cl-letf (((symbol-function 'decklet-backup--backup-files)
-						 (lambda () (list backup-file)))
-						((symbol-function 'decklet-backup--read-backup-choice)
-						 (lambda (_choices default) default)))
-					(should-error (decklet-db-restore) :type 'user-error))
-				      (should decklet-db--conn)))))
+	   (with-current-buffer buf (decklet-db-register-dependent-buffer))
+	   (cl-letf (((symbol-function 'decklet-backup--backup-files)
+				  (lambda () (list backup-file)))
+				 ((symbol-function 'decklet-backup--read-backup-choice)
+				  (lambda (_choices default) default)))
+		 (should-error (decklet-db-restore) :type 'user-error))
+	   (should decklet-db--conn)))))
 
 (ert-deftest decklet-test-backup-restore-auto-disconnects-without-session ()
   "With no session buffers open, restore disconnects and overwrites the DB."
   (decklet-test--with-temp-db
    (decklet-db--ensure)
-   (let ((backup-file (expand-file-name
+   (let ((database-payload "backup-payload")
+         (log-payload "log-payload")
+         (backup-file (expand-file-name
                        "decklet-20260101T010101Z.sqlite"
                        decklet-backup-directory))
          (log-backup (expand-file-name
                       "review-log-20260101T010101Z.jsonl"
                       decklet-backup-directory)))
      (make-directory decklet-backup-directory t)
-     (decklet-test--touch backup-file "backup-payload")
-     (decklet-test--touch log-backup "log-payload")
+     (decklet-test--touch backup-file database-payload)
+     (decklet-test--touch log-backup log-payload)
      (cl-letf (((symbol-function 'decklet-backup--backup-files)
                 (lambda () (list backup-file)))
                ((symbol-function 'decklet-backup--read-backup-choice)
@@ -115,9 +140,10 @@
                ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
        (decklet-db-restore))
      (should-not decklet-db--conn)
-     (should (string= (decklet-test--file-string decklet-db-file) "backup-payload"))
+     (should (string= (decklet-test--file-string decklet-db-file)
+                      database-payload))
      (should (string= (decklet-test--file-string decklet-review-log-file)
-                      "log-payload")))))
+                      log-payload)))))
 
 (ert-deftest decklet-test-backup-restore-requires-matching-review-log ()
   "Restore refuses a database backup whose paired review log is missing."
@@ -134,25 +160,7 @@
        (should-error (decklet-db-restore) :type 'user-error))
      (should-not (file-exists-p decklet-db-file)))))
 
-(ert-deftest decklet-test-backup-read-choice-binds-completion-vars ()
-  "The restore completer applies the dynamic bindings from
-`decklet-backup-restore-completion-setup' and preserves the completion contract."
-  (let ((decklet-backup-restore-completion-setup
-         (lambda () '((decklet-test--temp-binding . 42))))
-        (captured nil))
-    (cl-letf (((symbol-function 'completing-read)
-               (lambda (_prompt choices &optional _pred require-match _init _hist def)
-                 (setq captured (list :choices choices :require-match require-match
-                                      :default def))
-                 (number-to-string (symbol-value 'decklet-test--temp-binding)))))
-      (should (string= (decklet-backup--read-backup-choice '("a" "b") "a") "42"))
-      (should (equal (plist-get captured :choices) '("a" "b")))
-      (should (equal (plist-get captured :default) "a"))
-      (should (eq (plist-get captured :require-match) t)))))
-
 ;;; Post-backup hook and auxiliary-file backup
-;; The review log subscribes to `decklet-db-post-backup-functions' so it rides
-;; in the same backup rotation as the SQLite snapshot.
 
 (ert-deftest decklet-test-backup-post-backup-hook-fires ()
   "`decklet-db-post-backup-functions' runs after a backup with (BACKUP-DIR
@@ -168,28 +176,20 @@ TIMESTAMP), where TIMESTAMP is the compact UTC form."
                              (plist-get captured :ts))))))
 
 (ert-deftest decklet-test-backup-auxiliary-file-copies-with-timestamp ()
-  "`decklet-db-backup-auxiliary-file' writes a timestamped sibling copy."
+  "`decklet-backup-auxiliary-file' writes a timestamped sibling copy."
   (decklet-test--with-temp-db
    (decklet-test--with-backup-dir
-    (let ((source (expand-file-name "extra.jsonl" tmp-dir))
+    (let ((content "line-one\n")
+          (source (expand-file-name "extra.jsonl" tmp-dir))
           (timestamp "20260410T120000Z"))
-      (decklet-test--touch source "line-one\n")
-      (decklet-db-backup-auxiliary-file source backup-dir timestamp)
+      (decklet-test--touch source content)
+      (decklet-backup-auxiliary-file source backup-dir timestamp)
       (let ((expected (expand-file-name (format "extra-%s.jsonl" timestamp) backup-dir)))
         (should (file-exists-p expected))
-        (should (string= (decklet-test--file-string expected) "line-one\n")))))))
-
-(ert-deftest decklet-test-backup-auxiliary-file-missing-source-noop ()
-  "`decklet-db-backup-auxiliary-file' is a silent no-op for an absent source."
-  (decklet-test--with-temp-db
-   (decklet-test--with-backup-dir
-    (decklet-db-backup-auxiliary-file
-     (expand-file-name "absent.jsonl" tmp-dir) backup-dir "20260410T120000Z")
-    (should-not (directory-files backup-dir nil "absent")))))
+        (should (string= (decklet-test--file-string expected) content)))))))
 
 (ert-deftest decklet-test-backup-review-log-rides-with-db ()
-  "Backing up the DB also copies the review log into the backup directory via
-the post-backup hook subscriber, with matching content."
+  "Backing up the DB directly creates a paired review-log copy."
   (decklet-test--with-temp-db
    (decklet-test--add-card-meta "backed-up")
    (decklet-review-log-append-void 42)

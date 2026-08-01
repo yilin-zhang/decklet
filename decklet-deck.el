@@ -199,10 +199,22 @@ WORD, OLD-META, NEW-META, GRADE, and PRIOR-GRADE describe the rating."
 
 (defun decklet--rate-card-state (card-id word old-meta grade &optional prior-grade)
   "Update CARD-ID using WORD and OLD-META with review GRADE (1-4)."
-  (let ((new-meta (decklet--update-meta-with-grade old-meta grade)))
-    (decklet--commit-card-rating
-     card-id word old-meta new-meta grade prior-grade)
-    (decklet-review-log-append-rated word card-id grade old-meta new-meta)))
+  (let* ((new-meta (decklet--update-meta-with-grade old-meta grade))
+         (log-id (decklet-review-log-append-rated
+                  word card-id grade old-meta new-meta)))
+    (unless log-id
+      (user-error "Could not write rating to the review log"))
+    (condition-case err
+        (decklet--commit-card-rating
+         card-id word old-meta new-meta grade prior-grade)
+      (error
+       (unless (decklet-review-log-append-void log-id)
+         (display-warning
+          'decklet
+          "Could not retire a rating whose database update failed"
+          :error))
+       (signal (car err) (cdr err))))
+    log-id))
 
 (defun decklet--rerate-card-state (card-id word old-meta grade prior-grade)
   "Replace CARD-ID's PRIOR-GRADE with GRADE using WORD and OLD-META.
@@ -214,27 +226,35 @@ write failure leaves the prior rating intact."
     (unless log-id
       (user-error "Could not write replacement rating to the review log"))
     (condition-case err
-        (decklet-db--upsert-card word new-meta)
+        (decklet--commit-card-rating
+         card-id word old-meta new-meta grade prior-grade)
       (error
-       (decklet-review-log-append-void log-id)
+       (unless (decklet-review-log-append-void log-id)
+         (display-warning
+          'decklet
+          "Could not retire a replacement rating whose database update failed"
+          :error))
        (signal (car err) (cdr err))))
-    (decklet--refresh-counter)
-    (decklet-fire-one-card-event 'decklet-cards-rated-functions
-                                 :card-id card-id
-                                 :old-meta old-meta
-                                 :grade grade
-                                 :new-meta new-meta
-                                 :prior-grade prior-grade)
     log-id))
 
 (defun decklet-set-card-word (card-id new-word)
   "Rename CARD-ID to NEW-WORD and return the normalized new value."
   (let* ((old-word (decklet-get-card-word card-id))
          (normalized (decklet-db--update-word card-id new-word)))
-    (when (and decklet-last-added-word (string-equal old-word decklet-last-added-word))
-      (setq decklet-last-added-word normalized))
     (unless (string-equal old-word normalized)
-      (decklet-review-log-append-rename card-id old-word normalized)
+      (unless (decklet-review-log-append-rename card-id old-word normalized)
+        (condition-case err
+            (decklet-db--update-word card-id old-word)
+          (error
+           (display-warning
+            'decklet
+            (format "Could not roll back rename after log failure: %s"
+                    (error-message-string err))
+            :error)))
+        (user-error "Could not write rename to the review log"))
+      (when (and decklet-last-added-word
+                 (string-equal old-word decklet-last-added-word))
+        (setq decklet-last-added-word normalized))
       (decklet-fire-one-card-event 'decklet-cards-renamed-functions
                                    :card-id card-id
                                    :old-word old-word
@@ -483,15 +503,21 @@ the granularity of `decklet--add-card's status result."
        (sqlite-execute conn "ROLLBACK;")
        (signal (car err) (cdr err))))
     (when added-events
-      (run-hook-with-args 'decklet-cards-added-functions
-                          (nreverse added-events)))
+      (decklet-run-hook-isolated 'decklet-cards-added-functions
+                                 (nreverse added-events)))
     (when hint-events
-      (run-hook-with-args 'decklet-cards-field-updated-functions
-                          (nreverse hint-events)))
-    ;; TODO: maybe error handling here
+      (decklet-run-hook-isolated 'decklet-cards-field-updated-functions
+                                 (nreverse hint-events)))
     (when (functionp decklet-add-card-batch--on-confirm)
-      (funcall decklet-add-card-batch--on-confirm
-               (mapcar (lambda (card) (plist-get card :word)) cards)))
+      (condition-case err
+          (funcall decklet-add-card-batch--on-confirm
+                   (mapcar (lambda (card) (plist-get card :word)) cards))
+        (error
+         (display-warning
+          'decklet
+          (format "Batch confirmation callback failed: %s"
+                  (error-message-string err))
+          :error))))
     (message "Imported %d: %d added, %d refreshed, %d already existed"
              (length cards) added refreshed exists))
   (quit-window t))

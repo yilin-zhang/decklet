@@ -70,6 +70,19 @@ Includes an optional collision suffix (e.g. `-1', `-2')."
              do (cl-incf suffix)
              finally return candidate)))
 
+(defun decklet-backup--backup-token (file base ext)
+  "Return FILE's timestamp/collision token for BASE.EXT, or nil."
+  (let ((name (file-name-nondirectory file))
+        (pattern (decklet-backup--backup-file-pattern base ext)))
+    (when (string-match pattern name)
+      (match-string 1 name))))
+
+(defun decklet-backup--token-collision-index (token)
+  "Return TOKEN's numeric collision suffix, defaulting to zero."
+  (if (string-match "-\\([0-9]+\\)\\'" token)
+      (string-to-number (match-string 1 token))
+    0))
+
 (defun decklet-backup--backup-prune (backup-dir base ext)
   "Prune old backup files in BACKUP-DIR matching BASE.EXT.
 Keeps the newest `decklet-backup-prune-max-count' files and
@@ -89,33 +102,50 @@ lexicographic order matches chronological order."
                     (error-message-string err))))))))
 
 (defun decklet-backup--backup ()
-  "Create a database backup, fire the post-backup hook, and prune old backups."
+  "Create a paired database/review-log backup and prune old backup pairs."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
          (timestamp (decklet--timestamp-utc))
-         (backup-file (decklet-backup--backup-target backup-dir base "sqlite" timestamp)))
+         (backup-file (decklet-backup--backup-target backup-dir base "sqlite" timestamp))
+         (token (decklet-backup--backup-token backup-file base "sqlite"))
+         (log-base (file-name-base decklet-review-log-file))
+         (log-ext (file-name-extension decklet-review-log-file))
+         (log-backup (expand-file-name
+                      (format "%s-%s.%s" log-base token log-ext)
+                      backup-dir))
+         (created (list backup-file)))
     (make-directory backup-dir t)
-    (copy-file decklet-db-file backup-file t t t)
-    (decklet-backup--backup-prune backup-dir base "sqlite")
-    (decklet-db-backup-auxiliary-file
-     decklet-review-log-file backup-dir timestamp)
-    (run-hook-with-args 'decklet-db-post-backup-functions backup-dir timestamp)))
+    (condition-case err
+        (progn
+          (copy-file decklet-db-file backup-file t t t)
+          (push log-backup created)
+          (if (file-exists-p decklet-review-log-file)
+              (copy-file decklet-review-log-file log-backup t t t)
+            (let ((coding-system-for-write 'utf-8-unix))
+              (with-temp-file log-backup))))
+      (error
+       (dolist (file created)
+         (when (file-exists-p file)
+           (delete-file file)))
+       (signal (car err) (cdr err))))
+    (decklet-backup--prune-pairs)
+    (decklet-run-hook-isolated
+     'decklet-db-post-backup-functions backup-dir timestamp)))
 
-(defun decklet-db-backup-auxiliary-file (source-file backup-dir timestamp)
+(defun decklet-backup-auxiliary-file (source-file backup-dir timestamp)
   "Copy SOURCE-FILE to BACKUP-DIR as a timestamped backup and prune old copies.
 Uses the same retention policy as the main DB backup.  The backup
 name is derived from SOURCE-FILE's base name and extension plus
-TIMESTAMP.  No-op when SOURCE-FILE does not exist.
+TIMESTAMP.
 
 Intended for modules that maintain files alongside the DB and want
 their backups to ride in the same rotation; register a handler on
 `decklet-db-post-backup-functions' and call this from it."
-  (when (file-exists-p source-file)
-    (let* ((base (file-name-base source-file))
-           (ext (file-name-extension source-file))
-           (target (decklet-backup--backup-target backup-dir base ext timestamp)))
-      (copy-file source-file target t t t)
-      (decklet-backup--backup-prune backup-dir base ext))))
+  (let* ((base (file-name-base source-file))
+         (ext (file-name-extension source-file))
+         (target (decklet-backup--backup-target backup-dir base ext timestamp)))
+    (copy-file source-file target t t t)
+    (decklet-backup--backup-prune backup-dir base ext)))
 
 (defun decklet-backup--backup-timestamp (file)
   "Return the backup timestamp for FILE, or nil if unavailable."
@@ -130,10 +160,8 @@ their backups to ride in the same rotation; register a handler on
 
 (defun decklet-backup--matching-review-log-backup (database-backup)
   "Return the review-log backup paired with DATABASE-BACKUP, or nil."
-  (let* ((pattern (decklet-backup--backup-file-pattern
-                   (file-name-base decklet-db-file) "sqlite"))
-         (name (file-name-nondirectory database-backup))
-         (token (and (string-match pattern name) (match-string 1 name)))
+  (let* ((token (decklet-backup--backup-token
+                 database-backup (file-name-base decklet-db-file) "sqlite"))
          (log-base (file-name-base decklet-review-log-file))
          (log-ext (file-name-extension decklet-review-log-file))
          (candidate (and token
@@ -141,6 +169,25 @@ their backups to ride in the same rotation; register a handler on
                           (format "%s-%s.%s" log-base token log-ext)
                           decklet-backup-directory))))
     (and candidate (file-exists-p candidate) candidate)))
+
+(defun decklet-backup--prune-pairs ()
+  "Prune old database backups and their matching review-log backups."
+  (when (and (integerp decklet-backup-prune-max-count)
+             (> decklet-backup-prune-max-count 0))
+    (dolist (database-backup
+             (nthcdr decklet-backup-prune-max-count
+                     (decklet-backup--backup-files)))
+      (let ((review-log-backup
+             (decklet-backup--matching-review-log-backup database-backup)))
+        (condition-case err
+            (progn
+              (when review-log-backup
+                (delete-file review-log-backup))
+              (delete-file database-backup))
+          (error
+           (message "Decklet: backup pair prune failed for %s: %s"
+                    (abbreviate-file-name database-backup)
+                    (error-message-string err))))))))
 
 (defun decklet-backup--restore-file-pairs (pairs)
   "Restore source/target PAIRS, rolling back all targets on failure."
@@ -182,11 +229,16 @@ their backups to ride in the same rotation; register a handler on
                   (directory-files backup-dir t pattern))))
     (sort files
           (lambda (a b)
-            (let ((ta (or (decklet-backup--backup-timestamp a)
-                          (file-attribute-modification-time (file-attributes a))))
-                  (tb (or (decklet-backup--backup-timestamp b)
-                          (file-attribute-modification-time (file-attributes b)))))
-              (time-less-p tb ta))))))
+            (let* ((ta (or (decklet-backup--backup-timestamp a)
+                           (file-attribute-modification-time (file-attributes a))))
+                   (tb (or (decklet-backup--backup-timestamp b)
+                           (file-attribute-modification-time (file-attributes b))))
+                   (token-a (decklet-backup--backup-token a base "sqlite"))
+                   (token-b (decklet-backup--backup-token b base "sqlite")))
+              (if (time-equal-p ta tb)
+                  (> (decklet-backup--token-collision-index token-a)
+                     (decklet-backup--token-collision-index token-b))
+                (time-less-p tb ta)))))))
 
 (defun decklet-backup--read-backup-choice (choices default)
   "Read backup choice from CHOICES with DEFAULT using completion."
@@ -210,7 +262,8 @@ their backups to ride in the same rotation; register a handler on
            (latest-mtime (when latest-backup
                            (file-attribute-modification-time
                             (file-attributes latest-backup)))))
-      (if (equal mtime latest-mtime)
+      (if (and (equal mtime latest-mtime)
+               (decklet-backup--matching-review-log-backup latest-backup))
           (when (called-interactively-p 'any)
             (message "Backup not needed; database unchanged"))
         (decklet-backup--backup)

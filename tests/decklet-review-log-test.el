@@ -14,12 +14,14 @@ a monotonic record id."
                                       :difficulty 5.3 :last-review (decklet--now))))
      (decklet-review-log-append-rated "ephemeral" 42 3 old new)
      (let ((rec (car (decklet-test--read-log))))
-       (should (equal "rated" (plist-get rec :kind)))
+       (should (equal decklet-review-log-kind-rated (plist-get rec :kind)))
        (should (equal "ephemeral" (plist-get rec :word)))
        (should (= 42 (plist-get rec :card_id)))
        (should (= 3 (plist-get rec :grade)))
-       (should (equal "review" (plist-get rec :pre_state)))
-       (should (equal "review" (plist-get rec :post_state)))
+       (should (equal (decklet-fsrs-state-string :review)
+                      (plist-get rec :pre_state)))
+       (should (equal (decklet-fsrs-state-string :review)
+                      (plist-get rec :post_state)))
        (should (numberp (plist-get rec :pre_stability)))
        (should (numberp (plist-get rec :elapsed_days)))
        (should (integerp (plist-get rec :id)))))))
@@ -60,7 +62,9 @@ and zero elapsed days."
           (id (decklet-review-log-append-rated "w" 1 3 old new)))
      (decklet-review-log-append-void id)
      (let ((records (decklet-test--read-log)))
-       (should (equal '("rated" "void") (mapcar (lambda (r) (plist-get r :kind)) records)))
+       (should (equal (list decklet-review-log-kind-rated
+                            decklet-review-log-kind-void)
+                      (mapcar (lambda (r) (plist-get r :kind)) records)))
        (should (= id (plist-get (nth 1 records) :voids)))))))
 
 (ert-deftest decklet-test-review-log-append-rename-captures-both-words ()
@@ -68,7 +72,7 @@ and zero elapsed days."
   (decklet-test--with-temp-db
    (decklet-review-log-append-rename 99 "colour" "color")
    (let ((rec (car (decklet-test--read-log))))
-     (should (equal "rename" (plist-get rec :kind)))
+     (should (equal decklet-review-log-kind-rename (plist-get rec :kind)))
      (should (= 99 (plist-get rec :card_id)))
      (should (equal "colour" (plist-get rec :old)))
      (should (equal "color" (plist-get rec :new))))))
@@ -82,7 +86,7 @@ and zero elapsed days."
    (let ((log-id (decklet-rate-card (decklet-test--card-id "inveigh") 3)))
      (should (integerp log-id))
      (let ((rec (car (decklet-test--read-log))))
-       (should (equal "rated" (plist-get rec :kind)))
+       (should (equal decklet-review-log-kind-rated (plist-get rec :kind)))
        (should (equal "inveigh" (plist-get rec :word)))
        (should (= 3 (plist-get rec :grade)))
        (should (= log-id (plist-get rec :id)))))))
@@ -94,27 +98,10 @@ and zero elapsed days."
    (let ((id (decklet-test--card-id "colour")))
      (decklet-set-card-word id "color")
      (let ((rec (car (decklet-test--read-log))))
-       (should (equal "rename" (plist-get rec :kind)))
+       (should (equal decklet-review-log-kind-rename (plist-get rec :kind)))
        (should (= id (plist-get rec :card_id)))
        (should (equal "colour" (plist-get rec :old)))
        (should (equal "color" (plist-get rec :new)))))))
-
-;;; Writer failure path
-;; A dropped log record is preferable to a lost rating, so the writer swallows
-;; write errors and the rating still persists.
-
-(ert-deftest decklet-test-review-log-append-returns-nil-on-write-failure ()
-  "When the write fails, both the low-level and rated appenders return nil
-instead of signalling."
-  (decklet-test--with-temp-db
-   (cl-letf (((symbol-function 'write-region)
-              (lambda (&rest _) (error "simulated disk full"))))
-     (should-not (decklet-review-log--append-line
-		  (list :kind "void" :voids 1 :t (decklet--now))))
-     (let* ((old (make-decklet-card-meta :card-id 1 :state :review
-					 :stability 3.0 :difficulty 5.0))
-	    (new (copy-decklet-card-meta old)))
-       (should-not (decklet-review-log-append-rated "boom" 1 3 old new))))))
 
 (ert-deftest decklet-test-review-log-directory-cache-follows-file-changes ()
   "Changing `decklet-review-log-file' creates the new parent directory."
@@ -129,18 +116,6 @@ instead of signalling."
                 (list :kind "void" :voids 2 :t (decklet--now)))))
      (should (file-exists-p file-a))
      (should (file-exists-p file-b)))))
-
-(ert-deftest decklet-test-review-log-rate-card-survives-write-failure ()
-  "A log-write failure does not abort `decklet-rate-card': the FSRS state still
-advances and persists, only the log id comes back nil."
-  (decklet-test--with-temp-db
-   (decklet--add-card "resilient")
-   (let ((log-id (cl-letf (((symbol-function 'write-region)
-                            (lambda (&rest _) (error "simulated disk full"))))
-		   (decklet-rate-card (decklet-test--card-id "resilient") 3))))
-     (should-not log-id))
-   (let ((meta (decklet-get-card-meta (decklet-test--card-id "resilient"))))
-     (should (decklet-card-meta-last-review meta)))))
 
 (provide 'decklet-review-log-test)
 ;;; decklet-review-log-test.el ends here

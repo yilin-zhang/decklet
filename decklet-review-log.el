@@ -64,6 +64,13 @@ as long as the system clock advances.")
 (defvar decklet-review-log--ensured-directory nil
   "Directory already created for `decklet-review-log-file' this session.")
 
+(defconst decklet-review-log-kind-rated "rated"
+  "Serialized kind for rating records.")
+(defconst decklet-review-log-kind-void "void"
+  "Serialized kind for records that retire an earlier rating.")
+(defconst decklet-review-log-kind-rename "rename"
+  "Serialized kind for card rename records.")
+
 (defun decklet-review-log--mint-record-id ()
   "Return a fresh monotonic microsecond record id."
   (decklet--mint-monotonic-id 'decklet-review-log--next-record-id))
@@ -111,7 +118,7 @@ success, nil on write failure."
          (elapsed-days (decklet--elapsed-days-since
                         (decklet-card-meta-last-review old-meta)
                         now-str))
-         (record (list :kind "rated"
+         (record (list :kind decklet-review-log-kind-rated
                        :id record-id
                        :card_id card-id
                        :t now-str
@@ -134,14 +141,14 @@ success, nil on write failure."
 Consumers skip any rated record whose `id' appears as a void's
 `voids' field."
   (decklet-review-log--append-line
-   (list :kind "void"
+   (list :kind decklet-review-log-kind-void
          :voids voided-record-id
          :t (decklet--now))))
 
 (defun decklet-review-log-append-rename (card-id old-word new-word)
   "Append a rename event for CARD-ID from OLD-WORD to NEW-WORD."
   (decklet-review-log--append-line
-   (list :kind "rename"
+   (list :kind decklet-review-log-kind-rename
          :card_id card-id
          :old old-word
          :new new-word

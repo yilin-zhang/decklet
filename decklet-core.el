@@ -140,12 +140,31 @@ This hook does NOT fire on:
   - confirming an undone rating (the original event already stands)
   - skip (no rating given)")
 
+(defun decklet-run-hook-isolated (hook &rest args)
+  "Run abnormal HOOK with ARGS, isolating subscriber failures.
+Every subscriber is attempted.  An error from an extension is reported as a
+warning instead of escaping into an already-committed core operation."
+  (apply
+   #'run-hook-wrapped
+   hook
+   (lambda (function &rest args)
+     (condition-case err
+         (apply function args)
+       (error
+        (display-warning
+         'decklet
+         (format "Hook %S failed in %S: %s"
+                 hook function (error-message-string err))
+         :error)))
+     nil)
+   args))
+
 (defun decklet-fire-one-card-event (hook &rest plist)
   "Fire HOOK with a one-element event list built from PLIST.
 Convenience wrapper around `run-hook-with-args' for the common
 case of a single-card lifecycle event — avoids hand-writing the
 `(list (list ...))' shape at every fire site."
-  (run-hook-with-args hook (list plist)))
+  (decklet-run-hook-isolated hook (list plist)))
 
 ;; Utility functions used across modules
 
