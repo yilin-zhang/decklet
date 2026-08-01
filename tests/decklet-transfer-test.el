@@ -42,8 +42,8 @@ optional back field (absent back becomes nil)."
      (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                 (lambda (_w) (cons :skip nil))))
        (let ((stats (decklet-test--import (list row))))
-	     (should (= 0 (plist-get stats :added)))
-	     (should (= 1 (plist-get stats :skipped)))))
+	 (should (= 0 (plist-get stats :added)))
+	 (should (= 1 (plist-get stats :skipped)))))
      (should (string= "old" (plist-get (decklet-db--select-card-row-by-word "alpha") :hint)))
      (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                 (lambda (_w) (cons :overwrite nil))))
@@ -63,11 +63,11 @@ preserves the existing value."
              (overwrite (extra)
                (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                           (lambda (_w) (cons :overwrite nil))))
-		         (decklet-test--import
-		          (list (append '((word . "alpha") (added_date . "20250110T000000Z")
-				                  (last_review . "20250110T000000Z")
-				                  (due . "20250111T000000Z") (state . "review")
-				                  (step . 0) (stability . 1.0) (difficulty . 1.0))
+		 (decklet-test--import
+		  (list (append '((word . "alpha") (added_date . "20250110T000000Z")
+				  (last_review . "20250110T000000Z")
+				  (due . "20250111T000000Z") (state . "review")
+				  (step . 0) (stability . 1.0) (difficulty . 1.0))
                                 extra)))))
              (alpha (key) (plist-get (decklet-db--select-card-row-by-word "alpha") key)))
      ;; Explicit JSON null clears.

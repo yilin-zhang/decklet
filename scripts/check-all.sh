@@ -6,7 +6,7 @@ cd "$REPO_ROOT"
 FSRS_DIR="$(./scripts/check-deps.sh)"
 
 echo "[1/6] Check parentheses"
-emacs --batch --eval '(with-temp-buffer (insert-file-contents "decklet.el") (check-parens))'
+emacs --batch -Q -l scripts/decklet-check.el -f decklet-check-parens
 
 echo "[2/6] Check indentation"
 ./scripts/check-indent.sh

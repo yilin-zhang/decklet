@@ -30,17 +30,8 @@ emacs --batch \
   -L . \
   -L "$PACKAGE_LINT_DIR" \
   -l "$PACKAGE_LINT_DIR/package-lint.el" \
-  --eval "(progn
-            (require 'package)
-            (setq package-archives
-                  '((\"gnu\" . \"https://elpa.gnu.org/packages/\")
-                    (\"nongnu\" . \"https://elpa.nongnu.org/nongnu/\")
-                    (\"melpa\" . \"https://melpa.org/packages/\")))
-            (package-initialize)
-            (unless (assq 'fsrs package-archive-contents)
-              (package-refresh-contents))
-            ;; Lint as a multi-file package with decklet.el as canonical main file.
-            (setq package-lint-main-file \"decklet.el\"))" \
+  -l scripts/decklet-check.el \
+  -f decklet-check-configure-package-lint \
   -f package-lint-batch-and-exit \
   decklet.el \
   decklet-core.el \
