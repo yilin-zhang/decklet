@@ -26,36 +26,36 @@ Holds for both the raw state+last-review form and the card-meta form."
   "Hint/back setters write and fire the field-updated hook only when the
 normalized value actually changes."
   (decklet-test--with-temp-db
-   (let ((id (decklet-test--add-card-meta "glow" :state :learning
-                                          :timestamp "20250101T000000Z"))
-         (events nil))
-     (let ((decklet-cards-field-updated-functions
-            (list (lambda (evs) (setq events (append events evs))))))
-       (should (decklet-set-card-hint id "old hint"))
-       (should-not (decklet-set-card-hint id " old hint "))
-       (should (decklet-set-card-back id "old back"))
-       (should-not (decklet-set-card-back id "old back")))
-     (should (equal (mapcar (lambda (e) (plist-get e :field)) events) '(hint back))))))
+    (let ((id (decklet-test--add-card-meta "glow" :state :learning
+                                           :timestamp "20250101T000000Z"))
+          (events nil))
+      (let ((decklet-cards-field-updated-functions
+             (list (lambda (evs) (setq events (append events evs))))))
+        (should (decklet-set-card-hint id "old hint"))
+        (should-not (decklet-set-card-hint id " old hint "))
+        (should (decklet-set-card-back id "old back"))
+        (should-not (decklet-set-card-back id "old back")))
+      (should (equal (mapcar (lambda (e) (plist-get e :field)) events) '(hint back))))))
 
 ;;; Card identity
 
 (ert-deftest decklet-test-deck-add-card-refresh-preserves-id ()
   "Re-adding an existing new card refreshes it in place with the same id."
   (decklet-test--with-temp-db
-   (let ((decklet-add-and-refresh t))
-     (decklet--add-card "alpha")
-     (let ((first (decklet-test--card-id "alpha")))
-       (decklet--add-card "alpha")
-       (should (= first (decklet-test--card-id "alpha")))))))
+    (let ((decklet-add-and-refresh t))
+      (decklet--add-card "alpha")
+      (let ((first (decklet-test--card-id "alpha")))
+        (decklet--add-card "alpha")
+        (should (= first (decklet-test--card-id "alpha")))))))
 
 (ert-deftest decklet-test-deck-delete-and-readd-mints-new-id ()
   "Deleting then re-adding a word gives the new card a fresh id."
   (decklet-test--with-temp-db
-   (decklet--add-card "beta")
-   (let ((first (decklet-test--card-id "beta")))
-     (decklet-delete-card first)
-     (decklet--add-card "beta")
-     (should-not (= first (decklet-test--card-id "beta"))))))
+    (decklet--add-card "beta")
+    (let ((first (decklet-test--card-id "beta")))
+      (decklet-delete-card first)
+      (decklet--add-card "beta")
+      (should-not (= first (decklet-test--card-id "beta"))))))
 
 ;;; Card back popup
 
@@ -75,48 +75,48 @@ normalized value actually changes."
 (ert-deftest decklet-test-deck-card-back-show-readonly-with-content ()
   "A card that has a back opens read-only, showing the stored content."
   (decklet-test--with-temp-db
-   (decklet-db--update-back
-    (decklet-test--add-card-meta "bright" :state :new :timestamp "20250101T000000Z")
-    "shining example")
-   (decklet-deck-test--show "bright")
-   (let ((buf (decklet-deck-test--card-back-buffer "bright")))
-     (unwind-protect
-         (with-current-buffer buf
-           (should decklet-db--dependent-buffer)
-           (should buffer-read-only)
-           (should (string= "shining example"
-                            (buffer-substring-no-properties (point-min) (point-max)))))
-       (when (buffer-live-p buf) (kill-buffer buf))))))
+    (decklet-db--update-back
+     (decklet-test--add-card-meta "bright" :state :new :timestamp "20250101T000000Z")
+     "shining example")
+    (decklet-deck-test--show "bright")
+    (let ((buf (decklet-deck-test--card-back-buffer "bright")))
+      (unwind-protect
+          (with-current-buffer buf
+            (should decklet-db--dependent-buffer)
+            (should buffer-read-only)
+            (should (string= "shining example"
+                             (buffer-substring-no-properties (point-min) (point-max)))))
+        (when (buffer-live-p buf) (kill-buffer buf))))))
 
 (ert-deftest decklet-test-deck-card-back-show-editable-when-absent ()
   "A card with no back opens an editable buffer."
   (decklet-test--with-temp-db
-   (decklet-test--add-card-meta "glow" :state :new :timestamp "20250101T000000Z")
-   (decklet-deck-test--show "glow")
-   (let ((buf (decklet-deck-test--card-back-buffer "glow")))
-     (unwind-protect
-         (with-current-buffer buf
-           (should decklet-db--dependent-buffer)
-           (should-not buffer-read-only))
-       (when (buffer-live-p buf) (kill-buffer buf))))))
+    (decklet-test--add-card-meta "glow" :state :new :timestamp "20250101T000000Z")
+    (decklet-deck-test--show "glow")
+    (let ((buf (decklet-deck-test--card-back-buffer "glow")))
+      (unwind-protect
+          (with-current-buffer buf
+            (should decklet-db--dependent-buffer)
+            (should-not buffer-read-only))
+        (when (buffer-live-p buf) (kill-buffer buf))))))
 
 (ert-deftest decklet-test-deck-card-back-show-resets-readonly-when-cleared ()
   "Reopening a card-back buffer after its back is cleared drops stale read-only."
   (decklet-test--with-temp-db
-   (let ((id (decklet-test--add-card-meta "bright" :state :new
-                                          :timestamp "20250101T000000Z")))
-     (decklet-db--update-back id "old back")
-     (decklet-deck-test--show "bright")
-     (with-current-buffer (decklet-deck-test--card-back-buffer "bright")
-       (should buffer-read-only))
-     (decklet-db--update-back id nil)
-     (decklet-deck-test--show "bright")
-     (let ((buf (decklet-deck-test--card-back-buffer "bright")))
-       (unwind-protect
-           (with-current-buffer buf
-             (should-not buffer-read-only)
-             (should (string-empty-p (buffer-string))))
-         (when (buffer-live-p buf) (kill-buffer buf)))))))
+    (let ((id (decklet-test--add-card-meta "bright" :state :new
+                                           :timestamp "20250101T000000Z")))
+      (decklet-db--update-back id "old back")
+      (decklet-deck-test--show "bright")
+      (with-current-buffer (decklet-deck-test--card-back-buffer "bright")
+        (should buffer-read-only))
+      (decklet-db--update-back id nil)
+      (decklet-deck-test--show "bright")
+      (let ((buf (decklet-deck-test--card-back-buffer "bright")))
+        (unwind-protect
+            (with-current-buffer buf
+              (should-not buffer-read-only)
+              (should (string-empty-p (buffer-string))))
+          (when (buffer-live-p buf) (kill-buffer buf)))))))
 
 (ert-deftest decklet-test-deck-save-card-back-errors-without-card ()
   "Saving a card back with no associated card signals a user error."
@@ -147,47 +147,47 @@ return the now-modified buffer.  The caller is responsible for killing it."
   "Answering `save' on a dirty card-back kill writes the new content and lets
 the buffer die."
   (decklet-test--with-temp-db
-   (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
-     (unwind-protect
-         (progn
-           (decklet-deck-test--kill-with-choice buf ?s)
-           (should-not (buffer-live-p buf))
-           (should (string= "new-back"
-                            (decklet-db--select-card-back (decklet-test--card-id "bright")))))
-       (when (buffer-live-p buf)
-         (with-current-buffer buf (set-buffer-modified-p nil))
-         (kill-buffer buf))))))
+    (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
+      (unwind-protect
+          (progn
+            (decklet-deck-test--kill-with-choice buf ?s)
+            (should-not (buffer-live-p buf))
+            (should (string= "new-back"
+                             (decklet-db--select-card-back (decklet-test--card-id "bright")))))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))))))
 
 (ert-deftest decklet-test-deck-card-back-kill-query-discard ()
   "Answering `discard' kills the buffer without writing; the DB keeps its
 old back."
   (decklet-test--with-temp-db
-   (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
-     (unwind-protect
-         (progn
-           (decklet-deck-test--kill-with-choice buf ?d)
-           (should-not (buffer-live-p buf))
-           (should (string= "old-back"
-                            (decklet-db--select-card-back (decklet-test--card-id "bright")))))
-       (when (buffer-live-p buf)
-         (with-current-buffer buf (set-buffer-modified-p nil))
-         (kill-buffer buf))))))
+    (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
+      (unwind-protect
+          (progn
+            (decklet-deck-test--kill-with-choice buf ?d)
+            (should-not (buffer-live-p buf))
+            (should (string= "old-back"
+                             (decklet-db--select-card-back (decklet-test--card-id "bright")))))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))))))
 
 (ert-deftest decklet-test-deck-card-back-kill-query-cancel ()
   "Answering `cancel' aborts the kill; the buffer stays alive and modified and
 the DB keeps its old back."
   (decklet-test--with-temp-db
-   (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
-     (unwind-protect
-         (progn
-           (decklet-deck-test--kill-with-choice buf ?c)
-           (should (buffer-live-p buf))
-           (should (buffer-modified-p buf))
-           (should (string= "old-back"
-                            (decklet-db--select-card-back (decklet-test--card-id "bright")))))
-       (when (buffer-live-p buf)
-         (with-current-buffer buf (set-buffer-modified-p nil))
-         (kill-buffer buf))))))
+    (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
+      (unwind-protect
+          (progn
+            (decklet-deck-test--kill-with-choice buf ?c)
+            (should (buffer-live-p buf))
+            (should (buffer-modified-p buf))
+            (should (string= "old-back"
+                             (decklet-db--select-card-back (decklet-test--card-id "bright")))))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))))))
 
 ;;; Batch collection parsing
 

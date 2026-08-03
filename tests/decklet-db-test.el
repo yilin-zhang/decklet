@@ -22,182 +22,182 @@
 (ert-deftest decklet-test-db-mint-card-id-is-positive-and-monotonic ()
   "Minted card ids are positive integers that strictly increase."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (let ((ids (cl-loop repeat 20 collect (decklet-db--mint-card-id))))
-     (should (cl-every #'integerp ids))
-     (should (> (car ids) 0))
-     (should (equal ids (sort (copy-sequence ids) #'<)))
-     (should (= (length ids) (length (delete-dups (copy-sequence ids))))))))
+    (decklet-db--ensure)
+    (let ((ids (cl-loop repeat 20 collect (decklet-db--mint-card-id))))
+      (should (cl-every #'integerp ids))
+      (should (> (car ids) 0))
+      (should (equal ids (sort (copy-sequence ids) #'<)))
+      (should (= (length ids) (length (delete-dups (copy-sequence ids))))))))
 
 (ert-deftest decklet-test-db-mint-card-id-seeds-above-existing-max ()
   "A freshly seeded counter mints above the largest existing card id."
   (decklet-test--with-temp-db
-   (let ((conn (decklet-db--ensure))
-         (now (decklet--now)))
-     (sqlite-execute
-      conn
-      "INSERT INTO cards (word, added_date, due, state, card_id)
+    (let ((conn (decklet-db--ensure))
+          (now (decklet--now)))
+      (sqlite-execute
+       conn
+       "INSERT INTO cards (word, added_date, due, state, card_id)
         VALUES ('one', ?, ?, 'review', 9999999999),
                ('two', ?, ?, 'review', 8888888888);"
-      (list now now now now))
-     (setq decklet-db--last-card-id nil)
-     (should (> (decklet-db--mint-card-id) 9999999999)))))
+       (list now now now now))
+      (setq decklet-db--last-card-id nil)
+      (should (> (decklet-db--mint-card-id) 9999999999)))))
 
 (ert-deftest decklet-test-db-upsert-then-select ()
   "A card upserted by word can be read back by word."
   (decklet-test--with-temp-db
-   (decklet-test--add-card-meta "lucid")
-   (let ((row (decklet-db--select-card-row-by-word "lucid")))
-     (should row)
-     (should (string= (plist-get row :word) "lucid")))))
+    (decklet-test--add-card-meta "lucid")
+    (let ((row (decklet-db--select-card-row-by-word "lucid")))
+      (should row)
+      (should (string= (plist-get row :word) "lucid")))))
 
 ;;; Connection lifecycle (owner / dependent buffers)
 
 (ert-deftest decklet-test-db-dependent-buffer-keeps-connection-open ()
   "A registered dependent buffer holds the connection open until it is killed."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (decklet-test--with-temp-buffers (buf)
-				    (with-current-buffer buf
-				      (decklet-db-register-dependent-buffer)
-				      (should decklet-db--dependent-buffer))
-				    (decklet-db--disconnect-if-idle)
-				    (should decklet-db--conn)
-				    (kill-buffer buf)
-				    (should-not decklet-db--conn))))
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf)
+      (with-current-buffer buf
+	(decklet-db-register-dependent-buffer)
+	(should decklet-db--dependent-buffer))
+      (decklet-db--disconnect-if-idle)
+      (should decklet-db--conn)
+      (kill-buffer buf)
+      (should-not decklet-db--conn))))
 
 (ert-deftest decklet-test-db-owner-close-keeps-session-while-another-owner-live ()
   "Killing one owner leaves other owners, attached buffers, and the DB alive."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (decklet-test--with-temp-buffers (review edit attached)
-				    (with-current-buffer review (decklet-review-mode))
-				    (with-current-buffer edit (decklet-edit-mode))
-				    (with-current-buffer attached (decklet-card-back-mode 1))
-				    (kill-buffer review)
-				    (should-not (buffer-live-p review))
-				    (should (buffer-live-p edit))
-				    (should (buffer-live-p attached))
-				    (should decklet-db--conn))))
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (review edit attached)
+      (with-current-buffer review (decklet-review-mode))
+      (with-current-buffer edit (decklet-edit-mode))
+      (with-current-buffer attached (decklet-card-back-mode 1))
+      (kill-buffer review)
+      (should-not (buffer-live-p review))
+      (should (buffer-live-p edit))
+      (should (buffer-live-p attached))
+      (should decklet-db--conn))))
 
 (ert-deftest decklet-test-db-disconnect-kills-dependents-and-closes-db ()
   "`decklet-disconnect' kills dependents, fires the pre-disconnect hook once,
 and closes the connection."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (decklet-test--with-temp-buffers (buf-a buf-b)
-				    (dolist (buf (list buf-a buf-b))
-				      (with-current-buffer buf (decklet-db-register-dependent-buffer)))
-				    (let* ((hook-count 0)
-					   (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
-				      (decklet-disconnect)
-				      (should-not (buffer-live-p buf-a))
-				      (should-not (buffer-live-p buf-b))
-				      (should-not decklet-db--conn)
-				      (should (= hook-count 1))))))
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf-a buf-b)
+      (dolist (buf (list buf-a buf-b))
+	(with-current-buffer buf (decklet-db-register-dependent-buffer)))
+      (let* ((hook-count 0)
+	     (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
+	(decklet-disconnect)
+	(should-not (buffer-live-p buf-a))
+	(should-not (buffer-live-p buf-b))
+	(should-not decklet-db--conn)
+	(should (= hook-count 1))))))
 
 (ert-deftest decklet-test-db-disconnect-aborts-when-buffer-cancels-kill ()
   "A dependent buffer refusing to die aborts disconnect: connection stays open
 and the pre-disconnect hook does not run."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (decklet-test--with-temp-buffers (buf)
-				    (with-current-buffer buf
-				      (decklet-db-register-dependent-buffer)
-				      (add-hook 'kill-buffer-query-functions #'ignore nil t))
-				    (let* ((hook-count 0)
-					   (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
-				      (should-error (decklet-disconnect) :type 'user-error)
-				      (should (buffer-live-p buf))
-				      (should decklet-db--conn)
-				      (should (= hook-count 0))))))
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf)
+      (with-current-buffer buf
+	(decklet-db-register-dependent-buffer)
+	(add-hook 'kill-buffer-query-functions #'ignore nil t))
+      (let* ((hook-count 0)
+	     (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
+	(should-error (decklet-disconnect) :type 'user-error)
+	(should (buffer-live-p buf))
+	(should decklet-db--conn)
+	(should (= hook-count 0))))))
 
 ;;; Archive / unarchive
 
 (ert-deftest decklet-test-db-archive-and-unarchive ()
   "Archiving hides a card from the active set; unarchiving restores it."
   (decklet-test--with-temp-db
-   (let ((id (decklet-test--add-card-meta "archive-me")))
-     (should (= 1 (length (decklet-db--select-card-rows 'all nil))))
-     (decklet-db--archive-card id (decklet-test--ts (current-time)))
-     (should (= 0 (length (decklet-db--select-card-rows 'all nil))))
-     (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
-     (decklet-db--unarchive-card id)
-     (should (= 1 (length (decklet-db--select-card-rows 'all nil)))))))
+    (let ((id (decklet-test--add-card-meta "archive-me")))
+      (should (= 1 (length (decklet-db--select-card-rows 'all nil))))
+      (decklet-db--archive-card id (decklet-test--ts (current-time)))
+      (should (= 0 (length (decklet-db--select-card-rows 'all nil))))
+      (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
+      (decklet-db--unarchive-card id)
+      (should (= 1 (length (decklet-db--select-card-rows 'all nil)))))))
 
 ;;; Due-card selection and counts
 
 (ert-deftest decklet-test-db-select-due-card-ids-honors-review-order ()
   "The due queue follows `decklet-review-order': learning, then new, then review."
   (decklet-test--with-temp-db
-   (let* ((decklet-review-order '((:learning . (sort :due :asc))
-                                  (:new     . (sort :added :desc))
-                                  (:review  . (sort :due :asc))))
-          (now (current-time))
-          (at (lambda (secs) (decklet-test--ts (time-add now (seconds-to-time secs))))))
-     (decklet-db--upsert-card
-      "learn-a" (make-decklet-card-meta
-                 :added-date (funcall at -7200) :last-review (funcall at -3600)
-                 :due (funcall at -600) :state :learning))
-     (decklet-db--upsert-card
-      "new-a" (make-decklet-card-meta
-               :added-date (funcall at 0) :last-review nil
-               :due (funcall at 0) :state :learning))
-     (decklet-db--upsert-card
-      "review-a" (make-decklet-card-meta
+    (let* ((decklet-review-order '((:learning . (sort :due :asc))
+                                   (:new     . (sort :added :desc))
+                                   (:review  . (sort :due :asc))))
+           (now (current-time))
+           (at (lambda (secs) (decklet-test--ts (time-add now (seconds-to-time secs))))))
+      (decklet-db--upsert-card
+       "learn-a" (make-decklet-card-meta
                   :added-date (funcall at -7200) :last-review (funcall at -3600)
-                  :due (funcall at 1800) :state :review))
-     (should (equal (decklet-db--select-due-card-ids)
-                    (mapcar #'decklet-test--card-id '("learn-a" "new-a" "review-a")))))))
+                  :due (funcall at -600) :state :learning))
+      (decklet-db--upsert-card
+       "new-a" (make-decklet-card-meta
+                :added-date (funcall at 0) :last-review nil
+                :due (funcall at 0) :state :learning))
+      (decklet-db--upsert-card
+       "review-a" (make-decklet-card-meta
+                   :added-date (funcall at -7200) :last-review (funcall at -3600)
+                   :due (funcall at 1800) :state :review))
+      (should (equal (decklet-db--select-due-card-ids)
+                     (mapcar #'decklet-test--card-id '("learn-a" "new-a" "review-a")))))))
 
 (ert-deftest decklet-test-db-counts-per-slot ()
   "`decklet-db--counts' tallies reviewed-today, due-review, due-learning, and new."
   (decklet-test--with-temp-db
-   (let* ((now (current-time))
-          (ts-now (decklet-test--ts now))
-          (ts-old "20250101T000000Z")
-          (ts-future (decklet-test--ts (time-add now (seconds-to-time 86400)))))
-     (decklet-db--upsert-card "reviewed"
-                              (make-decklet-card-meta :added-date ts-old :last-review ts-now
-                                                      :due ts-future :state :review))
-     (decklet-db--upsert-card "due-review"
-                              (make-decklet-card-meta :added-date ts-old :last-review ts-old
-                                                      :due ts-old :state :review))
-     (decklet-db--upsert-card "due-learning"
-                              (make-decklet-card-meta :added-date ts-old :last-review ts-old
-                                                      :due ts-old :state :learning))
-     (decklet-db--upsert-card "new-card"
-                              (make-decklet-card-meta :added-date ts-old :due ts-old :state :new))
-     (let ((counts (decklet-db--counts)))
-       (should (= 1 (plist-get counts :reviewed)))
-       (should (= 1 (plist-get counts :due-review)))
-       (should (= 1 (plist-get counts :due-learning)))
-       (should (= 1 (plist-get counts :new)))))))
+    (let* ((now (current-time))
+           (ts-now (decklet-test--ts now))
+           (ts-old "20250101T000000Z")
+           (ts-future (decklet-test--ts (time-add now (seconds-to-time 86400)))))
+      (decklet-db--upsert-card "reviewed"
+                               (make-decklet-card-meta :added-date ts-old :last-review ts-now
+                                                       :due ts-future :state :review))
+      (decklet-db--upsert-card "due-review"
+                               (make-decklet-card-meta :added-date ts-old :last-review ts-old
+                                                       :due ts-old :state :review))
+      (decklet-db--upsert-card "due-learning"
+                               (make-decklet-card-meta :added-date ts-old :last-review ts-old
+                                                       :due ts-old :state :learning))
+      (decklet-db--upsert-card "new-card"
+                               (make-decklet-card-meta :added-date ts-old :due ts-old :state :new))
+      (let ((counts (decklet-db--counts)))
+        (should (= 1 (plist-get counts :reviewed)))
+        (should (= 1 (plist-get counts :due-review)))
+        (should (= 1 (plist-get counts :due-learning)))
+        (should (= 1 (plist-get counts :new)))))))
 
 (ert-deftest decklet-test-db-due-counts-by-date-splits-overdue-and-range ()
   "`decklet-db-due-counts-by-date' separates overdue cards from in-range ones.
 This is the public API the calendar extension relies on."
   (decklet-test--with-temp-db
-   (let* ((now (current-time))
-          (day-start (decklet-day-start-time now))
-          (cutoff (decklet--next-day-start-time now))
-          (ts-added (decklet-test--ts (time-subtract now (seconds-to-time 7200))))
-          (ts-last (decklet-test--ts (time-subtract now (seconds-to-time 1800)))))
-     (decklet-db--upsert-card
-      "overdue-card"
-      (make-decklet-card-meta
-       :added-date ts-added :last-review ts-last
-       :due (decklet-test--ts (time-subtract day-start (seconds-to-time 60)))
-       :state :review))
-     (decklet-db--upsert-card
-      "range-card"
-      (make-decklet-card-meta
-       :added-date ts-added :last-review ts-last
-       :due (decklet-test--ts (time-add day-start (seconds-to-time 3600)))
-       :state :review))
-     (let ((result (decklet-db-due-counts-by-date day-start cutoff)))
-       (should (= 1 (plist-get result :overdue)))
-       (should (= 1 (apply #'+ (mapcar #'cadr (plist-get result :rows)))))))))
+    (let* ((now (current-time))
+           (day-start (decklet-day-start-time now))
+           (cutoff (decklet--next-day-start-time now))
+           (ts-added (decklet-test--ts (time-subtract now (seconds-to-time 7200))))
+           (ts-last (decklet-test--ts (time-subtract now (seconds-to-time 1800)))))
+      (decklet-db--upsert-card
+       "overdue-card"
+       (make-decklet-card-meta
+        :added-date ts-added :last-review ts-last
+        :due (decklet-test--ts (time-subtract day-start (seconds-to-time 60)))
+        :state :review))
+      (decklet-db--upsert-card
+       "range-card"
+       (make-decklet-card-meta
+        :added-date ts-added :last-review ts-last
+        :due (decklet-test--ts (time-add day-start (seconds-to-time 3600)))
+        :state :review))
+      (let ((result (decklet-db-due-counts-by-date day-start cutoff)))
+        (should (= 1 (plist-get result :overdue)))
+        (should (= 1 (apply #'+ (mapcar #'cadr (plist-get result :rows)))))))))
 
 ;;; Review-order validation
 
@@ -219,17 +219,17 @@ This is the public API the calendar extension relies on."
   "Card back round-trips through update/select, blank normalizes to nil, and a
 scheduling upsert never touches the back field."
   (decklet-test--with-temp-db
-   (let ((id (decklet-test--add-card-meta "lucid" :state :new
-                                          :timestamp "20250101T000000Z")))
-     (should (null (decklet-db--select-card-back id)))
-     (decklet-db--update-back id "clear and bright")
-     (should (string= "clear and bright" (decklet-db--select-card-back id)))
-     (decklet-db--update-back id "   ")
-     (should (null (decklet-db--select-card-back id)))
-     (decklet-db--update-back id "example sentence")
-     (decklet-db--upsert-card "lucid"
-                              (decklet-test--make-card-meta :timestamp "20250102T000000Z"))
-     (should (string= "example sentence" (decklet-db--select-card-back id))))))
+    (let ((id (decklet-test--add-card-meta "lucid" :state :new
+                                           :timestamp "20250101T000000Z")))
+      (should (null (decklet-db--select-card-back id)))
+      (decklet-db--update-back id "clear and bright")
+      (should (string= "clear and bright" (decklet-db--select-card-back id)))
+      (decklet-db--update-back id "   ")
+      (should (null (decklet-db--select-card-back id)))
+      (decklet-db--update-back id "example sentence")
+      (decklet-db--upsert-card "lucid"
+                               (decklet-test--make-card-meta :timestamp "20250102T000000Z"))
+      (should (string= "example sentence" (decklet-db--select-card-back id))))))
 
 (provide 'decklet-db-test)
 ;;; decklet-db-test.el ends here

@@ -294,12 +294,12 @@ nearest surviving card otherwise."
   (let ((origin-card-id (tabulated-list-get-id))
         (target-card-id (decklet-edit--nearest-surviving-card-id card-ids)))
     (decklet-edit--preserving-window-position
-     (let ((decklet-edit--inhibit-callback-refresh t))
-       (unwind-protect
-           (mapc action card-ids)
-         (decklet-edit-refresh)))
-     (or (decklet-edit--goto-card-id origin-card-id)
-         (decklet-edit--goto-card-id target-card-id)))))
+      (let ((decklet-edit--inhibit-callback-refresh t))
+        (unwind-protect
+            (mapc action card-ids)
+          (decklet-edit-refresh)))
+      (or (decklet-edit--goto-card-id origin-card-id)
+          (decklet-edit--goto-card-id target-card-id)))))
 
 (defun decklet-edit--sidecar-column-cells (row)
   "Return sidecar column cells for ROW."
@@ -508,11 +508,11 @@ Point is kept on the same screen line via
 command-driven refreshes do not scroll the edit window."
   (interactive)
   (decklet-edit--preserving-window-position
-   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
-   (tabulated-list-init-header)
-   (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
-   (tabulated-list-print t)
-   (decklet-edit--apply-marks)))
+    (setq tabulated-list-format (decklet-edit--tabulated-list-format))
+    (tabulated-list-init-header)
+    (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
+    (tabulated-list-print t)
+    (decklet-edit--apply-marks)))
 
 (defun decklet-edit-mark-at-point ()
   "Mark card(s) at point.

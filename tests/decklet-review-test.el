@@ -22,31 +22,31 @@
 (ert-deftest decklet-test-review-quit-kills-attached-buffers-on-last-owner ()
   "Quitting the last review owner kills attached buffers and closes the DB."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (let ((review (get-buffer-create decklet-review-buffer-name)))
-     (decklet-test--with-temp-buffers (attached)
-				      (with-current-buffer review (decklet-review-mode))
-				      (with-current-buffer attached (decklet-card-back-mode 1))
-				      (decklet-review-quit)
-				      (should-not (buffer-live-p review))
-				      (should-not (buffer-live-p attached))
-				      (should-not decklet-db--conn)))))
+    (decklet-db--ensure)
+    (let ((review (get-buffer-create decklet-review-buffer-name)))
+      (decklet-test--with-temp-buffers (attached)
+	(with-current-buffer review (decklet-review-mode))
+	(with-current-buffer attached (decklet-card-back-mode 1))
+	(decklet-review-quit)
+	(should-not (buffer-live-p review))
+	(should-not (buffer-live-p attached))
+	(should-not decklet-db--conn)))))
 
 (ert-deftest decklet-test-review-quit-aborts-when-attached-cancels-kill ()
   "An attached buffer refusing to die keeps the review buffer and DB alive."
   (decklet-test--with-temp-db
-   (decklet-db--ensure)
-   (let ((review (get-buffer-create decklet-review-buffer-name)))
-     (decklet-test--with-temp-buffers (attached)
-				      (with-current-buffer review (decklet-review-mode))
-				      (with-current-buffer attached
-					(decklet-card-back-mode 1)
-					(add-hook 'kill-buffer-query-functions #'ignore nil t))
-				      (decklet-review-quit)
-				      (should (buffer-live-p review))
-				      (should (buffer-live-p attached))
-				      (should decklet-db--conn)
-				      (when (buffer-live-p review) (kill-buffer review))))))
+    (decklet-db--ensure)
+    (let ((review (get-buffer-create decklet-review-buffer-name)))
+      (decklet-test--with-temp-buffers (attached)
+	(with-current-buffer review (decklet-review-mode))
+	(with-current-buffer attached
+	  (decklet-card-back-mode 1)
+	  (add-hook 'kill-buffer-query-functions #'ignore nil t))
+	(decklet-review-quit)
+	(should (buffer-live-p review))
+	(should (buffer-live-p attached))
+	(should decklet-db--conn)
+	(when (buffer-live-p review) (kill-buffer review))))))
 
 ;;; Grade handling and the daily-goal hook
 
@@ -59,40 +59,40 @@
   "Rating the last outstanding card crosses the daily goal and fires the goal
 hook exactly once."
   (decklet-test--with-temp-db
-   (decklet--add-card "goalword")
-   (let* ((decklet-review-daily-goal 1)
-          (decklet-current-card-id (decklet-test--card-id "goalword"))
-          (decklet-review--trail-past nil)
-          (decklet-review--trail-future nil)
-          (hook-count 0)
-          (decklet-review-daily-goal-reached-hook
-           (list (lambda () (cl-incf hook-count)))))
-     (decklet--refresh-counter)             ; new card: goal not yet reached
-     (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
-       (decklet-review--handle-grade 3))
-     (should (= hook-count 1))
-     ;; The card really advanced and a rated entry was recorded.
-     (should (decklet-card-meta-last-review
-              (decklet-get-card-meta decklet-current-card-id)))
-     (should (= 3 (plist-get (car decklet-review--trail-past) :grade))))))
+    (decklet--add-card "goalword")
+    (let* ((decklet-review-daily-goal 1)
+           (decklet-current-card-id (decklet-test--card-id "goalword"))
+           (decklet-review--trail-past nil)
+           (decklet-review--trail-future nil)
+           (hook-count 0)
+           (decklet-review-daily-goal-reached-hook
+            (list (lambda () (cl-incf hook-count)))))
+      (decklet--refresh-counter)             ; new card: goal not yet reached
+      (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
+        (decklet-review--handle-grade 3))
+      (should (= hook-count 1))
+      ;; The card really advanced and a rated entry was recorded.
+      (should (decklet-card-meta-last-review
+               (decklet-get-card-meta decklet-current-card-id)))
+      (should (= 3 (plist-get (car decklet-review--trail-past) :grade))))))
 
 (ert-deftest decklet-test-review-handle-grade-no-hook-when-goal-already-reached ()
   "Rating while the daily goal is already met does not re-fire the goal hook."
   (decklet-test--with-temp-db
-   (decklet--add-card "first")
-   (decklet--add-card "second")
-   (let* ((decklet-review-daily-goal 1)
-          (hook-count 0)
-          (decklet-review-daily-goal-reached-hook
-           (list (lambda () (cl-incf hook-count)))))
-     (decklet-rate-card (decklet-test--card-id "first") 3) ; reach the goal
-     (let ((decklet-current-card-id (decklet-test--card-id "second"))
-           (decklet-review--trail-past nil)
-           (decklet-review--trail-future nil))
-       (decklet--refresh-counter)
-       (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
-	 (decklet-review--handle-grade 3))
-       (should (= hook-count 0))))))
+    (decklet--add-card "first")
+    (decklet--add-card "second")
+    (let* ((decklet-review-daily-goal 1)
+           (hook-count 0)
+           (decklet-review-daily-goal-reached-hook
+            (list (lambda () (cl-incf hook-count)))))
+      (decklet-rate-card (decklet-test--card-id "first") 3) ; reach the goal
+      (let ((decklet-current-card-id (decklet-test--card-id "second"))
+            (decklet-review--trail-past nil)
+            (decklet-review--trail-future nil))
+        (decklet--refresh-counter)
+        (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
+	  (decklet-review--handle-grade 3))
+        (should (= hook-count 0))))))
 
 ;;; Next-card sequencing
 
@@ -104,10 +104,10 @@ hook exactly once."
          (decklet-review-next-card-hook (list (lambda () (cl-incf hook-count)))))
     ;; `run-hooks' is left real so the next-card hook actually fires.
     (decklet-test-review--with-card-words ((1 . "w1") (2 . "w2"))
-					  (cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-						    ((symbol-function 'decklet-review--render-buffer) #'ignore)
-						    ((symbol-function 'decklet-review-quit) #'ignore))
-					    (decklet-review-next-card)))
+      (cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
+		((symbol-function 'decklet-review--render-buffer) #'ignore)
+		((symbol-function 'decklet-review-quit) #'ignore))
+	(decklet-review-next-card)))
     (should (= decklet-current-card-id 1))
     (should (equal decklet-due-card-ids '(2)))
     (should (= hook-count 1))))
@@ -129,18 +129,18 @@ hook exactly once."
 (ert-deftest decklet-test-review-trail-records-rated-entry ()
   "Rating a card pushes a rated entry (with pre-meta) onto the past side."
   (decklet-test--with-temp-db
-   (decklet--add-card "apple")
-   (let ((decklet-current-card-id (decklet-test--card-id "apple"))
-         (decklet-review--trail-past nil)
-         (decklet-review--trail-future nil))
-     (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
-       (decklet-review--handle-grade 3))
-     (should (= 1 (length decklet-review--trail-past)))
-     (should (null decklet-review--trail-future))
-     (let ((entry (car decklet-review--trail-past)))
-       (should (eql decklet-current-card-id (plist-get entry :card-id)))
-       (should (= 3 (plist-get entry :grade)))
-       (should (plist-get entry :pre-meta))))))
+    (decklet--add-card "apple")
+    (let ((decklet-current-card-id (decklet-test--card-id "apple"))
+          (decklet-review--trail-past nil)
+          (decklet-review--trail-future nil))
+      (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
+        (decklet-review--handle-grade 3))
+      (should (= 1 (length decklet-review--trail-past)))
+      (should (null decklet-review--trail-future))
+      (let ((entry (car decklet-review--trail-past)))
+        (should (eql decklet-current-card-id (plist-get entry :card-id)))
+        (should (= 3 (plist-get entry :grade)))
+        (should (plist-get entry :pre-meta))))))
 
 (ert-deftest decklet-test-review-trail-records-skip-entry ()
   "Skipping (forward `next-card') pushes an entry with a nil grade."
@@ -149,10 +149,10 @@ hook exactly once."
         (decklet-review--trail-past nil)
         (decklet-review--trail-future nil))
     (decklet-test-review--with-card-words ((1 . "banana") (2 . "cherry"))
-					  (cl-letf (((symbol-function 'decklet-get-card-meta)
-						     (lambda (_id) (make-decklet-card-meta :state :learning))))
-					    (decklet-test--with-silent-review-ui
-					     (decklet-review-next-card))))
+      (cl-letf (((symbol-function 'decklet-get-card-meta)
+		 (lambda (_id) (make-decklet-card-meta :state :learning))))
+	(decklet-test--with-silent-review-ui
+	  (decklet-review-next-card))))
     (should (= 1 (length decklet-review--trail-past)))
     (let ((entry (car decklet-review--trail-past)))
       (should (= 1 (plist-get entry :card-id)))
@@ -170,11 +170,11 @@ the due queue, without writing to the DB."
          (decklet-due-card-ids '(3))
          (upserted nil))
     (decklet-test-review--with-card-words ((1 . "date") (2 . "elderberry") (3 . "fig"))
-					  (cl-letf (((symbol-function 'decklet-db--upsert-card)
-						     (lambda (&rest _) (setq upserted t)))
-						    ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-						    ((symbol-function 'decklet-review--render-buffer) #'ignore))
-					    (decklet-review-undo)))
+      (cl-letf (((symbol-function 'decklet-db--upsert-card)
+		 (lambda (&rest _) (setq upserted t)))
+		((symbol-function 'decklet-review--reset-ui-state) #'ignore)
+		((symbol-function 'decklet-review--render-buffer) #'ignore))
+	(decklet-review-undo)))
     (should (null decklet-review--trail-past))
     (should (= 1 (length decklet-review--trail-future)))
     (should (null upserted))
@@ -191,11 +191,11 @@ the due queue, without writing to the DB."
          (decklet-current-card-id 4)
          (card-ids-seen nil))
     (decklet-test-review--with-card-words ((1 . "A") (2 . "B") (3 . "C") (4 . "D"))
-					  (cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-						    ((symbol-function 'decklet-review--render-buffer) #'ignore))
-					    (dotimes (_ 3)
-					      (decklet-review-undo)
-					      (push decklet-current-card-id card-ids-seen))))
+      (cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
+		((symbol-function 'decklet-review--render-buffer) #'ignore))
+	(dotimes (_ 3)
+	  (decklet-review-undo)
+	  (push decklet-current-card-id card-ids-seen))))
     (should (equal '(1 2 3) card-ids-seen))
     (should (null decklet-review--trail-past))
     (should (= 3 (length decklet-review--trail-future)))))
@@ -227,32 +227,32 @@ rating — and voids the original log record.
 The proof is in the log: the re-rate's `pre_stability' is nil (the restored
 new-card base), not the stability left behind by the undone rating."
   (decklet-test--with-temp-db
-   (decklet--add-card "w")
-   (let ((decklet-current-card-id (decklet-test--card-id "w"))
-         (decklet-due-card-ids nil)
-         (decklet-review--trail-past nil)
-         (decklet-review--trail-future nil))
-     (cl-letf (((symbol-function 'decklet-review--advance) #'ignore)
-               ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-               ((symbol-function 'decklet-review--render-buffer) #'ignore))
-       (decklet-review--handle-grade 1)     ; forward-rate Again
-       (decklet-review-undo)                ; back to the card
-       (decklet-review--handle-grade 3))    ; re-rate Good from the undone spot
-     ;; The trail holds a single entry, now graded Good.
-     (should (= 1 (length decklet-review--trail-past)))
-     (should (= 3 (plist-get (car decklet-review--trail-past) :grade)))
-     ;; Log: rated(Again) -> rated(Good) -> void(the prior record).
-     (let* ((records (decklet-test--read-log))
-            (again (nth 0 records))
-            (good (nth 1 records)))
-       (should (equal (list decklet-review-log-kind-rated
-                            decklet-review-log-kind-rated
-                            decklet-review-log-kind-void)
-                      (mapcar (lambda (r) (plist-get r :kind)) records)))
-       (should (= 1 (plist-get again :grade)))
-       (should (= (plist-get again :id) (plist-get (nth 2 records) :voids)))
-       (should (= 3 (plist-get good :grade)))
-       (should (null (plist-get good :pre_stability)))))))
+    (decklet--add-card "w")
+    (let ((decklet-current-card-id (decklet-test--card-id "w"))
+          (decklet-due-card-ids nil)
+          (decklet-review--trail-past nil)
+          (decklet-review--trail-future nil))
+      (cl-letf (((symbol-function 'decklet-review--advance) #'ignore)
+                ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
+                ((symbol-function 'decklet-review--render-buffer) #'ignore))
+        (decklet-review--handle-grade 1)     ; forward-rate Again
+        (decklet-review-undo)                ; back to the card
+        (decklet-review--handle-grade 3))    ; re-rate Good from the undone spot
+      ;; The trail holds a single entry, now graded Good.
+      (should (= 1 (length decklet-review--trail-past)))
+      (should (= 3 (plist-get (car decklet-review--trail-past) :grade)))
+      ;; Log: rated(Again) -> rated(Good) -> void(the prior record).
+      (let* ((records (decklet-test--read-log))
+             (again (nth 0 records))
+             (good (nth 1 records)))
+        (should (equal (list decklet-review-log-kind-rated
+                             decklet-review-log-kind-rated
+                             decklet-review-log-kind-void)
+                       (mapcar (lambda (r) (plist-get r :kind)) records)))
+        (should (= 1 (plist-get again :grade)))
+        (should (= (plist-get again :id) (plist-get (nth 2 records) :voids)))
+        (should (= 3 (plist-get good :grade)))
+        (should (null (plist-get good :pre_stability)))))))
 
 (ert-deftest decklet-test-review-next-card-after-confirm-resumes-forward ()
   "After confirming the last undone card, forward flow resumes with the next
@@ -262,9 +262,9 @@ due card and only one prior entry on the trail."
          (decklet-current-card-id 1)
          (decklet-due-card-ids '(2)))
     (decklet-test-review--with-card-words ((1 . "A") (2 . "B"))
-					  (cl-letf (((symbol-function 'decklet--refresh-due-card-ids) #'ignore))
-					    (decklet-test--with-silent-review-ui
-					     (decklet-review-next-card))))
+      (cl-letf (((symbol-function 'decklet--refresh-due-card-ids) #'ignore))
+	(decklet-test--with-silent-review-ui
+	  (decklet-review-next-card))))
     (should (null decklet-review--trail-future))
     (should (= 2 decklet-current-card-id))
     (should (= 1 (length decklet-review--trail-past)))))
