@@ -30,6 +30,7 @@ It is built differently from many SRS tools:
   - [Hidden Cursor](#hidden-cursor)
 - [Features](#features)
   - [Browser Lookup](#browser-lookup)
+    - [Lookup Providers](#lookup-providers)
   - [Hints](#hints)
   - [Card Back](#card-back)
   - [Undo](#undo)
@@ -41,11 +42,20 @@ It is built differently from many SRS tools:
   - [Review Order](#review-order)
   - [Interval Labels](#interval-labels)
   - [Add and Refresh](#add-and-refresh)
+  - [Scheduling](#scheduling)
   - [Rollover Time](#rollover-time)
   - [Database](#database)
+    - [Connection Management](#connection-management)
+    - [Backup](#backup)
+    - [JSON Export and Import](#json-export-and-import)
+  - [Review Log](#review-log)
   - [Hooks](#hooks)
   - [Review UI Components](#review-ui-components)
 - [Writing Extensions](#writing-extensions)
+  - [Existing extension packages](#existing-extension-packages)
+  - [Public API](#public-api)
+  - [Lifecycle hooks](#lifecycle-hooks)
+  - [Example: per-word image sidecar](#example-per-word-image-sidecar)
 - [Testing and CI](#testing-and-ci)
 - [License](#license)
 
@@ -70,7 +80,7 @@ It is built differently from many SRS tools:
 
                           /ˈluːsɪd/
 
-                           [BACK]
+                             ♦
 ```
 
 ### Edit Mode
@@ -78,9 +88,9 @@ It is built differently from many SRS tools:
 ```text
 Word         Hint                  Back  State      Added            Last Review       Due               Stability Difficulty
 ----------------------------------------------------------------------------------------------------------------------------
-lucid        /ˈluːsɪd/             *     review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
+lucid        /ˈluːsɪd/             ♦     review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
 zephyr       /ˈzefər/                    learning   2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  12.220    4.050
-candor       /ˈkændər/             *     review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
+candor       /ˈkændər/             ♦     review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
 ```
 
 ## Get Started
@@ -180,6 +190,8 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `; f` | Sort by difficulty                        |
 | `l`   | Look up word with default provider        |
 | `L`   | Look up word with selected provider       |
+| `g`   | Refresh edit buffer                       |
+| `q`   | Quit edit mode                            |
 
 ## Additional Setup
 
@@ -350,20 +362,27 @@ longer or richer notes — etymology, example sentences, mnemonics, grammar
 patterns, or anything you want to record but do not want shown automatically
 during every review.
 
-In review mode, if a card has a back, a `[BACK]` indicator appears below the
-hint area as a reminder that extra content is available.
+In review mode, if a card has a back, a `♦` indicator appears below the
+hint area as a reminder that extra content is available. You can change the
+symbol with `decklet-review-card-back-indicator` (the hint placeholder has a
+matching `decklet-review-hint-indicator`, default `[HINT]`).
 
-In edit mode, the `Back` column shows `*` for cards that have a back.
+In edit mode, the `Back` column shows `♦` for cards that have a back. (The
+`*` you may see in the leftmost padding column is the mark indicator, not the
+card back indicator.)
 
 Key bindings (available in both review and edit modes):
 
 - `b`: open the card back popup. If the card already has a back, the buffer
-  is read-only — press `q` to close. If the card has no back yet, the buffer
-  is editable — type the content and save with `C-x C-s`.
+  opens read-only. If the card has no back yet, the buffer is editable — type
+  the content and save with `C-x C-s`.
 
   To modify an existing card back, open it with `b` and toggle the buffer
   editable with `M-x read-only-mode` (or `C-x C-q`), edit as usual, and save
   with `C-x C-s`.
+
+If you close the popup while it has unsaved edits, Decklet prompts you to
+(s)ave, (d)iscard, or (c)ancel, so edits are never silently lost.
 
 The card back buffer uses `org-mode` by default. You can change the major mode
 with `decklet-card-back-buffer-major-mode`:
@@ -447,24 +466,11 @@ zephyr
 # /ˈzefər/
 ```
 
-### Calendar integration and e-reader import
-
-Calendar due-date highlighting and Kindle/Kobo vocab import live in the
-separate [`decklet-extensions`](https://github.com/yilin-zhang/decklet-extensions)
-repo as standalone packages:
-
-- `decklet-calendar` — heat-map the upcoming review load on the built-in calendar.
-- `decklet-import` — import saved words from Kindle `vocab.db` or Kobo
-  `KoboReader.sqlite` into a batch-add buffer.
-
-Both packages are built on Decklet's public extension API (hooks +
-`decklet-db-due-counts-by-date` + `decklet-add-card-batch`) and install
-independently from the core.
-
 ### Data Location
 
 - Base directory: `decklet-directory` (defaults to `~/.emacs.d/decklet/`)
 - Database file: `decklet-db-file` (defaults to `decklet.sqlite` under the base directory)
+- Review log: `decklet-review-log-file` (defaults to `review-log.jsonl` under the base directory)
 - Backups: `decklet-backup-directory` (defaults to `backups/` under the base directory)
 
 If you want to change `decklet-directory` and all the paths derived from it,
@@ -571,6 +577,38 @@ For example, you might import a large chunk of words, then revisit one of them a
 few months later. Refreshing that card helps surface it sooner so you can review
 it while the context is still fresh.
 
+### Scheduling
+
+Decklet schedules cards with FSRS. The scheduler knobs below are the ones that
+actually change how often you see a card; all of them rebuild the cached
+scheduler when set through Customize or `setopt`.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `decklet-desired-retention` | `0.9` | Target probability of recall at review time. Higher means shorter intervals and more reviews; lower means longer intervals and more forgetting. |
+| `decklet-learning-steps` | `((10 :minute) (1 :day))` | Short steps a new card walks through before graduating to review. Set to nil to skip the learning stage. |
+| `decklet-relearning-steps` | `((10 :minute))` | Steps a lapsed card walks through before returning to review. Set to nil to disable. |
+| `decklet-fsrs-parameters` | `nil` | Override for the FSRS weight vector (21 floats). Nil uses the FSRS library defaults. |
+
+Each learning/relearning step is `(AMOUNT UNIT)`, where `UNIT` is `:sec`,
+`:minute`, `:hour`, or `:day`.
+
+```emacs-lisp
+;; Aim a little lower than the default to cut daily review load.
+(setopt decklet-desired-retention 0.85)
+
+;; A gentler three-step learning ramp.
+(setopt decklet-learning-steps '((5 :minute) (30 :minute) (1 :day)))
+```
+
+Because these are `defcustom`s with a `:set` function that invalidates the
+cached scheduler, prefer `setopt` (or `:custom` in `use-package`) over plain
+`setq` when changing them after load.
+
+`decklet-fsrs-parameters` is meant to be filled in by an external FSRS tuner
+rather than by hand — see [Review Log](#review-log) for the data source it
+trains on.
+
 ### Rollover Time
 
 Daily pacing uses a rollover time (default 4am). Cards due before the rollover
@@ -599,15 +637,34 @@ Backup behavior:
 - Backups are automatically triggered on review/edit session start and quit.
 - A backup is only created when the DB file has changed since the latest
   snapshot.
-- Backup files are timestamped and stored in `decklet-backup-directory`.
-- Retention is capped at `decklet-backup-prune-max-count` (default 20):
-  once the count exceeds this, the oldest are deleted silently.  Set to
-  nil to disable pruning.
+- Each snapshot is a **pair**: the SQLite database and the review log JSONL
+  are copied together under one shared timestamp, so a restore always brings
+  back a database and a log that agree with each other. Expect two files per
+  snapshot in `decklet-backup-directory`. If the review log does not exist
+  yet, an empty log file is written so the pair stays complete.
+- Retention is capped at `decklet-backup-prune-max-count` (default 20)
+  and counts *pairs*: once the count exceeds this, the oldest are deleted
+  silently. Set to nil to disable pruning.
 
 You can also manually back up or restore to a previous snapshot:
 
 - `decklet-db-backup`: create a backup snapshot.
 - `decklet-db-restore`: restore from a selected backup snapshot.
+
+`decklet-db-restore` lists snapshots newest-first. Because some completion UIs
+re-sort candidates by their own rules, `decklet-backup-restore-completion-setup`
+lets you bind variables dynamically around that `completing-read`. It is a
+function of no arguments returning an alist of `(SYMBOL . VALUE)` pairs, and it
+defaults to preserving order under Vertico:
+
+```emacs-lisp
+;; Default value — keeps the newest-first ordering in Vertico.
+(setq decklet-backup-restore-completion-setup
+      (lambda () '((vertico-sort-override-function . identity))))
+
+;; Disable the special-casing entirely.
+(setq decklet-backup-restore-completion-setup nil)
+```
 
 #### JSON Export and Import
 
@@ -637,6 +694,41 @@ JSON item format:
 `decklet-db-import-json` is useful when you want to migrate FSRS metadata from
 another tool or from a transformed export file. The importer reads the same
 schema used by the export function, as shown above.
+
+### Review Log
+
+Separately from the card database, Decklet keeps an append-only log of every
+review event at `decklet-review-log-file` (`review-log.jsonl` under
+`decklet-directory`). The database stores where each card *is now*; the log
+stores how it *got there*. That history is what an FSRS optimizer needs in
+order to fit parameters to your actual memory, which you then feed back in
+through `decklet-fsrs-parameters`.
+
+The file is JSONL — one JSON object per line — and is written transactionally
+with the card update, so a rating never lands in the DB without a matching log
+record. Three event kinds are written:
+
+| `kind` | Fields | Meaning |
+|---|---|---|
+| `rated` | `id`, `card_id`, `t`, `word`, `grade`, `pre_state`, `pre_stability`, `pre_difficulty`, `post_state`, `post_stability`, `post_difficulty`, `elapsed_days` | A card was graded. |
+| `void` | `voids`, `t` | Nullifies an earlier `rated` record by its `id`. |
+| `rename` | `card_id`, `old`, `new`, `t` | A card's word changed. |
+
+Consumer notes:
+
+- Skip any `rated` record whose `id` appears as the `voids` target of a `void`
+  event. Voids are written when you undo a rating and re-grade it differently
+  within one session.
+- Group by `card_id`, not by `word`. `card_id` is stable across renames, which
+  is why optimizers can ignore `rename` events entirely — they exist only for
+  tools that want to reconstruct the word as it was at rating time.
+- Deletions are **not** logged. Historical ratings for deleted cards stay in
+  the log on purpose, since they are still valid training data.
+- Treat the file as append-only. Decklet core provides no reader API; read the
+  file directly.
+
+The log is snapshotted alongside the database on every backup — see
+[Backup](#backup).
 
 ### Hooks
 
@@ -720,6 +812,22 @@ Decklet exposes a small public API and a set of card lifecycle hooks so
 you can build sidecar packages (audio, images, definitions, annotations,
 analytics, ...) without touching Decklet internals.
 
+### Existing extension packages
+
+Calendar due-date highlighting and Kindle/Kobo vocab import are not part of
+the core. They live in the separate
+[`decklet-extensions`](https://github.com/yilin-zhang/decklet-extensions) repo
+as standalone packages:
+
+- `decklet-calendar` — heat-map the upcoming review load on the built-in calendar.
+- `decklet-import` — import saved words from Kindle `vocab.db` or Kobo
+  `KoboReader.sqlite` into a batch-add buffer.
+
+Both are built entirely on the public extension API documented below (hooks +
+`decklet-db-due-counts-by-date` + `decklet-add-card-batch`) and install
+independently from the core. They are also the best worked examples to read
+before writing your own.
+
 ### Public API
 
 #### Reading cards
@@ -728,12 +836,14 @@ analytics, ...) without touching Decklet internals.
 |---|---|
 | `(decklet-card-exists-p CARD-ID)` | non-nil if `CARD-ID` is in the deck |
 | `(decklet-get-card CARD-ID)` | plist `(:card-id :word :hint :back :meta)` or nil |
+| `(decklet-require-card CARD-ID)` | same as above, but signals a `user-error` instead of returning nil |
 | `(decklet-get-card-hint CARD-ID)` | hint string or nil |
 | `(decklet-get-card-back CARD-ID)` | card back content or nil |
 | `(decklet-get-card-meta CARD-ID)` | `decklet-card-meta` struct or nil |
 | `(decklet-get-card-word CARD-ID)` | current word string or nil |
 | `(decklet-get-card-id-by-word WORD)` | card id or nil |
-| `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all`, `review`, `learning`, or `archived` |
+| `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all` (default), `review`, `learning`, or `archived` |
+| `(decklet-db-due-counts-by-date DAY-START CUTOFF)` | plist `(:rows :overdue)`; `:rows` is a list of `(DATE-STRING COUNT)` between the two time values, `:overdue` counts cards due before `DAY-START` |
 
 #### Mutating cards
 
@@ -765,6 +875,45 @@ close all such dependent buffers before disconnecting.
 
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
+
+#### Edit-mode columns
+
+`decklet-edit-sidecar-columns` lets an extension add its own columns to the
+edit table, inserted after the built-in `Back` column. Each entry is a plist:
+
+- `:name` — column header string
+- `:width` — `tabulated-list` column width
+- `:value` — function of one ROW plist, returning a display cell or nil
+
+```emacs-lisp
+(add-to-list 'decklet-edit-sidecar-columns
+             (list :name "Img"
+                   :width 4
+                   :value (lambda (row)
+                            (if (file-exists-p
+                                 (my/decklet-image-path (plist-get row :word)))
+                                "♦"
+                              ""))))
+```
+
+#### Backing up auxiliary files
+
+If your extension keeps files next to the database, you can make them ride
+along in Decklet's backup rotation instead of inventing your own. Register on
+`decklet-db-post-backup-functions` — an abnormal hook called with `BACKUP-DIR`
+and `TIMESTAMP` after a successful backup — and call
+`decklet-backup-auxiliary-file`, which copies a file into the snapshot using
+the same naming scheme and retention policy as the core:
+
+```emacs-lisp
+(defvar my/decklet-notes-file "~/decklet-notes.json")
+
+(defun my/decklet-backup-notes (backup-dir timestamp)
+  (when (file-exists-p my/decklet-notes-file)
+    (decklet-backup-auxiliary-file my/decklet-notes-file backup-dir timestamp)))
+
+(add-hook 'decklet-db-post-backup-functions #'my/decklet-backup-notes)
+```
 
 ### Lifecycle hooks
 
