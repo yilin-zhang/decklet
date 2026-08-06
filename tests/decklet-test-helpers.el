@@ -1,4 +1,6 @@
-;;; decklet-test-helpers.el --- Shared test infrastructure for Decklet -*- lexical-binding: t; -*-
+;;; decklet-test-helpers.el --- This file provides shared Decklet test infrastructure. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'ert)
 (require 'cl-lib)

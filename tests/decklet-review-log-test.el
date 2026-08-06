@@ -1,12 +1,14 @@
-;;; decklet-review-log-test.el --- Tests for decklet-review-log -*- lexical-binding: t; -*-
+;;; decklet-review-log-test.el --- This file tests decklet-review-log.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
 ;;; Appending records
 
 (ert-deftest decklet-test-review-log-append-rated-writes-record ()
-  "A rated event writes one line carrying identity, grade, pre/post state, and
-a monotonic record id."
+  "A rated event writes one complete JSONL record.
+It carries identity, grade, pre/post state, and a monotonic record id."
   (decklet-test--with-temp-db
     (let ((old (make-decklet-card-meta :card-id 42 :state :review :stability 4.5
                                        :difficulty 5.1 :last-review "2026-04-01T00:00:00Z"))
@@ -39,8 +41,8 @@ a monotonic record id."
       (should (< id2 id3)))))
 
 (ert-deftest decklet-test-review-log-append-rated-serializes-nil-stability ()
-  "A first-ever review has nil pre-stability/difficulty, serialized as JSON null,
-and zero elapsed days."
+  "A first review serializes missing memory data as JSON null.
+Its elapsed-day count is zero."
   (decklet-test--with-temp-db
     (let ((old (make-decklet-card-meta :card-id 7 :state :learning
                                        :stability nil :difficulty nil))

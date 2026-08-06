@@ -1,4 +1,6 @@
-;;; decklet-edit-test.el --- Tests for decklet-edit.el -*- lexical-binding: t; -*-
+;;; decklet-edit-test.el --- This file tests decklet-edit.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
@@ -73,8 +75,8 @@ BODY can refer to `buf', the edit buffer."
         (should (eql (tabulated-list-get-id) beta))))))
 
 (ert-deftest decklet-test-edit-preserving-window-position-binds-flag-in-body ()
-  "The outer `decklet-edit--preserving-window-position' binds the flag for its
-body; nested calls see it set and unwind it on exit.  No window is needed."
+  "The outer preservation form binds its flag within the body.
+Nested calls see it set and unwind it on exit.  No window is needed."
   (let ((decklet-edit--preserving-point nil)
         (flag-values '()))
     (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) nil)))
@@ -126,8 +128,8 @@ body; nested calls see it set and unwind it on exit.  No window is needed."
       (should (= 1 (hash-table-count decklet-edit--marked))))))
 
 (ert-deftest decklet-test-edit-delete-moves-point-to-nearest-survivor ()
-  "Deleting the card at point lands point on the nearest surviving row,
-preferring the following row on a tie."
+  "Deletion moves point to the nearest surviving row.
+The following row wins when both neighboring rows are equally close."
   (decklet-test--with-temp-db
     (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
     (decklet-edit-test--with-buffer
@@ -140,8 +142,8 @@ preferring the following row on a tie."
 ;;; Archive
 
 (ert-deftest decklet-test-edit-archive-then-unarchive-via-filter ()
-  "Archive hides a card from the active deck; under the archived filter the
-same command unarchives it."
+  "Archiving hides a card from the active deck.
+Under the archived filter, the same command unarchives it."
   (decklet-test--with-temp-db
     (decklet-test--add-card-meta "alpha")
     (decklet-edit-test--with-buffer

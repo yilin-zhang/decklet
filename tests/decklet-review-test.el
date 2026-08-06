@@ -1,4 +1,6 @@
-;;; decklet-review-test.el --- Tests for decklet-review.el -*- lexical-binding: t; -*-
+;;; decklet-review-test.el --- This file tests decklet-review.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
@@ -56,8 +58,7 @@
 ;; since there is no live review buffer to render into.
 
 (ert-deftest decklet-test-review-handle-grade-fires-daily-goal-hook-on-transition ()
-  "Rating the last outstanding card crosses the daily goal and fires the goal
-hook exactly once."
+  "Rating the last outstanding card fires the daily-goal hook once."
   (decklet-test--with-temp-db
     (decklet--add-card "goalword")
     (let* ((decklet-review-daily-goal 1)
@@ -162,8 +163,8 @@ hook exactly once."
 ;;; Trail: undo
 
 (ert-deftest decklet-test-review-undo-moves-past-head-to-future ()
-  "Undo pops the past head onto future and pushes the on-screen card back to
-the due queue, without writing to the DB."
+  "Undo moves trail history and restores the current card to the due queue.
+It does not write to the database."
   (let* ((decklet-review--trail-past (list (decklet-test--trail-entry 1)))
          (decklet-review--trail-future nil)
          (decklet-current-card-id 2)
@@ -220,9 +221,9 @@ the due queue, without writing to the DB."
 ;;; Trail: confirming and re-rating an undone card
 
 (ert-deftest decklet-test-review-rerate-after-undo-recomputes-from-pre-meta ()
-  "Rating a card, undoing, then re-rating restores the pre-rating state before
-FSRS runs — so the re-rate is computed from the original base, not the undone
-rating — and voids the original log record.
+  "Re-rating after undo restores the original pre-rating state.
+FSRS uses that original base rather than the undone rating, and Decklet voids
+the original log record.
 
 The proof is in the log: the re-rate's `pre_stability' is nil (the restored
 new-card base), not the stability left behind by the undone rating."
@@ -255,8 +256,8 @@ new-card base), not the stability left behind by the undone rating."
         (should (null (plist-get good :pre_stability)))))))
 
 (ert-deftest decklet-test-review-next-card-after-confirm-resumes-forward ()
-  "After confirming the last undone card, forward flow resumes with the next
-due card and only one prior entry on the trail."
+  "Confirming the last undone card resumes forward review.
+The next due card appears with only one prior trail entry."
   (let* ((decklet-review--trail-past nil)
          (decklet-review--trail-future (list (decklet-test--trail-entry 1)))
          (decklet-current-card-id 1)

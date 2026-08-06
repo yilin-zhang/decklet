@@ -129,7 +129,7 @@
 One of: all, review, learning, archived.")
 
 (defvar decklet-edit--inhibit-callback-refresh nil
-  "When it is non-nil, inhibit refresh during bulk processing")
+  "When it is non-nil, inhibit refresh during bulk processing.")
 
 (defvar decklet-edit-sidecar-columns nil
   "Additional sidecar column descriptors for the edit table.

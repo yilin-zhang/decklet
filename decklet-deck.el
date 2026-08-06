@@ -56,7 +56,7 @@ Receives a list of added words.")
 
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
   "Major mode for editing batch word entries.
-Lines starting with `#' are highlighted as comment-style hint lines."
+Lines starting with `#' are highlighted as comments containing hints."
   (setq-local font-lock-defaults '(decklet-add-card-batch-font-lock-keywords))
   (font-lock-refresh-defaults))
 
@@ -179,7 +179,8 @@ optional PROMPT, defaulting to the word at point."
 ;; and `decklet-edit.el'.
 
 (defun decklet-rate-card (card-id grade &optional prior-grade)
-  "Update CARD-ID with review GRADE (1-4)."
+  "Update CARD-ID with review GRADE (1-4).
+PRIOR-GRADE, when non-nil, is the rating being replaced."
   (let* ((row (decklet-db--require-card-row card-id))
          (word (plist-get row :word))
          (old-meta (decklet-db--row->card-meta row)))
@@ -198,7 +199,8 @@ WORD, OLD-META, NEW-META, GRADE, and PRIOR-GRADE describe the rating."
                                :prior-grade prior-grade))
 
 (defun decklet--rate-card-state (card-id word old-meta grade &optional prior-grade)
-  "Update CARD-ID using WORD and OLD-META with review GRADE (1-4)."
+  "Update CARD-ID using WORD and OLD-META with review GRADE (1-4).
+PRIOR-GRADE, when non-nil, is the rating being replaced."
   (let* ((new-meta (decklet--update-meta-with-grade old-meta grade))
          (log-id (decklet-review-log-append-rated
                   word card-id grade old-meta new-meta)))

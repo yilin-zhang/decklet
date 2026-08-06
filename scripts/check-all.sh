@@ -18,12 +18,12 @@ echo "[3/6] Byte compile"
 # those warnings fail the build — without it `batch-byte-compile' exits 0 and
 # CI stays green on real defects (e.g. a macro used before its definition,
 # which breaks only once the package is installed and compiled).
-emacs --batch -L "$FSRS_DIR" -L . \
+emacs --batch -Q -L "$FSRS_DIR" -L . \
       --eval '(setq byte-compile-error-on-warn t)' \
       -f batch-byte-compile decklet*.el
 
 echo "[4/6] Remove generated .elc"
-find . -name '*.elc' -delete
+find . -name '*.elc' ! -path './scripts/.cache/*' -delete
 
 echo "[5/6] Checkdoc"
 ./scripts/check-checkdoc.sh

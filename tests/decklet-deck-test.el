@@ -1,4 +1,6 @@
-;;; decklet-deck-test.el --- Tests for decklet-deck.el and card display -*- lexical-binding: t; -*-
+;;; decklet-deck-test.el --- This file tests decklet-deck.el and card display. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
@@ -23,8 +25,7 @@ Holds for both the raw state+last-review form and the card-meta form."
 ;;; Field setters
 
 (ert-deftest decklet-test-deck-field-setters-fire-hook-only-on-change ()
-  "Hint/back setters write and fire the field-updated hook only when the
-normalized value actually changes."
+  "Hint/back setters notify only for normalized value changes."
   (decklet-test--with-temp-db
     (let ((id (decklet-test--add-card-meta "glow" :state :learning
                                            :timestamp "20250101T000000Z"))
@@ -124,8 +125,9 @@ normalized value actually changes."
     (should-error (decklet-save-card-back) :type 'user-error)))
 
 (defun decklet-deck-test--open-dirty-card-back (word original new)
-  "Seed WORD with ORIGINAL back, open its popup, replace its text with NEW, and
-return the now-modified buffer.  The caller is responsible for killing it."
+  "Seed WORD and return a modified card-back buffer.
+ORIGINAL is the stored back and NEW replaces its text in the open popup.
+The caller is responsible for killing the buffer."
   (decklet-db--update-back
    (decklet-test--add-card-meta word :state :new :timestamp "20250101T000000Z")
    original)
@@ -144,8 +146,7 @@ return the now-modified buffer.  The caller is responsible for killing it."
      (kill-buffer ,buf)))
 
 (ert-deftest decklet-test-deck-card-back-kill-query-save ()
-  "Answering `save' on a dirty card-back kill writes the new content and lets
-the buffer die."
+  "Answering `save' writes the new card-back content and kills its buffer."
   (decklet-test--with-temp-db
     (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
       (unwind-protect
@@ -159,8 +160,8 @@ the buffer die."
           (kill-buffer buf))))))
 
 (ert-deftest decklet-test-deck-card-back-kill-query-discard ()
-  "Answering `discard' kills the buffer without writing; the DB keeps its
-old back."
+  "Answering `discard' kills the card-back buffer without writing.
+The database retains its old back."
   (decklet-test--with-temp-db
     (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
       (unwind-protect
@@ -174,8 +175,8 @@ old back."
           (kill-buffer buf))))))
 
 (ert-deftest decklet-test-deck-card-back-kill-query-cancel ()
-  "Answering `cancel' aborts the kill; the buffer stays alive and modified and
-the DB keeps its old back."
+  "Answering `cancel' leaves the card-back buffer alive and modified.
+The database retains its old back."
   (decklet-test--with-temp-db
     (let ((buf (decklet-deck-test--open-dirty-card-back "bright" "old-back" "new-back")))
       (unwind-protect
@@ -192,8 +193,8 @@ the DB keeps its old back."
 ;;; Batch collection parsing
 
 (ert-deftest decklet-test-deck-batch-collect-cards-with-hints ()
-  "Batch parsing attaches `#'-prefixed hint lines to the preceding word and
-joins multi-line hints."
+  "Batch parsing attaches hint lines to the preceding word.
+It recognizes the `#' prefix and joins multi-line hints."
   (with-temp-buffer
     (insert "\n  lucid  \n# adj.\n\n\t\n# lucid rain\n  dirt\n# ...\n")
     (should (equal (decklet--batch-collect-cards)

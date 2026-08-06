@@ -42,7 +42,7 @@
       (check-parens))))
 
 (defun decklet-check--register-indent-declaration (form)
-  "Register the `lisp-indent-function' spec FORM declares, if it declares one."
+  "Register the symbol `lisp-indent-function' spec declared by FORM."
   (when (and (proper-list-p form)
              (memq (car form) '(defmacro cl-defmacro))
              (symbolp (nth 1 form)))
@@ -54,7 +54,7 @@
         (put (nth 1 form) 'lisp-indent-function (cadr spec))))))
 
 (defun decklet-check--register-indent-form (form)
-  "Register `lisp-indent-function' specs declared anywhere within FORM.
+  "Register symbol `lisp-indent-function' specs declared within FORM.
 Walks FORM recursively so macros wrapped in conditionals are found too.
 The spine is walked iteratively and dotted pairs are tolerated, so
 quoted test data cannot abort the scan."
@@ -112,10 +112,30 @@ When DECKLET_FIX_INDENT is set, rewrite files instead of failing."
       (princ "Indentation looks good.\n"))))
 
 (defun decklet-check-checkdoc ()
-  "Run Checkdoc against the main Decklet package file."
-  (unless (checkdoc-file (expand-file-name "decklet.el" decklet-check--root))
-    (princ "Checkdoc failed\n")
-    (kill-emacs 1)))
+  "Run Checkdoc against every tracked Decklet Elisp file."
+  (let (errors)
+    (dolist (file (decklet-check--elisp-files))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (setq buffer-file-name file)
+        (let ((emacs-lisp-mode-hook nil)
+              (checkdoc-create-error-function
+               (lambda (message start _end &optional _unfixable)
+                 (push (list (file-relative-name file decklet-check--root)
+                             (line-number-at-pos (or start (point-min)))
+                             message)
+                       errors)
+                 nil)))
+          (emacs-lisp-mode)
+          (checkdoc-current-buffer t))))
+    (if errors
+        (progn
+          (princ "Checkdoc failed:\n")
+          (dolist (error (nreverse errors))
+            (pcase-let ((`(,file ,line ,message) error))
+              (princ (format "  %s:%d: %s\n" file line message))))
+          (kill-emacs 1))
+      (princ "Checkdoc looks good.\n"))))
 
 (defun decklet-check-configure-package-lint ()
   "Configure package-lint for Decklet's dependencies and package layout."
@@ -124,7 +144,7 @@ When DECKLET_FIX_INDENT is set, rewrite files instead of failing."
         '(("gnu" . "https://elpa.gnu.org/packages/")
           ("nongnu" . "https://elpa.nongnu.org/nongnu/")
           ("melpa" . "https://melpa.org/packages/")))
-  (package-initialize)
+  (package-initialize t)
   (unless (assq 'fsrs package-archive-contents)
     (package-refresh-contents))
   (setq package-lint-main-file "decklet.el"))

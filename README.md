@@ -619,6 +619,11 @@ count toward today.
 (setq decklet-day-rollover-hour 2)
 ```
 
+In a time zone that observes daylight saving time, the configured hour may not
+exist on the spring-forward day. Emacs normalizes that boundary to the next
+valid local time; for example, a 2am rollover occurs at 3am that day and
+returns to 2am the following day.
+
 ### Database
 
 Decklet stores all card data in a single SQLite file
@@ -704,9 +709,12 @@ stores how it *got there*. That history is what an FSRS optimizer needs in
 order to fit parameters to your actual memory, which you then feed back in
 through `decklet-fsrs-parameters`.
 
-The file is JSONL — one JSON object per line — and is written transactionally
-with the card update, so a rating never lands in the DB without a matching log
-record. Three event kinds are written:
+The file is JSONL — one JSON object per line. Decklet writes a rating record
+before updating the card in SQLite; if the database update fails, it appends a
+`void` record to retire that rating. This ordering prevents a rating from
+landing in the database without a corresponding log record, although the JSONL
+file and SQLite database are separate files rather than one atomic transaction.
+Three event kinds are written:
 
 | `kind` | Fields | Meaning |
 |---|---|---|
@@ -771,7 +779,7 @@ In short:
 - Fixed components form the main review layout and are always rendered.
 - Floating components sit below the fixed block and can update independently
   (for example, the hint area after the hint delay). The built-in
-  `decklet-review-component-card-back-indicator` shows `[BACK]` when the
+  `decklet-review-component-card-back-indicator` shows `♦` when the
   current card has a card back.
 
 `decklet-review-fill-column` controls the max text width used by review UI

@@ -1,4 +1,6 @@
-;;; decklet-core-test.el --- Tests for decklet-core.el -*- lexical-binding: t; -*-
+;;; decklet-core-test.el --- This file tests decklet-core.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
@@ -13,7 +15,7 @@
         (decklet-cards-added-functions
          '(decklet-test--broken-subscriber decklet-test--recording-subscriber)))
     (cl-letf (((symbol-function 'decklet-test--broken-subscriber)
-               (lambda (_events) (error "broken extension")))
+               (lambda (_events) (error "Broken extension")))
               ((symbol-function 'decklet-test--recording-subscriber)
                (lambda (events) (setq seen events)))
               ((symbol-function 'display-warning) #'ignore))

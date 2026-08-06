@@ -1,4 +1,6 @@
-;;; decklet-db-test.el --- Tests for decklet-db.el -*- lexical-binding: t; -*-
+;;; decklet-db-test.el --- This file tests decklet-db.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
@@ -81,8 +83,8 @@
       (should decklet-db--conn))))
 
 (ert-deftest decklet-test-db-disconnect-kills-dependents-and-closes-db ()
-  "`decklet-disconnect' kills dependents, fires the pre-disconnect hook once,
-and closes the connection."
+  "`decklet-disconnect' kills dependents and closes the connection.
+It fires the pre-disconnect hook exactly once."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (buf-a buf-b)
@@ -97,8 +99,8 @@ and closes the connection."
 	(should (= hook-count 1))))))
 
 (ert-deftest decklet-test-db-disconnect-aborts-when-buffer-cancels-kill ()
-  "A dependent buffer refusing to die aborts disconnect: connection stays open
-and the pre-disconnect hook does not run."
+  "A dependent buffer refusing to die aborts disconnection.
+The connection stays open and the pre-disconnect hook does not run."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (buf)
@@ -216,8 +218,8 @@ This is the public API the calendar extension relies on."
 ;;; Card back — DB layer
 
 (ert-deftest decklet-test-db-card-back-update-select-and-isolation ()
-  "Card back round-trips through update/select, blank normalizes to nil, and a
-scheduling upsert never touches the back field."
+  "Card backs round-trip without interfering with scheduling.
+Blank content normalizes to nil, and scheduling upserts preserve the back."
   (decklet-test--with-temp-db
     (let ((id (decklet-test--add-card-meta "lucid" :state :new
                                            :timestamp "20250101T000000Z")))

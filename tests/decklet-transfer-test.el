@@ -1,12 +1,14 @@
-;;; decklet-transfer-test.el --- Tests for decklet-transfer.el -*- lexical-binding: t; -*-
+;;; decklet-transfer-test.el --- This file tests decklet-transfer.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
 ;;; JSON import
 
 (ert-deftest decklet-test-transfer-import-adds-cards ()
-  "Import inserts each record, preserves the archived flag, and reads the
-optional back field (absent back becomes nil)."
+  "Import preserves card content and archive state.
+It reads the optional back field, treating an absent back as nil."
   (decklet-test--with-temp-db
     (let ((stats (decklet-test--import
                   '(((word . "alpha") (added_date . "20250101T010101Z")
@@ -51,8 +53,8 @@ optional back field (absent back becomes nil)."
       (should (string= "new" (plist-get (decklet-db--select-card-row-by-word "alpha") :hint))))))
 
 (ert-deftest decklet-test-transfer-import-overwrite-hint-back-tristate ()
-  "On overwrite, explicit JSON null or blank clears hint/back; an absent field
-preserves the existing value."
+  "Overwrite distinguishes absent fields from blank or null values.
+Blank and null clear hint/back, while absence preserves the existing value."
   (decklet-test--with-temp-db
     (cl-flet ((seed ()
                 (let ((id (decklet-test--add-card-meta
@@ -84,8 +86,8 @@ preserves the existing value."
       (should (string= "old-back" (alpha :back))))))
 
 (ert-deftest decklet-test-transfer-import-rejects-duplicate-word-in-file ()
-  "Two records sharing a word abort the whole import before any write, so no
-ghost card-id leaks to `decklet-cards-added-functions'."
+  "Duplicate words abort an import before any write.
+No ghost card-id leaks to `decklet-cards-added-functions'."
   (decklet-test--with-temp-db
     (let* ((rec '((word . "alpha") (added_date . "20250110T000000Z")
                   (last_review . "20250110T000000Z")
@@ -177,8 +179,8 @@ ghost card-id leaks to `decklet-cards-added-functions'."
 ;;; JSON export and round-trip
 
 (ert-deftest decklet-test-transfer-export-writes-all-cards ()
-  "Export emits one object per card, ordered by added-date then word, with
-content fields populated."
+  "Export writes every card in a deterministic order.
+It emits populated objects ordered by added-date and then word."
   (decklet-test--with-temp-db
     (let ((file (expand-file-name "export.json" tmp-dir))
           (sun (decklet-test--add-card-meta "sun" :timestamp "20250101T010101Z"
@@ -199,8 +201,8 @@ content fields populated."
         (should (equal (alist-get 'state sun-row) "review"))))))
 
 (ert-deftest decklet-test-transfer-export-import-round-trip ()
-  "Exporting then importing into an emptied DB preserves content, scheduling,
-and archive state."
+  "An export/import round trip preserves all card state.
+This includes content, scheduling, and archive state."
   (decklet-test--with-temp-db
     (let ((export-file (expand-file-name "round-trip.json" tmp-dir))
           (river (decklet-test--add-card-meta "river" :timestamp "20250101T010101Z"

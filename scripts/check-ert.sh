@@ -5,15 +5,17 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 FSRS_DIR="$(./scripts/check-deps.sh)"
 
-emacs --batch -L "$FSRS_DIR" -L . -L tests \
+TEST_LOAD_ARGS=()
+while IFS= read -r file; do
+  TEST_LOAD_ARGS+=(-l "$file")
+done < <(git ls-files 'tests/*-test.el')
+
+if [[ ${#TEST_LOAD_ARGS[@]} -eq 0 ]]; then
+  echo "Error: no tracked ERT test files found" >&2
+  exit 1
+fi
+
+emacs --batch -Q -L "$FSRS_DIR" -L . -L tests \
   -l tests/decklet-test-helpers.el \
-  -l tests/decklet-core-test.el \
-  -l tests/decklet-db-test.el \
-  -l tests/decklet-transfer-test.el \
-  -l tests/decklet-review-test.el \
-  -l tests/decklet-edit-test.el \
-  -l tests/decklet-deck-test.el \
-  -l tests/decklet-backup-test.el \
-  -l tests/decklet-review-log-test.el \
-  -l tests/decklet-scheduler-test.el \
+  "${TEST_LOAD_ARGS[@]}" \
   -f ert-run-tests-batch-and-exit

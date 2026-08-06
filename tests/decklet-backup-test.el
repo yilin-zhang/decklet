@@ -1,4 +1,6 @@
-;;; decklet-backup-test.el --- Tests for decklet backup functionality -*- lexical-binding: t; -*-
+;;; decklet-backup-test.el --- This file tests Decklet backup functionality. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 
@@ -163,8 +165,8 @@
 ;;; Post-backup hook and auxiliary-file backup
 
 (ert-deftest decklet-test-backup-post-backup-hook-fires ()
-  "`decklet-db-post-backup-functions' runs after a backup with (BACKUP-DIR
-TIMESTAMP), where TIMESTAMP is the compact UTC form."
+  "`decklet-db-post-backup-functions' runs after a backup.
+It receives (BACKUP-DIR TIMESTAMP), where TIMESTAMP is the compact UTC form."
   (decklet-test--with-temp-db
     (decklet-test--add-card-meta "hook-probe")
     (let* ((captured nil)

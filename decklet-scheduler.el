@@ -167,22 +167,27 @@ cards, but FSRS schedules those cards from the learning state."
     (4 :easy)
     (_ (error "Invalid grade: %s" grade))))
 
+(defun decklet--rollover-time-on-relative-date (time day-offset)
+  "Return rollover time DAY-OFFSET calendar days from TIME's local date."
+  (let* ((decoded (decode-time time))
+         (day (+ (nth 3 decoded) day-offset))
+         (month (nth 4 decoded))
+         (year (nth 5 decoded))
+         (rollover (decklet--clamp decklet-day-rollover-hour 0 23)))
+    (encode-time 0 0 rollover day month year)))
+
 (defun decklet-day-start-time (&optional time)
   "Return the start time of the review day containing TIME."
   (let* ((time (or time (current-time)))
-         (decoded (decode-time time))
-         (day (nth 3 decoded))
-         (month (nth 4 decoded))
-         (year (nth 5 decoded))
-         (rollover (decklet--clamp decklet-day-rollover-hour 0 23))
-         (day-start (encode-time 0 0 rollover day month year)))
+         (day-start (decklet--rollover-time-on-relative-date time 0)))
     (if (time-less-p time day-start)
-        (time-subtract day-start (days-to-time 1))
+        (decklet--rollover-time-on-relative-date time -1)
       day-start)))
 
 (defun decklet--next-day-start-time (&optional time)
   "Return the next review day start time after TIME."
-  (time-add (decklet-day-start-time time) (days-to-time 1)))
+  (decklet--rollover-time-on-relative-date
+   (decklet-day-start-time time) 1))
 
 (defun decklet--now ()
   "Return the current time as an FSRS timestamp string."

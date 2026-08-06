@@ -1,13 +1,77 @@
-;;; decklet-scheduler-test.el --- Tests for decklet-scheduler -*- lexical-binding: t; -*-
+;;; decklet-scheduler-test.el --- This file tests decklet-scheduler.el. -*- lexical-binding: t; -*-
+
+;;; Code:
 
 (require 'decklet-test-helpers)
 (require 'fsrs)
 
+;;; Review-day boundaries
+
+(ert-deftest decklet-test-scheduler-rollover-follows-calendar-across-dst ()
+  "Review-day boundaries keep their wall-clock hour across DST changes."
+  (let ((old-tz (getenv "TZ"))
+        (decklet-day-rollover-hour 4))
+    (unwind-protect
+        (progn
+          (setenv "TZ" "America/Los_Angeles")
+          (cl-labels ((format-local (time)
+                        (format-time-string "%F %T %z" time
+                                            "America/Los_Angeles")))
+            (should
+             (equal
+              (format-local
+               (decklet--next-day-start-time
+                (date-to-time "2026-03-07T12:00:00-08:00")))
+              "2026-03-08 04:00:00 -0700"))
+            (should
+             (equal
+              (format-local
+               (decklet-day-start-time
+                (date-to-time "2026-03-08T03:30:00-07:00")))
+              "2026-03-07 04:00:00 -0800"))
+            (should
+             (equal
+              (format-local
+               (decklet--next-day-start-time
+                (date-to-time "2026-10-31T12:00:00-07:00")))
+              "2026-11-01 04:00:00 -0800"))
+            (should
+             (equal
+              (format-local
+               (decklet-day-start-time
+                (date-to-time "2026-11-01T03:30:00-08:00")))
+              "2026-10-31 04:00:00 -0700"))))
+      (setenv "TZ" old-tz))))
+
+(ert-deftest decklet-test-scheduler-rollover-normalizes-missing-dst-hour ()
+  "A rollover in the spring DST gap advances to the next valid hour."
+  (let ((old-tz (getenv "TZ"))
+        (decklet-day-rollover-hour 2))
+    (unwind-protect
+        (progn
+          (setenv "TZ" "America/Los_Angeles")
+          (cl-labels ((format-local (time)
+                        (format-time-string "%F %T %z" time
+                                            "America/Los_Angeles")))
+            (should
+             (equal
+              (format-local
+               (decklet--next-day-start-time
+                (date-to-time "2026-03-07T12:00:00-08:00")))
+              "2026-03-08 03:00:00 -0700"))
+            (should
+             (equal
+              (format-local
+               (decklet--next-day-start-time
+                (date-to-time "2026-03-08T12:00:00-07:00")))
+              "2026-03-09 02:00:00 -0700"))))
+      (setenv "TZ" old-tz))))
+
 ;;; FSRS parameter override
 
 (ert-deftest decklet-test-scheduler-parameter-override-round-trips ()
-  "The scheduler uses FSRS defaults when no override is set, passes a non-nil
-override vector through, and reverts to defaults once the override is cleared."
+  "The scheduler falls back to FSRS defaults around overrides.
+It passes a non-nil override through and reverts when the override is cleared."
   (decklet-test--with-temp-db
     (setq decklet--fsrs-scheduler nil)
     (should (equal (fsrs-scheduler-parameters (decklet--get-fsrs-scheduler))
@@ -25,8 +89,8 @@ override vector through, and reverts to defaults once the override is cleared."
                    fsrs-default-parameters))))
 
 (ert-deftest decklet-test-scheduler-set-handler-invalidates-cache ()
-  "The defcustom :set handler clears the cached scheduler so new weights take
-effect on the next review without a manual cache clear."
+  "The custom setter invalidates the cached scheduler.
+New weights take effect on the next review without a manual cache clear."
   (decklet-test--with-temp-db
     (let ((handler (get 'decklet-fsrs-parameters 'custom-set)))
       (should handler)
