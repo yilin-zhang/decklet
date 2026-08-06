@@ -307,6 +307,43 @@ nearest surviving card otherwise."
             (or (funcall (plist-get column :value) row) ""))
           decklet-edit-sidecar-columns))
 
+(defun decklet-edit--column-sorter (column)
+  "Return a sorter closure for COLUMN.
+Column index and numeric-ness are captured once when the closure is
+constructed, not per comparison — a fresh closure is built on each
+`decklet-edit--tabulated-list-format' refresh, so sidecar column
+changes propagate through the next format rebuild."
+  (let ((index (alist-get column (decklet-edit--column-indices) nil nil #'string=))
+        (numeric-p (member column decklet-edit--numeric-columns)))
+    (lambda (a b)
+      (if numeric-p
+          (< (decklet-edit--entry-sort-number a index)
+             (decklet-edit--entry-sort-number b index))
+        (string< (decklet-edit--entry-sort-string a index)
+                 (decklet-edit--entry-sort-string b index))))))
+
+(defun decklet-edit--column-sort-command (column)
+  "Return an interactive command to sort by COLUMN."
+  (lambda ()
+    (interactive)
+    ;; `tabulated-list-sort-key' is (COLUMN . DESC), where DESC is t/nil.
+    (let* ((current (car tabulated-list-sort-key))
+           ;; When sorting the same column, toggle direction.
+           ;; Otherwise use the column's default direction.
+           ;; Force DESC to be a strict boolean so sort key cdr is t/nil.
+           (descending (if (equal current column)
+                           (not (cdr tabulated-list-sort-key))
+                         (not (null (member column decklet-edit--time-sort-columns))))))
+      ;; Update the global sort key and immediately redraw the table.
+      (setq tabulated-list-sort-key
+            (cons column
+                  descending))
+      (decklet-edit-refresh)
+      ;; Report the selected column and direction for quick feedback.
+      (message "Sort: %s (%s)"
+               column
+               (if descending "descending" "ascending")))))
+
 (defun decklet-edit--tabulated-list-format ()
   "Return the current tabulated-list format for the edit buffer."
   (vconcat
@@ -326,43 +363,6 @@ nearest surviving card otherwise."
     (list "Due" 20 (decklet-edit--column-sorter "Due"))
     (list "Stability" 10 (decklet-edit--column-sorter "Stability"))
     (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty")))))
-
-(defmacro decklet-edit--column-sorter (column)
-  "Return a sorter lambda for COLUMN.
-Column index and numeric-ness are captured once when the lambda is
-constructed, not per comparison — a fresh closure is built on each
-`decklet-edit--tabulated-list-format' refresh, so sidecar column
-changes propagate through the next format rebuild."
-  `(let ((index (alist-get ,column (decklet-edit--column-indices) nil nil #'string=))
-         (numeric-p (member ,column decklet-edit--numeric-columns)))
-     (lambda (a b)
-       (if numeric-p
-           (< (decklet-edit--entry-sort-number a index)
-              (decklet-edit--entry-sort-number b index))
-         (string< (decklet-edit--entry-sort-string a index)
-                  (decklet-edit--entry-sort-string b index))))))
-
-(defmacro decklet-edit--column-sort-command (column)
-  "Return an interactive command to sort by COLUMN."
-  `(lambda ()
-     (interactive)
-     ;; `tabulated-list-sort-key' is (COLUMN . DESC), where DESC is t/nil.
-     (let* ((current (car tabulated-list-sort-key))
-            ;; When sorting the same column, toggle direction.
-            ;; Otherwise use the column's default direction.
-            ;; Force DESC to be a strict boolean so sort key cdr is t/nil.
-            (descending (if (equal current ,column)
-                            (not (cdr tabulated-list-sort-key))
-                          (not (null (member ,column decklet-edit--time-sort-columns))))))
-       ;; Update the global sort key and immediately redraw the table.
-       (setq tabulated-list-sort-key
-             (cons ,column
-                   descending))
-       (decklet-edit-refresh)
-       ;; Report the selected column and direction for quick feedback.
-       (message "Sort: %s (%s)"
-                ,column
-                (if descending "descending" "ascending")))))
 
 (defun decklet-edit--card-id-at-point ()
   "Return the card id for the card on the current line.

@@ -75,7 +75,8 @@ FSRS library's built-in defaults are used.
 Typically set by an external tuner after fine-tuning on the
 persistent review log."
   :type '(choice (const :tag "FSRS library defaults" nil)
-                 (vector :tag "Custom 21-float parameters"))
+                 (restricted-sexp :tag "Custom 21-float parameter vector"
+                                  :match-alternatives (vectorp)))
   :set (lambda (symbol value)
          (set-default symbol value)
          (setq decklet--fsrs-scheduler nil))
