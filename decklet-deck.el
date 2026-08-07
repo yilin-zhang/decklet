@@ -218,27 +218,6 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
        (signal (car err) (cdr err))))
     log-id))
 
-(defun decklet--rerate-card-state (card-id word old-meta grade prior-grade)
-  "Replace CARD-ID's PRIOR-GRADE with GRADE using WORD and OLD-META.
-Write the replacement log record before changing the database, so a log
-write failure leaves the prior rating intact."
-  (let* ((new-meta (decklet--update-meta-with-grade old-meta grade))
-         (log-id (decklet-review-log-append-rated
-                  word card-id grade old-meta new-meta)))
-    (unless log-id
-      (user-error "Could not write replacement rating to the review log"))
-    (condition-case err
-        (decklet--commit-card-rating
-         card-id word old-meta new-meta grade prior-grade)
-      (error
-       (unless (decklet-review-log-append-void log-id)
-         (display-warning
-          'decklet
-          "Could not retire a replacement rating whose database update failed"
-          :error))
-       (signal (car err) (cdr err))))
-    log-id))
-
 (defun decklet-set-card-word (card-id new-word)
   "Rename CARD-ID to NEW-WORD and return the normalized new value."
   (let* ((old-word (decklet-get-card-word card-id))

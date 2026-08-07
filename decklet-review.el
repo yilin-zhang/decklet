@@ -319,12 +319,10 @@ onto `decklet-review--trail-past'.")
   "Return a padding string to center LINES as a block in the window.
 The lines in the block are left-aligned within the centered block."
   (let* ((graphic-p (display-graphic-p))
-         ;; Get the available width (pixels for GUI, columns for terminal)
          (body-width (if graphic-p
                          (let ((edges (window-inside-pixel-edges)))
                            (- (nth 2 edges) (nth 0 edges)))
                        (window-body-width)))
-         ;; Find the widest line (in pixels or columns)
          (max-line-width
           (apply #'max
                  (mapcar
@@ -333,13 +331,9 @@ The lines in the block are left-aligned within the centered block."
                         (car (decklet--string-pixel-size text)))
                     #'string-width)
                   lines)))
-         ;; Calculate padding needed to center the block
          (padding (max 0 (/ (- body-width max-line-width) 2))))
-    ;; Return appropriate padding format
     (if graphic-p
-        ;; GUI: use pixel space specification
         (propertize " " 'display `(space :width (,padding)))
-      ;; Terminal: use actual spaces
       (make-string padding ?\s))))
 
 (defun decklet-center-text (text)
@@ -791,7 +785,7 @@ always leave the same amount of state behind."
                (pre-meta (plist-get entry :pre-meta))
                (prior-grade (plist-get entry :grade))
                (prior-log-id (plist-get entry :log-id)))
-          (let ((new-log-id (decklet--rerate-card-state
+          (let ((new-log-id (decklet--rate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
           (when (and prior-log-id

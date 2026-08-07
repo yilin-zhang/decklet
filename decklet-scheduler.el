@@ -21,6 +21,11 @@
 (defvar decklet--fsrs-scheduler nil
   "Cached FSRS scheduler instance for Decklet.")
 
+(defun decklet--set-scheduler-option (symbol value)
+  "Set SYMBOL to VALUE and invalidate the cached FSRS scheduler."
+  (set-default symbol value)
+  (setq decklet--fsrs-scheduler nil))
+
 ;; Shared configuration is defined in decklet.el.
 
 (defcustom decklet-desired-retention 0.9
@@ -28,9 +33,7 @@
 Higher values (closer to 1.0) mean more frequent reviews.
 Lower values allow longer intervals but higher risk of forgetting."
   :type 'float
-  :set (lambda (symbol value)
-         (set-default symbol value)
-         (setq decklet--fsrs-scheduler nil))
+  :set #'decklet--set-scheduler-option
   :group 'decklet-scheduler)
 
 (defcustom decklet-learning-steps '((10 :minute) (1 :day))
@@ -42,9 +45,7 @@ Set to nil to disable the learning stage."
                                (const :minute)
                                (const :hour)
                                (const :day))))
-  :set (lambda (symbol value)
-         (set-default symbol value)
-         (setq decklet--fsrs-scheduler nil))
+  :set #'decklet--set-scheduler-option
   :group 'decklet-scheduler)
 
 (defcustom decklet-relearning-steps '((10 :minute))
@@ -56,9 +57,7 @@ Set to nil to disable relearning steps."
                                (const :minute)
                                (const :hour)
                                (const :day))))
-  :set (lambda (symbol value)
-         (set-default symbol value)
-         (setq decklet--fsrs-scheduler nil))
+  :set #'decklet--set-scheduler-option
   :group 'decklet-scheduler)
 
 (defcustom decklet-day-rollover-hour 4
@@ -77,9 +76,7 @@ persistent review log."
   :type '(choice (const :tag "FSRS library defaults" nil)
                  (restricted-sexp :tag "Custom 21-float parameter vector"
                                   :match-alternatives (vectorp)))
-  :set (lambda (symbol value)
-         (set-default symbol value)
-         (setq decklet--fsrs-scheduler nil))
+  :set #'decklet--set-scheduler-option
   :group 'decklet-scheduler)
 
 (defvar decklet--counter '(:reviewed 0 :due-review 0 :due-learning 0 :new 0)
