@@ -40,6 +40,11 @@ Each entry is (NAME . URL), where URL expects a single %s for the word."
   :type 'hook
   :group 'decklet-lookup)
 
+(defun decklet-lookup--ensure-providers ()
+  "Signal a `user-error' when no lookup providers are configured."
+  (unless decklet-lookup-providers
+    (user-error "No lookup providers configured; set `decklet-lookup-providers'")))
+
 ;;;###autoload
 (defun decklet-lookup (word &optional provider)
   "Lookup WORD in the browser using PROVIDER.
@@ -47,48 +52,45 @@ PROVIDER should be a key in `decklet-lookup-providers'.
 When WORD is nil, prompt for it.
 When PROVIDER is nil, use `decklet-lookup-default-provider'."
   (interactive (list nil nil))
-  (if (null decklet-lookup-providers)
-      (message "No lookup providers configured. Set `decklet-lookup-providers' first.")
-    (let* ((word (or word (decklet-prompt-word "Lookup word: ")))
-           (provider (or provider decklet-lookup-default-provider))
-           (url-template (and provider
-                              (cdr (assoc provider decklet-lookup-providers)))))
-      (cond
-       ((null provider)
-        (message "No default lookup provider set. Configure `decklet-lookup-default-provider' or use `decklet-lookup-with-provider'."))
-       ((null url-template)
-        (message "Unknown lookup provider `%s'." provider))
-       (t
-        (browse-url (format url-template (url-hexify-string word)))
-        (run-hooks 'decklet-lookup-hook))))))
+  (decklet-lookup--ensure-providers)
+  (let* ((word (or word (decklet-prompt-word "Lookup word: ")))
+         (provider (or provider decklet-lookup-default-provider))
+         (url-template (and provider
+                            (cdr (assoc provider decklet-lookup-providers)))))
+    (cond
+     ((null provider)
+      (user-error "No default lookup provider; set `decklet-lookup-default-provider' or use `decklet-lookup-with-provider'"))
+     ((null url-template)
+      (user-error "Unknown lookup provider `%s'" provider))
+     (t
+      (browse-url (format url-template (url-hexify-string word)))
+      (run-hooks 'decklet-lookup-hook)))))
 
 ;;;###autoload
 (defun decklet-lookup-with-provider (word &optional provider)
   "Lookup WORD using a selected PROVIDER.
 When WORD or PROVIDER is nil, prompt for them."
   (interactive (list nil nil))
-  (if (null decklet-lookup-providers)
-      (message "No lookup providers configured. Set `decklet-lookup-providers' first.")
-    (let ((word (or word (decklet-prompt-word "Lookup word: ")))
-          (provider (or provider
-                        (completing-read "Lookup provider: "
-                                         (mapcar #'car decklet-lookup-providers)
-                                         nil t))))
-      (decklet-lookup word provider))))
+  (decklet-lookup--ensure-providers)
+  (let ((word (or word (decklet-prompt-word "Lookup word: ")))
+        (provider (or provider
+                      (completing-read "Lookup provider: "
+                                       (mapcar #'car decklet-lookup-providers)
+                                       nil t))))
+    (decklet-lookup word provider)))
 
 ;;;###autoload
 (defun decklet-switch-default-provider ()
   "Prompt and set `decklet-lookup-default-provider'."
   (interactive)
-  (if (null decklet-lookup-providers)
-      (message "No lookup providers configured. Set `decklet-lookup-providers' first.")
-    (let ((provider (completing-read "Default lookup provider: "
-                                     (mapcar #'car decklet-lookup-providers)
-                                     nil t
-                                     nil nil
-                                     decklet-lookup-default-provider)))
-      (setq decklet-lookup-default-provider provider)
-      (message "Default lookup provider set to `%s'." provider))))
+  (decklet-lookup--ensure-providers)
+  (let ((provider (completing-read "Default lookup provider: "
+                                   (mapcar #'car decklet-lookup-providers)
+                                   nil t
+                                   nil nil
+                                   decklet-lookup-default-provider)))
+    (setq decklet-lookup-default-provider provider)
+    (message "Default lookup provider set to `%s'." provider)))
 
 ;; Default keybindings
 

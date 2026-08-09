@@ -79,6 +79,13 @@ persistent review log."
   :set #'decklet--set-scheduler-option
   :group 'decklet-scheduler)
 
+(defun decklet-set-fsrs-parameters (params)
+  "Set `decklet-fsrs-parameters' to PARAMS at runtime.
+Goes through the option's `:set' handler so the cached scheduler
+is invalidated.  Public entry point for tuners that install a
+fine-tuned parameter vector."
+  (decklet--set-scheduler-option 'decklet-fsrs-parameters params))
+
 (defvar decklet--counter '(:reviewed 0 :due-review 0 :due-learning 0 :new 0)
   "Counter for reviewed, due-review, due-learning, and new cards.")
 

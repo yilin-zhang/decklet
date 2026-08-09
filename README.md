@@ -607,7 +607,9 @@ cached scheduler, prefer `setopt` (or `:custom` in `use-package`) over plain
 
 `decklet-fsrs-parameters` is meant to be filled in by an external FSRS tuner
 rather than by hand — see [Review Log](#review-log) for the data source it
-trains on.
+trains on. Tuner code should call `(decklet-set-fsrs-parameters PARAMS)`,
+which routes through the option's `:set` handler and invalidates the
+cached scheduler.
 
 ### Rollover Time
 
@@ -884,6 +886,33 @@ close all such dependent buffers before disconnecting.
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
 
+#### One-shot queries
+
+Commands that query the deck outside a live review/edit session (a
+calendar view, a pronunciation lookup, a stats popup) need no special
+handling: the first query lazily opens the shared SQLite connection,
+and Decklet closes it again after `decklet-db-idle-disconnect-delay`
+idle seconds when no session buffer claims it. Inside a live session
+the connection stays open until the session ends.
+
+#### Theme-aware faces
+
+Faces whose spec reads colors from other faces via `face-attribute`
+should be defined with `decklet-defface` instead of `defface`. The
+macro has the same shape but re-evaluates the spec whenever a theme is
+enabled or disabled, so the face follows the active palette instead of
+freezing whatever colors were current at load time. All of Decklet's
+own palette-derived faces (including the shared `decklet-color-*`
+carriers) are defined this way; `decklet-refresh-faces` re-evaluates
+every registered spec on demand.
+
+```emacs-lisp
+(decklet-defface my/decklet-indicator-face
+  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
+  "Face for my extension's review indicator."
+  :group 'my-decklet-extension)
+```
+
 #### Edit-mode columns
 
 `decklet-edit-sidecar-columns` lets an extension add its own columns to the
@@ -938,7 +967,7 @@ carries `:card-id`; richer events carry the extra keys shown below.
 | `decklet-cards-renamed-functions` | `:card-id`, `:old-word`, `:new-word` | a card's word key changes |
 | `decklet-cards-archived-functions` | `:card-id` | a card is archived |
 | `decklet-cards-unarchived-functions` | `:card-id` | a card is unarchived |
-| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, or an extension-defined symbol such as `image`) | hint/back changes, or extension-owned sidecar changes |
+| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, `import` for bulk JSON imports, or an extension-defined symbol such as `image`) | hint/back changes, JSON-import overwrites, or extension-owned sidecar changes |
 | `decklet-cards-rated-functions` | `:card-id`, `:old-meta`, `:grade`, `:new-meta`, `:prior-grade` | a card is rated in review or edit mode |
 
 Consumers iterate over the events:

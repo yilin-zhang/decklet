@@ -98,7 +98,7 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 
 ;; Faces
 
-(defface decklet-review-word-face
+(decklet-defface decklet-review-word-face
   `((((type graphic))
      :foreground ,(face-attribute 'decklet-color-word :foreground)
      :weight bold
@@ -110,7 +110,7 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for displaying the current word."
   :group 'decklet-review)
 
-(defface decklet-review-state-new-face
+(decklet-defface decklet-review-state-new-face
   `((((type graphic))
      :foreground ,(face-attribute 'decklet-color-state-new :foreground)
      :weight bold
@@ -122,7 +122,7 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for displaying the `NEW WORD' status."
   :group 'decklet-review)
 
-(defface decklet-review-state-learning-face
+(decklet-defface decklet-review-state-learning-face
   `((((type graphic))
      :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
      :weight bold
@@ -134,7 +134,7 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for displaying the `LEARNING' status."
   :group 'decklet-review)
 
-(defface decklet-review-state-review-face
+(decklet-defface decklet-review-state-review-face
   `((((type graphic))
      :foreground ,(face-attribute 'decklet-color-state-review :foreground)
      :weight bold
@@ -146,7 +146,7 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for displaying the `REVIEWING' status."
   :group 'decklet-review)
 
-(defface decklet-review-counter-new-face
+(decklet-defface decklet-review-counter-new-face
   `((t :foreground ,(face-attribute 'decklet-color-state-new :foreground)
        :weight bold
        :underline t))
@@ -160,21 +160,21 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for displaying reviewed numbers."
   :group 'decklet-review)
 
-(defface decklet-review-counter-review-face
+(decklet-defface decklet-review-counter-review-face
   `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
        :weight bold
        :underline t))
   "Face for displaying review-due numbers."
   :group 'decklet-review)
 
-(defface decklet-review-counter-due-face
+(decklet-defface decklet-review-counter-due-face
   `((t :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
        :weight bold
        :underline t))
   "Face for displaying learning-due numbers."
   :group 'decklet-review)
 
-(defface decklet-review-state-goal-face
+(decklet-defface decklet-review-state-goal-face
   `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
        :weight bold))
   "Face for displaying the `DAILY GOAL REACHED' status."
@@ -185,24 +185,24 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   "Face for displaying the daily goal progress bar."
   :group 'decklet-review)
 
-(defface decklet-review-rating-interval-face
+(decklet-defface decklet-review-rating-interval-face
   `((t :foreground ,(face-attribute 'shadow :foreground)))
   "Face for displaying rating interval hints."
   :group 'decklet-review)
 
-(defface decklet-review-separator-face
+(decklet-defface decklet-review-separator-face
   `((t :foreground ,(face-attribute 'shadow :foreground)
        :weight bold))
   "Face for horizontal separators."
   :group 'decklet-review)
 
-(defface decklet-review-hint-indicator-face
+(decklet-defface decklet-review-hint-indicator-face
   `((t :foreground ,(face-attribute 'decklet-color-hint :foreground)
        :weight bold))
   "Face for displaying the hint placeholder."
   :group 'decklet-review)
 
-(defface decklet-review-card-back-indicator-face
+(decklet-defface decklet-review-card-back-indicator-face
   `((t :foreground ,(face-attribute 'decklet-color-card-back :foreground)
        :weight bold))
   "Face for the card back indicator in the review UI."
@@ -709,6 +709,16 @@ Callers must be in forward-flow state (future empty)."
     (plist-put entry :grade grade)
     (push (pop decklet-review--trail-future) decklet-review--trail-past)))
 
+(defun decklet-review--trail-drop-dead (entries)
+  "Return ENTRIES without leading entries whose card no longer exists.
+The delete hook removes a deleted card's entries from the trail,
+so dead entries only appear when a card vanished behind Decklet's
+back; discard them rather than presenting a nonexistent card."
+  (seq-drop-while
+   (lambda (entry)
+     (not (decklet-card-exists-p (plist-get entry :card-id))))
+   entries))
+
 (defun decklet-review--trail-delete (card-id)
   "Remove entries for CARD-ID from both sides of the trail."
   (let ((keep (lambda (e) (not (eql (plist-get e :card-id) card-id)))))
@@ -733,6 +743,8 @@ Callers must be in forward-flow state (future empty)."
 
 (defun decklet-review--advance ()
   "Show the next card from the trail or the due queue, or quit."
+  (setq decklet-review--trail-future
+        (decklet-review--trail-drop-dead decklet-review--trail-future))
   (if (decklet-review--undo-in-progress-p)
       (decklet-review--present-card
        (plist-get (decklet-review--trail-current-entry) :card-id))
@@ -813,8 +825,11 @@ always leave the same amount of state behind."
 (defun decklet-review-undo ()
   "Go back to the previous card and redisplay it.
 Does not revert DB state — the original rating remains in the
-database until the user re-rates."
+database until the user re-rates.  Trail entries whose card no
+longer exists are discarded."
   (interactive)
+  (setq decklet-review--trail-past
+        (decklet-review--trail-drop-dead decklet-review--trail-past))
   (if (null decklet-review--trail-past)
       (message "Nothing to undo")
     ;; When undoing from normal flow, the current card hasn't been
@@ -826,14 +841,8 @@ database until the user re-rates."
                decklet-current-card-id)
       (push decklet-current-card-id decklet-due-card-ids))
     (push (pop decklet-review--trail-past) decklet-review--trail-future)
-    (let* ((entry (decklet-review--trail-current-entry))
-           (card-id (plist-get entry :card-id))
-           (word (decklet-get-card-word card-id)))
-      (if (not (decklet-card-exists-p card-id))
-          (progn
-            (message "Card \"%s\" no longer exists, undo skipped" word)
-            (decklet-review-undo))
-        (decklet-review--present-card card-id)))))
+    (decklet-review--present-card
+     (plist-get (decklet-review--trail-current-entry) :card-id))))
 
 (defun decklet-review-rate-again ()
   "Rate the current word as `again'."
@@ -941,10 +950,13 @@ is needed here."
 (add-hook 'decklet-cards-renamed-functions
           #'decklet-review--on-current-card-changed)
 
+(defun decklet-review--on-cards-deleted (events)
+  "Drop trail entries for every deleted card in EVENTS."
+  (dolist (event events)
+    (decklet-review--trail-delete (plist-get event :card-id))))
+
 (add-hook 'decklet-cards-deleted-functions
-          (lambda (events)
-            (dolist (event events)
-              (decklet-review--trail-delete (plist-get event :card-id)))))
+          #'decklet-review--on-cards-deleted)
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

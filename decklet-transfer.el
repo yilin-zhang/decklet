@@ -335,31 +335,29 @@ file under `decklet-directory'."
                            (file-name-nondirectory default)))))
   (unless (file-exists-p decklet-db-file)
     (user-error "No database file found; nothing to export"))
-  (unwind-protect
-      (let* ((file (or file (decklet-transfer--export-default-file)))
-             (rows (sqlite-select
-                    (decklet-db--ensure)
-                    "SELECT word, hint, back, added_date, last_review, due,
-                        archived_at, state, step, stability, difficulty
-                 FROM cards
-                 ORDER BY added_date ASC, word ASC;"))
-             (fields '(word hint back added_date last_review due
-                            archived_at state step stability difficulty))
-             (payload (mapcar (lambda (row)
-                                (cl-mapcar #'cons fields row))
-                              rows))
-             (json-encoding-pretty-print t)
-             (json-encoding-default-indentation "  "))
+  (let* ((file (or file (decklet-transfer--export-default-file)))
+         (rows (sqlite-select
+                (decklet-db--ensure)
+                "SELECT word, hint, back, added_date, last_review, due,
+                      archived_at, state, step, stability, difficulty
+               FROM cards
+               ORDER BY added_date ASC, word ASC;"))
+         (fields '(word hint back added_date last_review due
+                        archived_at state step stability difficulty))
+         (payload (mapcar (lambda (row)
+                            (cl-mapcar #'cons fields row))
+                          rows))
+         (json-encoding-pretty-print t)
+         (json-encoding-default-indentation "  "))
 
-        (when-let* ((dir (file-name-directory file)))
-          (make-directory dir t))
-        (let ((coding-system-for-write 'utf-8-unix))
-          (with-temp-file file
-            (insert (json-encode payload))))
+    (when-let* ((dir (file-name-directory file)))
+      (make-directory dir t))
+    (let ((coding-system-for-write 'utf-8-unix))
+      (with-temp-file file
+        (insert (json-encode payload))))
 
-        (when (called-interactively-p 'any)
-          (message "Exported %d cards to %s" (length payload) file)))
-    (decklet-db--disconnect-if-idle)))
+    (when (called-interactively-p 'any)
+      (message "Exported %d cards to %s" (length payload) file))))
 
 ;;;###autoload
 (defun decklet-db-import-json (&optional file)
@@ -371,16 +369,14 @@ When called interactively, prompt for FILE under `decklet-directory'."
                            (file-name-directory default)
                            nil t
                            (file-name-nondirectory default)))))
-  (unwind-protect
-      (let* ((file (or file (expand-file-name "decklet-import.json" decklet-directory)))
-             (result (decklet-transfer--import-json-file file)))
-        (when (called-interactively-p 'any)
-          (message "Import finished: %d added, %d overwritten, %d skipped"
-                   (plist-get result :added)
-                   (plist-get result :overwritten)
-                   (plist-get result :skipped)))
-        result)
-    (decklet-db--disconnect-if-idle)))
+  (let* ((file (or file (expand-file-name "decklet-import.json" decklet-directory)))
+         (result (decklet-transfer--import-json-file file)))
+    (when (called-interactively-p 'any)
+      (message "Import finished: %d added, %d overwritten, %d skipped"
+               (plist-get result :added)
+               (plist-get result :overwritten)
+               (plist-get result :skipped)))
+    result))
 
 
 (provide 'decklet-transfer)

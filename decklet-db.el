@@ -61,6 +61,15 @@ Used to suppress idle-disconnect from per-buffer kill hooks while
 (defconst decklet-db--numeric-sort-columns '("stability" "difficulty")
   "DB columns that use numeric COALESCE for sorting.")
 
+(defconst decklet-db--sortable-columns
+  '("word" "hint" "added_date" "last_review" "due" "state"
+    "stability" "difficulty")
+  "DB columns that card SELECTs may be sorted by.
+`decklet-db--edit-order-sql' rejects anything outside this set;
+column names are interpolated into SQL, so the whitelist lives
+next to the interpolation rather than in each caller.
+Keep `decklet-edit--db-sort-columns' values within this set.")
+
 (defconst decklet-db--card-columns
   "card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty"
   "Column list shared by card SELECTs that feed `decklet-db--normalize-row'.
@@ -135,11 +144,47 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     ;; key index.  The implicit index on `word' is created
     ;; automatically from `UNIQUE NOT NULL'.
     (sqlite-execute decklet-db--conn
-                    "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
+                    "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);")
+    (decklet-db--schedule-idle-disconnect))
   decklet-db--conn)
+
+(defcustom decklet-db-idle-disconnect-delay 10
+  "Idle seconds before an out-of-session DB connection is closed.
+One-shot commands (calendar views, lookups, stats popups) lazily
+open the shared connection; a timer closes it again once Emacs
+has been idle this long and no review/edit session buffer claims
+it.  Set to nil to keep such connections open until the next
+session ends."
+  :type '(choice (const :tag "Keep open until next session" nil)
+                 (number :tag "Idle seconds"))
+  :group 'decklet-db)
+
+(defvar decklet-db--idle-disconnect-timer nil
+  "Pending one-shot timer from `decklet-db--schedule-idle-disconnect'.")
+
+(defun decklet-db--cancel-idle-disconnect ()
+  "Cancel any pending idle-disconnect timer."
+  (when (timerp decklet-db--idle-disconnect-timer)
+    (cancel-timer decklet-db--idle-disconnect-timer))
+  (setq decklet-db--idle-disconnect-timer nil))
+
+(defun decklet-db--schedule-idle-disconnect ()
+  "Arrange to close an out-of-session connection after idle time.
+Called whenever the connection is opened.  If a session buffer is
+live when the timer fires, this is a no-op — session teardown
+owns the disconnect in that case."
+  (decklet-db--cancel-idle-disconnect)
+  (setq decklet-db--idle-disconnect-timer
+        (when decklet-db-idle-disconnect-delay
+          (run-with-idle-timer
+           decklet-db-idle-disconnect-delay nil
+           (lambda ()
+             (setq decklet-db--idle-disconnect-timer nil)
+             (decklet-db--disconnect-if-idle))))))
 
 (defun decklet-db--disconnect ()
   "Close the SQLite connection used by Decklet."
+  (decklet-db--cancel-idle-disconnect)
   (when decklet-db--conn
     (run-hooks 'decklet-db-pre-disconnect-hook)
     (sqlite-close decklet-db--conn)
@@ -281,6 +326,14 @@ abort and leave the DB connected."
                                  decklet-db--card-columns)
                          (list card-id))))))
 
+(defun decklet-db--card-exists-p (card-id)
+  "Return non-nil when CARD-ID has a row, without fetching the row."
+  (let ((conn (decklet-db--ensure)))
+    (and (sqlite-select conn
+                        "SELECT 1 FROM cards WHERE card_id = ? LIMIT 1;"
+                        (list card-id))
+         t)))
+
 (defun decklet-db--require-card-row (card-id)
   "Return the card row for CARD-ID, or signal a user error."
   (or (decklet-db--select-card-row card-id)
@@ -291,14 +344,20 @@ abort and leave the DB connected."
   (decklet-db--select-card-field card-id 'word))
 
 (defun decklet-db--select-card-field (card-id field)
-  "Return FIELD for CARD-ID, or nil if absent."
+  "Return FIELD for CARD-ID, or nil if absent.
+FIELD is interpolated into SQL; only `word', `hint', and `back' are accepted."
+  (unless (memq field '(word hint back))
+    (error "Unsupported card field: %S" field))
   (let ((conn (decklet-db--ensure)))
     (caar (sqlite-select conn
                          (format "SELECT %s FROM cards WHERE card_id = ?;" field)
                          (list card-id)))))
 
 (defun decklet-db--update-card-text-field (card-id field value)
-  "Update text FIELD for CARD-ID with VALUE, returning normalized text."
+  "Update text FIELD for CARD-ID with VALUE, returning normalized text.
+FIELD is interpolated into SQL; only `hint' and `back' are accepted."
+  (unless (memq field '(hint back))
+    (error "Unsupported card text field: %S" field))
   (let* ((value (decklet-db--normalize-optional-text value))
          (conn (decklet-db--ensure)))
     (sqlite-execute conn
@@ -417,13 +476,15 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
 (defun decklet-db--edit-order-sql (sort-key)
   "Return SQL ORDER BY clause for SORT-KEY.
 SORT-KEY is (DB-COLUMN . DESCENDING-P), where DB-COLUMN is a raw
-database column name string."
-  (let* ((db-column (or (car sort-key) "word"))
-         (direction (if (cdr sort-key) "DESC" "ASC"))
-         (order-expr (if (member db-column decklet-db--numeric-sort-columns)
-                         (format "COALESCE(%s, 0)" db-column)
-                       (format "COALESCE(%s, '')" db-column))))
-    (format " ORDER BY %s %s, rowid %s" order-expr direction direction)))
+database column name string from `decklet-db--sortable-columns'."
+  (let ((db-column (or (car sort-key) "word")))
+    (unless (member db-column decklet-db--sortable-columns)
+      (error "Unsupported sort column: %S" db-column))
+    (let* ((direction (if (cdr sort-key) "DESC" "ASC"))
+           (order-expr (if (member db-column decklet-db--numeric-sort-columns)
+                           (format "COALESCE(%s, 0)" db-column)
+                         (format "COALESCE(%s, '')" db-column))))
+      (format " ORDER BY %s %s, rowid %s" order-expr direction direction))))
 
 (defun decklet-db--select-card-rows (&optional filter sort-key)
   "Return cards filtered by FILTER and sorted by SORT-KEY."

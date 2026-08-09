@@ -202,7 +202,9 @@ It does not write to the database."
     (should (= 3 (length decklet-review--trail-future)))))
 
 (ert-deftest decklet-test-review-undo-skips-deleted-card ()
-  "Undo skips entries whose card no longer exists and continues backward."
+  "Undo discards entries whose card no longer exists and continues backward.
+Dead entries must not remain on the future side: advancing would
+try to present the nonexistent card."
   (let* ((decklet-review--trail-past
           (list (decklet-test--trail-entry 2) (decklet-test--trail-entry 1)))
          (decklet-review--trail-future nil)
@@ -216,7 +218,8 @@ It does not write to the database."
       (decklet-review-undo))
     (should (= 1 decklet-current-card-id))
     (should (null decklet-review--trail-past))
-    (should (= 2 (length decklet-review--trail-future)))))
+    (should (= 1 (length decklet-review--trail-future)))
+    (should (= 1 (plist-get (car decklet-review--trail-future) :card-id)))))
 
 ;;; Trail: confirming and re-rating an undone card
 

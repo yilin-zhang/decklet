@@ -27,67 +27,67 @@
 
 ;;; Faces
 
-(defface decklet-edit-word-face
+(decklet-defface decklet-edit-word-face
   `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
        :weight bold))
   "Face for displaying the word in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-word-archived-face
+(decklet-defface decklet-edit-word-archived-face
   `((t :foreground ,(face-attribute 'ansi-color-cyan :foreground)
        :weight bold))
   "Face for displaying archived words in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-hint-face
+(decklet-defface decklet-edit-hint-face
   `((t :foreground ,(face-attribute 'decklet-color-hint :foreground)))
   "Face for displaying the hint in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-added-face
+(decklet-defface decklet-edit-added-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)))
   "Face for displaying added timestamps in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-last-review-face
+(decklet-defface decklet-edit-last-review-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-cyan :foreground)))
   "Face for displaying last review timestamps in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-due-face
+(decklet-defface decklet-edit-due-face
   `((t :foreground ,(face-attribute 'ansi-color-bright-green :foreground)))
   "Face for displaying due timestamps in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-stability-face
+(decklet-defface decklet-edit-stability-face
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
   "Face for displaying stability values in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-difficulty-face
+(decklet-defface decklet-edit-difficulty-face
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
   "Face for displaying difficulty values in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-state-new-face
+(decklet-defface decklet-edit-state-new-face
   `((t :foreground ,(face-attribute 'decklet-color-state-new :foreground)
        :weight bold))
   "Face for new-card state labels in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-state-learning-face
+(decklet-defface decklet-edit-state-learning-face
   `((t :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
        :weight bold))
   "Face for learning-card state labels in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-state-review-face
+(decklet-defface decklet-edit-state-review-face
   `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
        :weight bold))
   "Face for review-card state labels in edit lists."
   :group 'decklet-edit)
 
-(defface decklet-edit-card-back-indicator-face
+(decklet-defface decklet-edit-card-back-indicator-face
   `((t :foreground ,(face-attribute 'decklet-color-card-back :foreground)
        :weight bold))
   "Face for the back indicator in edit lists."
@@ -99,7 +99,7 @@
   "Face for marked rows in the edit table."
   :group 'decklet-edit)
 
-(defface decklet-edit-mark-indicator-face
+(decklet-defface decklet-edit-mark-indicator-face
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
   "Face for the mark indicator character."
   :group 'decklet-edit)
@@ -121,8 +121,8 @@
 (defvar decklet-edit-buffer-name "*Decklet Edit*"
   "Name of the buffer used for card editing.")
 
-(defvar decklet-edit--marked (make-hash-table :test 'equal)
-  "Hash table of marked words in the edit view.")
+(defvar decklet-edit--marked (make-hash-table :test 'eql)
+  "Hash table of marked card ids in the edit view.")
 
 (defvar decklet-edit--filter 'all
   "Current filter for the edit table.
@@ -157,7 +157,8 @@ Sidecar columns are inserted after the built-in `Back' column.")
     ("State" . "state")
     ("Stability" . "stability")
     ("Difficulty" . "difficulty"))
-  "Mapping of edit table column names to database column names.")
+  "Mapping of edit table column names to database column names.
+Values must stay within `decklet-db--sortable-columns'.")
 
 (defun decklet-edit--columns ()
   "Return ordered edit table column names, including sidecar columns."
@@ -184,7 +185,7 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
 
 (defun decklet-edit--clean-up ()
   "Clear edit session state."
-  (setq decklet-edit--marked (make-hash-table :test 'equal))
+  (setq decklet-edit--marked (make-hash-table :test 'eql))
   (setq decklet-edit--filter 'all))
 
 (defun decklet-edit--format-timestamp (timestamp)

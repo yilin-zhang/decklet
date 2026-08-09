@@ -153,7 +153,7 @@ a minibuffer prompt is needed."
 
 (defun decklet-card-exists-p (card-id)
   "Return non-nil when CARD-ID has a card in the deck."
-  (and (decklet-db--select-card-row card-id) t))
+  (decklet-db--card-exists-p card-id))
 
 (defun decklet-list-words (&optional filter)
   "Return all words in the deck as a list, optionally filtered.
