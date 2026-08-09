@@ -111,9 +111,8 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
 
 (defun decklet-db--ensure-db-dir ()
   "Ensure the database directory exists."
-  (let ((dir (file-name-directory decklet-db-file)))
-    (unless (file-exists-p dir)
-      (make-directory dir t))))
+  (when-let* ((dir (file-name-directory decklet-db-file)))
+    (make-directory dir t)))
 
 (defun decklet-db--ensure ()
   "Ensure SQLite connection and schema are initialized."

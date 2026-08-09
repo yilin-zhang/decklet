@@ -28,16 +28,14 @@
    decklet-directory))
 
 (defun decklet-transfer--json-alist-get-raw (record key)
-  "Return KEY value from RECORD alist, accepting symbol or string keys.
+  "Return KEY value from RECORD alist.
 Preserves the `:json-null' sentinel used by the import parser — callers
 that need to distinguish \"key missing\" from \"key explicitly null\"
 should use this; everyone else should prefer `decklet-transfer--json-alist-get'."
-  (let ((cell (or (assoc key record)
-                  (assoc (symbol-name key) record))))
-    (if cell (cdr cell) decklet-transfer--missing)))
+  (alist-get key record decklet-transfer--missing))
 
 (defun decklet-transfer--json-alist-get (record key)
-  "Return KEY value from RECORD alist, accepting symbol or string keys.
+  "Return KEY value from RECORD alist.
 Collapses the `:json-null' sentinel to nil so fields that treat
 missing and null equivalently (everything except hint/back) don't
 have to care about the import sentinel."
