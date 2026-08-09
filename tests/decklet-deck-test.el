@@ -83,7 +83,7 @@ Holds for both the raw state+last-review form and the card-meta form."
     (let ((buf (decklet-deck-test--card-back-buffer "bright")))
       (unwind-protect
           (with-current-buffer buf
-            (should decklet-db--dependent-buffer)
+            (should decklet-db--session-buffer)
             (should buffer-read-only)
             (should (string= "shining example"
                              (buffer-substring-no-properties (point-min) (point-max)))))
@@ -97,7 +97,7 @@ Holds for both the raw state+last-review form and the card-meta form."
     (let ((buf (decklet-deck-test--card-back-buffer "glow")))
       (unwind-protect
           (with-current-buffer buf
-            (should decklet-db--dependent-buffer)
+            (should decklet-db--session-buffer)
             (should-not buffer-read-only))
         (when (buffer-live-p buf) (kill-buffer buf))))))
 

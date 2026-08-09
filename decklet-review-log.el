@@ -61,9 +61,6 @@ treat the file as append-only and parse it one JSON object per line."
 Seeded lazily on the first mint; cross-session monotonicity holds
 as long as the system clock advances.")
 
-(defvar decklet-review-log--ensured-directory nil
-  "Directory already created for `decklet-review-log-file' this session.")
-
 (defconst decklet-review-log-kind-rated "rated"
   "Serialized kind for rating records.")
 (defconst decklet-review-log-kind-void "void"
@@ -79,10 +76,8 @@ as long as the system clock advances.")
 
 (defun decklet-review-log--ensure-directory ()
   "Ensure the directory for `decklet-review-log-file' exists."
-  (let ((dir (file-name-directory decklet-review-log-file)))
-    (when (and dir (not (equal dir decklet-review-log--ensured-directory)))
-      (make-directory dir t)
-      (setq decklet-review-log--ensured-directory dir))))
+  (when-let* ((dir (file-name-directory decklet-review-log-file)))
+    (make-directory dir t)))
 
 (defun decklet-review-log--append-line (record)
   "Append RECORD plist as one JSONL line to `decklet-review-log-file'.

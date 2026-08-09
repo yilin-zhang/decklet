@@ -634,8 +634,14 @@ Decklet stores all card data in a single SQLite file
 
 #### Connection Management
 
-- `decklet-disconnect`: close Decklet session buffers and disconnect the
-  SQLite handle.
+The SQLite connection opens lazily on first use and closes when the
+last session buffer (review, edit, or an attached popup) is killed.
+Quitting the last review/edit buffer closes attached popups first,
+prompting for unsaved edits. `decklet-disconnect` does the same
+teardown explicitly, and `decklet-db-restore` disconnects before
+replacing the database file. A connection opened outside any session
+(a calendar view, a lookup) just stays open until one of those
+happens — an idle handle on a local file costs nothing.
 
 #### Backup
 
@@ -658,20 +664,9 @@ You can also manually back up or restore to a previous snapshot:
 - `decklet-db-backup`: create a backup snapshot.
 - `decklet-db-restore`: restore from a selected backup snapshot.
 
-`decklet-db-restore` lists snapshots newest-first. Because some completion UIs
-re-sort candidates by their own rules, `decklet-backup-restore-completion-setup`
-lets you bind variables dynamically around that `completing-read`. It is a
-function of no arguments returning an alist of `(SYMBOL . VALUE)` pairs, and it
-defaults to preserving order under Vertico:
-
-```emacs-lisp
-;; Default value — keeps the newest-first ordering in Vertico.
-(setq decklet-backup-restore-completion-setup
-      (lambda () '((vertico-sort-override-function . identity))))
-
-;; Disable the special-casing entirely.
-(setq decklet-backup-restore-completion-setup nil)
-```
+`decklet-db-restore` lists snapshots newest-first; the completion table
+carries `display-sort-function' metadata, so completion UIs keep that
+order without any configuration.
 
 #### JSON Export and Import
 
@@ -874,26 +869,19 @@ before writing your own.
   active region, the current review word, the word on the current edit
   line, or the minibuffer.
 
-#### Buffer lifetime
+#### Session buffers
 
-If your extension opens its own popup or side buffer and that buffer may
-outlive the review/edit buffer while still reading from or writing to the
-Decklet DB, call `(decklet-db-register-dependent-buffer)` once during that
-buffer's setup. This keeps the shared SQLite connection open until the
-buffer is killed. When the last review/edit buffer exits, Decklet tries to
-close all such dependent buffers before disconnecting.
+If your extension opens its own popup or side buffer that belongs to
+the Decklet session (like the built-in card-back popup), call
+`(decklet-db-register-session-buffer)` once during that buffer's setup.
+Session buffers keep the shared SQLite connection open while they
+live; quitting the last review/edit buffer closes them first (each may
+prompt to save), `decklet-disconnect` closes them explicitly, and a
+backup restore refuses to run while any is open. Querying the deck
+from one-shot commands outside a session needs no special handling.
 
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
-
-#### One-shot queries
-
-Commands that query the deck outside a live review/edit session (a
-calendar view, a pronunciation lookup, a stats popup) need no special
-handling: the first query lazily opens the shared SQLite connection,
-and Decklet closes it again after `decklet-db-idle-disconnect-delay`
-idle seconds when no session buffer claims it. Inside a live session
-the connection stays open until the session ends.
 
 #### Theme-aware faces
 

@@ -36,7 +36,6 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           ;; Reset id counters so each test mints from a fresh state.
           (decklet-db--last-card-id nil)
           (decklet-review-log--next-record-id nil)
-          (decklet-review-log--ensured-directory nil)
           ;; Use the real production default so config regressions are caught.
           (decklet-review-order (default-value 'decklet-review-order))
           ;; Reset UI state to prevent cross-test pollution.

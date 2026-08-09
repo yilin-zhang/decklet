@@ -6,19 +6,6 @@
 
 ;;; Backup naming and ordering
 
-(ert-deftest decklet-test-backup-target-adds-numeric-suffix ()
-  "A backup-name collision gets a numeric suffix."
-  (decklet-test--with-temp-db
-    (decklet-test--with-backup-dir
-      (let ((timestamp "20260206T120000Z"))
-        (decklet-test--touch
-         (expand-file-name (format "%s-%s.sqlite" base timestamp) backup-dir))
-        (should (= 1 (decklet-backup--token-collision-index
-                      (decklet-backup--backup-token
-                       (decklet-backup--backup-target
-                        backup-dir base "sqlite" timestamp)
-                       base "sqlite"))))))))
-
 (ert-deftest decklet-test-backup-files-sorted-newest-first ()
   "`decklet-backup--backup-files' lists backups newest-first by embedded timestamp."
   (decklet-test--with-temp-db
@@ -28,16 +15,6 @@
             (newest (expand-file-name (format "%s-20250103T010101Z.sqlite" base) backup-dir)))
         (mapc #'decklet-test--touch (list middle newest older))
         (should (equal (decklet-backup--backup-files) (list newest middle older)))))))
-
-(ert-deftest decklet-test-backup-timestamp-parses-suffixed-filename ()
-  "Backup timestamps parse out of names carrying a collision suffix."
-  (decklet-test--with-temp-db
-    (let* ((base (file-name-base decklet-db-file))
-           (file (expand-file-name (format "%s-20260101T123456Z-2.sqlite" base)
-                                   temporary-file-directory))
-           (parsed (decklet-backup--backup-timestamp file)))
-      (should parsed)
-      (should (time-equal-p parsed (date-to-time "20260101T123456Z"))))))
 
 ;;; Pruning
 
@@ -92,16 +69,17 @@
       (should log-backup)
       (should (string-empty-p (decklet-test--file-string log-backup))))))
 
-(ert-deftest decklet-test-backup-collision-keeps-pair-tokens-equal ()
-  "Multiple backups in one second use the same collision suffix for each pair."
+(ert-deftest decklet-test-backup-same-second-overwrites-pair ()
+  "A second backup within the same second overwrites the first pair."
   (decklet-test--with-temp-db
     (decklet-test--add-card-meta "paired")
     (cl-letf (((symbol-function 'decklet--timestamp-utc)
                (lambda (&optional _time) "20260731T120000Z")))
       (decklet-backup--backup)
       (decklet-backup--backup))
-    (dolist (database-backup (decklet-backup--backup-files))
-      (should (decklet-backup--matching-review-log-backup database-backup)))))
+    (let ((backups (decklet-backup--backup-files)))
+      (should (= 1 (length backups)))
+      (should (decklet-backup--matching-review-log-backup (car backups))))))
 
 ;;; Restore
 
@@ -112,7 +90,7 @@
     (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir)))
       (decklet-test--touch backup-file "backup")
       (decklet-test--with-temp-buffers (buf)
-	(with-current-buffer buf (decklet-db-register-dependent-buffer))
+	(with-current-buffer buf (decklet-db-register-session-buffer))
 	(cl-letf (((symbol-function 'decklet-backup--backup-files)
 		   (lambda () (list backup-file)))
 		  ((symbol-function 'decklet-backup--read-backup-choice)

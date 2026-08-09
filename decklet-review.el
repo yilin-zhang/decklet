@@ -800,12 +800,9 @@ always leave the same amount of state behind."
           (let ((new-log-id (decklet--rate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
-          (when (and prior-log-id
-                     (not (decklet-review-log-append-void prior-log-id)))
-            (display-warning
-             'decklet
-             "Could not retire the prior rating in the review log; both ratings remain"
-             :error))
+          ;; Best-effort: a failed void already reports itself.
+          (when prior-log-id
+            (decklet-review-log-append-void prior-log-id))
           (decklet-review--trail-update-and-advance grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
       (let* ((old-meta (decklet-db--row->card-meta row))
@@ -828,8 +825,13 @@ Does not revert DB state — the original rating remains in the
 database until the user re-rates.  Trail entries whose card no
 longer exists are discarded."
   (interactive)
-  (setq decklet-review--trail-past
-        (decklet-review--trail-drop-dead decklet-review--trail-past))
+  (let ((before (length decklet-review--trail-past)))
+    (setq decklet-review--trail-past
+          (decklet-review--trail-drop-dead decklet-review--trail-past))
+    (let ((dropped (- before (length decklet-review--trail-past))))
+      (when (> dropped 0)
+        (message "Skipped %d deleted card%s while undoing"
+                 dropped (if (= dropped 1) "" "s")))))
   (if (null decklet-review--trail-past)
       (message "Nothing to undo")
     ;; When undoing from normal flow, the current card hasn't been
@@ -960,7 +962,7 @@ is needed here."
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
-  (decklet-db--register-owner-buffer)
+  (decklet-db-register-session-buffer 'primary)
   (setq buffer-read-only t)
   (buffer-disable-undo)
   (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))

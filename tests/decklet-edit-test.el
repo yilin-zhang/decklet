@@ -28,11 +28,11 @@ BODY can refer to `buf', the edit buffer."
 
 ;;; Mode setup
 
-(ert-deftest decklet-test-edit-mode-registers-owner ()
-  "`decklet-edit-mode' marks its buffer as a Decklet session owner."
+(ert-deftest decklet-test-edit-mode-registers-session-buffer ()
+  "`decklet-edit-mode' marks its buffer as a Decklet session buffer."
   (with-temp-buffer
     (decklet-edit-mode)
-    (should decklet-db--owner-buffer)))
+    (should decklet-db--session-buffer)))
 
 ;;; Marking
 
@@ -74,18 +74,11 @@ BODY can refer to `buf', the edit buffer."
         (should (decklet-edit--goto-card-id beta))
         (should (eql (tabulated-list-get-id) beta))))))
 
-(ert-deftest decklet-test-edit-preserving-window-position-binds-flag-in-body ()
-  "The outer preservation form binds its flag within the body.
-Nested calls see it set and unwind it on exit.  No window is needed."
-  (let ((decklet-edit--preserving-point nil)
-        (flag-values '()))
-    (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) nil)))
-      (decklet-edit--preserving-window-position
-        (push decklet-edit--preserving-point flag-values)
-        (decklet-edit--preserving-window-position
-          (push decklet-edit--preserving-point flag-values))))
-    (should (equal flag-values '(t t)))
-    (should (null decklet-edit--preserving-point))))
+(ert-deftest decklet-test-edit-preserving-window-position-runs-body ()
+  "The preservation form runs its body and returns its value.
+No window is needed; preservation is simply skipped."
+  (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) nil)))
+    (should (eq 'result (decklet-edit--preserving-window-position 'result)))))
 
 ;;; Delete
 

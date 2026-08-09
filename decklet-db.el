@@ -39,24 +39,20 @@ Emacs session so the seed is recomputed from the DB on startup.")
 
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
-Use this to clean up any resources that depend on an open DB connection.
-Buffers that need the DB to stay open should call
-`decklet-db-register-dependent-buffer'.  This hook is for sidecar
-packages that need a last-chance cleanup before the handle goes away.")
+Use this for last-chance cleanup of sidecar resources that depend
+on an open DB connection.")
 
-(defvar-local decklet-db--dependent-buffer nil
-  "Non-nil when the current buffer needs the Decklet DB to stay open.
-Set by `decklet-db-register-dependent-buffer'.")
+(defvar-local decklet-db--session-buffer nil
+  "Non-nil when the current buffer is part of the Decklet session.
+Set by `decklet-db-register-session-buffer'.  Session buffers keep
+the connection open while they live, are closed by
+`decklet-disconnect', and block `decklet-db-restore'.")
 
-(defvar-local decklet-db--owner-buffer nil
-  "Non-nil when the current buffer owns the active Decklet session.
-Core review/edit buffers set this so the last owner can tear down any
-attached side buffers before the DB disconnects.")
-
-(defvar decklet-db--disconnecting nil
-  "Non-nil while an explicit Decklet session teardown is in progress.
-Used to suppress idle-disconnect from per-buffer kill hooks while
-`decklet-disconnect' is killing registered dependent buffers.")
+(defvar-local decklet-db--session-primary nil
+  "Non-nil when the current buffer owns the session lifetime.
+Set for review/edit buffers: when the last primary buffer is
+killed, attached session buffers are closed first and the DB
+disconnects.")
 
 (defconst decklet-db--numeric-sort-columns '("stability" "difficulty")
   "DB columns that use numeric COALESCE for sorting.")
@@ -95,12 +91,14 @@ Column order must match `decklet-db--normalize-row's `pcase-let'.")
 ROW's column order must match the physical DB column order (skipping
 `archived_at'): card_id, word, hint, back, added_date, last_review,
 due, state, step, stability, difficulty.
+Words are stored normalized (see `decklet-db--normalize-word' at the
+write sites), so the read path takes them as-is.
 Return a plist with keys :card-id, :word, :hint, :back, :added,
 :last-review, :due, :state, :step, :stability, and :difficulty."
   (when row
     (pcase-let ((`(,card-id ,word ,hint ,back ,added ,last-review ,due ,state ,step ,stability ,difficulty) row))
       (list :card-id card-id
-            :word (decklet-db--normalize-word word)
+            :word word
             :hint (decklet-db--normalize-optional-text hint)
             :back (decklet-db--normalize-optional-text back)
             :added added
@@ -144,160 +142,91 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     ;; key index.  The implicit index on `word' is created
     ;; automatically from `UNIQUE NOT NULL'.
     (sqlite-execute decklet-db--conn
-                    "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);")
-    (decklet-db--schedule-idle-disconnect))
+                    "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
   decklet-db--conn)
-
-(defcustom decklet-db-idle-disconnect-delay 10
-  "Idle seconds before an out-of-session DB connection is closed.
-One-shot commands (calendar views, lookups, stats popups) lazily
-open the shared connection; a timer closes it again once Emacs
-has been idle this long and no review/edit session buffer claims
-it.  Set to nil to keep such connections open until the next
-session ends."
-  :type '(choice (const :tag "Keep open until next session" nil)
-                 (number :tag "Idle seconds"))
-  :group 'decklet-db)
-
-(defvar decklet-db--idle-disconnect-timer nil
-  "Pending one-shot timer from `decklet-db--schedule-idle-disconnect'.")
-
-(defun decklet-db--cancel-idle-disconnect ()
-  "Cancel any pending idle-disconnect timer."
-  (when (timerp decklet-db--idle-disconnect-timer)
-    (cancel-timer decklet-db--idle-disconnect-timer))
-  (setq decklet-db--idle-disconnect-timer nil))
-
-(defun decklet-db--schedule-idle-disconnect ()
-  "Arrange to close an out-of-session connection after idle time.
-Called whenever the connection is opened.  If a session buffer is
-live when the timer fires, this is a no-op — session teardown
-owns the disconnect in that case."
-  (decklet-db--cancel-idle-disconnect)
-  (setq decklet-db--idle-disconnect-timer
-        (when decklet-db-idle-disconnect-delay
-          (run-with-idle-timer
-           decklet-db-idle-disconnect-delay nil
-           (lambda ()
-             (setq decklet-db--idle-disconnect-timer nil)
-             (decklet-db--disconnect-if-idle))))))
 
 (defun decklet-db--disconnect ()
   "Close the SQLite connection used by Decklet."
-  (decklet-db--cancel-idle-disconnect)
   (when decklet-db--conn
     (run-hooks 'decklet-db-pre-disconnect-hook)
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 
-(defun decklet-db--on-session-buffer-killed ()
-  "Kill-buffer handler for Decklet session buffers.
-The buffer being killed is still present in `buffer-list', so pass it
-to `decklet-db--disconnect-if-idle' as an exclusion."
-  (decklet-db--disconnect-if-idle (current-buffer)))
+(defun decklet-db-register-session-buffer (&optional primary)
+  "Mark the current buffer as part of the Decklet session.
+Extension-owned popups that read or write the DB should call this
+once during setup: session buffers keep the connection open while
+they live, are closed by `decklet-disconnect', and block
+`decklet-db-restore'.
 
-(defun decklet-db-register-dependent-buffer ()
-  "Mark current buffer as depending on the Decklet DB.
-Dependent buffers keep the shared SQLite connection alive until they
-are killed.  Review/edit buffers and any extension-owned popups that
-save or refresh through the DB should call this once during setup."
-  (setq-local decklet-db--dependent-buffer t)
+PRIMARY is for Decklet's own review/edit buffers: when the last
+primary buffer is killed, the remaining session buffers are closed
+first (each may prompt to save) and the DB disconnects."
+  (setq-local decklet-db--session-buffer t)
+  (when primary
+    (setq-local decklet-db--session-primary t)
+    (add-hook 'kill-buffer-query-functions
+              #'decklet-db--primary-kill-query nil t))
   (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t))
 
-(defun decklet-db--register-owner-buffer ()
-  "Mark current buffer as a Decklet session owner.
-Owner buffers define session lifetime; when the last one exits,
-Decklet first tries to close all registered dependent buffers,
-then disconnects the DB."
-  (setq-local decklet-db--owner-buffer t)
-  (add-hook 'kill-buffer-query-functions
-            #'decklet-db--owner-kill-buffer-query nil t)
-  (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t))
+(define-obsolete-function-alias 'decklet-db-register-dependent-buffer
+  #'decklet-db-register-session-buffer "0.1.0")
 
-(defun decklet-db--buffers-with-local-flag (flag &optional exclude-buffer)
-  "Return live buffers whose buffer-local FLAG is non-nil.
-When EXCLUDE-BUFFER is non-nil, ignore it during the scan."
-  (seq-filter
-   (lambda (buffer)
-     (and (buffer-live-p buffer)
-          (not (eq buffer exclude-buffer))
-          (buffer-local-value flag buffer)))
-   (buffer-list)))
+(defun decklet-db--session-buffers (&optional exclude)
+  "Return live Decklet session buffers, ignoring EXCLUDE.
+Pass the current buffer from kill hooks, where the dying buffer is
+still present in `buffer-list'."
+  (seq-filter (lambda (buffer)
+                (and (not (eq buffer exclude))
+                     (buffer-local-value 'decklet-db--session-buffer buffer)))
+              (buffer-list)))
 
-(defun decklet-db--owner-buffers (&optional exclude-buffer)
-  "Return live Decklet session owner buffers.
-When EXCLUDE-BUFFER is non-nil, ignore it during the scan."
-  (decklet-db--buffers-with-local-flag 'decklet-db--owner-buffer exclude-buffer))
+(defun decklet-db--primary-session-buffers (&optional exclude)
+  "Return live primary session buffers, ignoring EXCLUDE."
+  (seq-filter (lambda (buffer)
+                (buffer-local-value 'decklet-db--session-primary buffer))
+              (decklet-db--session-buffers exclude)))
 
-(defun decklet-db--dependent-buffers (&optional exclude-buffer)
-  "Return live DB-dependent buffers, excluding EXCLUDE-BUFFER when non-nil.
-When EXCLUDE-BUFFER is non-nil, ignore it during the scan — useful
-from `kill-buffer-hook' handlers, where the buffer being killed is
-still present in `buffer-list' but should not be counted as an
-active session for the purpose of deciding whether to disconnect."
-  (decklet-db--buffers-with-local-flag 'decklet-db--dependent-buffer exclude-buffer))
+(defun decklet-db--primary-kill-query ()
+  "Close attached session buffers when the last primary buffer dies.
+With another primary buffer still live, allow the kill untouched.
+Otherwise try to close every other session buffer first, and veto
+the kill if one refuses (e.g. an unsaved card back whose save
+prompt was canceled)."
+  (or (decklet-db--primary-session-buffers (current-buffer))
+      (not (seq-some (lambda (buffer) (not (kill-buffer buffer)))
+                     (decklet-db--session-buffers (current-buffer))))))
 
-(defun decklet-db--session-buffer-live-p (&optional exclude-buffer)
-  "Return non-nil when any Decklet session buffer is still live.
-That includes both owner buffers (review/edit) and attached dependent
-buffers such as card-back popups.
-EXCLUDE-BUFFER is ignored during the scan."
-  (or (decklet-db--owner-buffers exclude-buffer)
-      (decklet-db--dependent-buffers exclude-buffer)))
-
-(defun decklet-db--kill-buffers (buffers)
-  "Try to kill BUFFERS and return the first buffer that refuses.
-Return nil when every buffer was killed."
-  (catch 'blocked
-    (dolist (buffer buffers)
-      (unless (kill-buffer buffer)
-        (throw 'blocked buffer)))
-    nil))
-
-(defun decklet-db--kill-dependent-buffers ()
-  "Try to kill all live Decklet dependent buffers.
-Return the first dependent buffer that refuses to die, or nil when
-every dependent buffer was killed."
-  (decklet-db--kill-buffers (decklet-db--dependent-buffers)))
-
-(defun decklet-db--owner-kill-buffer-query ()
-  "Query hook for Decklet session owner buffers.
-If another owner is still alive, allow the kill immediately.  When the
-current buffer is the last owner, first try to close all attached
-dependent buffers; cancel the owner kill if any attached buffer
-refuses to close."
-  (or (decklet-db--owner-buffers (current-buffer))
-      (not (decklet-db--kill-dependent-buffers))))
-
-(defun decklet-db--disconnect-if-idle (&optional excluding-buffer)
-  "Disconnect DB when no Decklet session buffers are open.
-EXCLUDING-BUFFER, when non-nil, is excluded from the session-open
-check — pass the current buffer from inside `kill-buffer-hook' so
-the soon-to-be-gone session buffer does not keep the DB open."
-  (unless (or decklet-db--disconnecting
-              (decklet-db--session-buffer-live-p excluding-buffer))
+(defun decklet-db--disconnect-if-idle (&optional exclude)
+  "Disconnect the DB when no session buffer (ignoring EXCLUDE) is open.
+Used after one-shot commands like JSON export/import, which may
+have lazily opened the connection outside any session."
+  (unless (decklet-db--session-buffers exclude)
     (decklet-db--disconnect)))
+
+(defun decklet-db--on-session-buffer-killed ()
+  "Disconnect the DB when the last session buffer is killed."
+  (decklet-db--disconnect-if-idle (current-buffer)))
 
 ;;;###autoload
 (defun decklet-disconnect ()
   "Close Decklet session buffers, then disconnect the DB.
-If review/edit owner buffers are open, kill them first so the last
-owner can run normal attached-buffer teardown.  Otherwise, kill any
-remaining dependent buffers directly.  If any buffer refuses to die,
-abort and leave the DB connected."
+Killing a session buffer can prompt (e.g. an unsaved card back); if
+any buffer refuses to die, abort and leave the DB connected."
   (interactive)
-  (let ((buffers (decklet-db--owner-buffers))
-        (had-conn decklet-db--conn))
-    (let ((decklet-db--disconnecting t))
-      (if buffers
-          (when-let* ((blocked (decklet-db--kill-buffers buffers)))
-            (user-error "Decklet disconnect canceled by buffer %s"
-                        (buffer-name blocked)))
-        (when-let* ((blocked (decklet-db--kill-dependent-buffers)))
+  (let* ((buffers (decklet-db--session-buffers))
+         (primaries (decklet-db--primary-session-buffers))
+         ;; Primaries first: the last one cascade-kills the attached
+         ;; buffers via its kill query, so an abort names the
+         ;; review/edit buffer rather than an attached popup.
+         (ordered (append primaries (seq-difference buffers primaries)))
+         (had-conn decklet-db--conn))
+    (dolist (buffer ordered)
+      (when (buffer-live-p buffer)
+        (unless (kill-buffer buffer)
           (user-error "Decklet disconnect canceled by buffer %s"
-                      (buffer-name blocked)))))
-    (when decklet-db--conn
-      (decklet-db--disconnect))
+                      (buffer-name buffer)))))
+    (decklet-db--disconnect)
     (when (called-interactively-p 'any)
       (message (if (or buffers had-conn)
                    "Decklet disconnected"
@@ -581,7 +510,11 @@ TARGETS is a keyword or list of keywords from `:learning',
 FIELD can be `:due', `:added', `:last-review', `:difficulty', or
 `:stability'.  For `:learning', `:relearning', or `:new' targets,
 only `:due' and `:added' are supported.  ORDER can be `:asc' or
-`:desc'."
+`:desc'.
+
+The value is validated both when set through Customize and when
+the due queue is collected, so `setq'-configured values get the
+same checks on the next review."
   :type '(repeat sexp)
   :set (lambda (sym val)
          (decklet-db--review-validate-order val)
@@ -671,7 +604,10 @@ STEP can be a shuffle or sort clause."
     (_ (error "Invalid review order step: %S" step))))
 
 (defun decklet-db--collect-due-items ()
-  "Return due items according to `decklet-review-order'."
+  "Return due items according to `decklet-review-order'.
+Validates the order first so `setq'-configured values get the same
+checks as Customize-set ones."
+  (decklet-db--review-validate-order decklet-review-order)
   (let* ((now (current-time))
          (items '()))
     (dolist (step decklet-review-order)

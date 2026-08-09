@@ -53,23 +53,23 @@
       (should row)
       (should (string= (plist-get row :word) "lucid")))))
 
-;;; Connection lifecycle (owner / dependent buffers)
+;;; Connection lifecycle (session buffers)
 
-(ert-deftest decklet-test-db-dependent-buffer-keeps-connection-open ()
-  "A registered dependent buffer holds the connection open until it is killed."
+(ert-deftest decklet-test-db-session-buffer-keeps-connection-open ()
+  "A session buffer holds the connection open until it is killed."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (buf)
       (with-current-buffer buf
-	(decklet-db-register-dependent-buffer)
-	(should decklet-db--dependent-buffer))
-      (decklet-db--disconnect-if-idle)
+	(decklet-db-register-session-buffer)
+	(should decklet-db--session-buffer))
+      (should (memq buf (decklet-db--session-buffers)))
       (should decklet-db--conn)
       (kill-buffer buf)
       (should-not decklet-db--conn))))
 
-(ert-deftest decklet-test-db-owner-close-keeps-session-while-another-owner-live ()
-  "Killing one owner leaves other owners, attached buffers, and the DB alive."
+(ert-deftest decklet-test-db-kill-one-session-buffer-keeps-others ()
+  "Killing one session buffer leaves the others and the DB alive."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (review edit attached)
@@ -82,14 +82,14 @@
       (should (buffer-live-p attached))
       (should decklet-db--conn))))
 
-(ert-deftest decklet-test-db-disconnect-kills-dependents-and-closes-db ()
-  "`decklet-disconnect' kills dependents and closes the connection.
+(ert-deftest decklet-test-db-disconnect-kills-session-buffers-and-closes-db ()
+  "`decklet-disconnect' kills session buffers and closes the connection.
 It fires the pre-disconnect hook exactly once."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (buf-a buf-b)
       (dolist (buf (list buf-a buf-b))
-	(with-current-buffer buf (decklet-db-register-dependent-buffer)))
+	(with-current-buffer buf (decklet-db-register-session-buffer)))
       (let* ((hook-count 0)
 	     (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
 	(decklet-disconnect)
@@ -99,13 +99,13 @@ It fires the pre-disconnect hook exactly once."
 	(should (= hook-count 1))))))
 
 (ert-deftest decklet-test-db-disconnect-aborts-when-buffer-cancels-kill ()
-  "A dependent buffer refusing to die aborts disconnection.
+  "A session buffer refusing to die aborts disconnection.
 The connection stays open and the pre-disconnect hook does not run."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (buf)
       (with-current-buffer buf
-	(decklet-db-register-dependent-buffer)
+	(decklet-db-register-session-buffer)
 	(add-hook 'kill-buffer-query-functions #'ignore nil t))
       (let* ((hook-count 0)
 	     (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))

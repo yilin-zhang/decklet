@@ -210,11 +210,9 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
         (decklet--commit-card-rating
          card-id word old-meta new-meta grade prior-grade)
       (error
-       (unless (decklet-review-log-append-void log-id)
-         (display-warning
-          'decklet
-          "Could not retire a rating whose database update failed"
-          :error))
+       ;; Best-effort: retire the orphaned log record before re-signaling.
+       ;; A failed void already reports itself from the log writer.
+       (decklet-review-log-append-void log-id)
        (signal (car err) (cdr err))))
     log-id))
 
@@ -224,14 +222,8 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
          (normalized (decklet-db--update-word card-id new-word)))
     (unless (string-equal old-word normalized)
       (unless (decklet-review-log-append-rename card-id old-word normalized)
-        (condition-case err
-            (decklet-db--update-word card-id old-word)
-          (error
-           (display-warning
-            'decklet
-            (format "Could not roll back rename after log failure: %s"
-                    (error-message-string err))
-            :error)))
+        ;; Best-effort rollback to keep DB and log consistent.
+        (ignore-errors (decklet-db--update-word card-id old-word))
         (user-error "Could not write rename to the review log"))
       (when (and decklet-last-added-word
                  (string-equal old-word decklet-last-added-word))
@@ -588,11 +580,14 @@ declines both save and discard."
   :lighter " DeckletEdit"
   (if decklet-card-back-mode
       (progn
-        (decklet-db-register-dependent-buffer)
+        (decklet-db-register-session-buffer)
         (add-hook 'write-contents-functions
                   #'decklet-card-back--write-contents nil t)
         (add-hook 'kill-buffer-query-functions
                   #'decklet-card-back--kill-buffer-query nil t))
+    (setq decklet-db--session-buffer nil)
+    (remove-hook 'kill-buffer-hook
+                 #'decklet-db--on-session-buffer-killed t)
     (remove-hook 'write-contents-functions
                  #'decklet-card-back--write-contents t)
     (remove-hook 'kill-buffer-query-functions

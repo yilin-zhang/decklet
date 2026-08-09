@@ -15,14 +15,14 @@
 
 ;;; Mode and session teardown
 
-(ert-deftest decklet-test-review-mode-registers-owner ()
-  "`decklet-review-mode' marks its buffer as a Decklet session owner."
+(ert-deftest decklet-test-review-mode-registers-session-buffer ()
+  "`decklet-review-mode' marks its buffer as a Decklet session buffer."
   (with-temp-buffer
     (decklet-review-mode)
-    (should decklet-db--owner-buffer)))
+    (should decklet-db--session-buffer)))
 
-(ert-deftest decklet-test-review-quit-kills-attached-buffers-on-last-owner ()
-  "Quitting the last review owner kills attached buffers and closes the DB."
+(ert-deftest decklet-test-review-quit-kills-attached-buffers-on-last-primary ()
+  "Quitting the last primary buffer kills attached buffers and closes the DB."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (let ((review (get-buffer-create decklet-review-buffer-name)))
@@ -48,6 +48,7 @@
 	(should (buffer-live-p review))
 	(should (buffer-live-p attached))
 	(should decklet-db--conn)
+	(with-current-buffer attached (decklet-card-back-mode -1))
 	(when (buffer-live-p review) (kill-buffer review))))))
 
 ;;; Grade handling and the daily-goal hook

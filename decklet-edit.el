@@ -211,18 +211,11 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
                     "")))
     (if (numberp value) value (string-to-number value))))
 
-(defvar decklet-edit--preserving-point nil
-  "Non-nil while `decklet-edit--preserving-window-position' is active.
-Nested invocations become no-ops so the outermost frame owns the
-final recenter.")
-
 (defmacro decklet-edit--preserving-window-position (&rest body)
   "Run BODY while keeping point on the same screen line in the edit window.
 Capture point's rendered screen row via `posn-at-point' before BODY,
 then `recenter' back to that row afterwards.  When the edit buffer
 has no live window, BODY still runs but no preservation is attempted.
-Nested calls become no-ops so the outermost caller owns the final
-position.
 
 `posn-at-point' is preferred over `count-screen-lines', which overcounts
 by one for mid-line positions, and over `line-beginning-position', which
@@ -232,18 +225,15 @@ wrapped display, and field boundaries, so it round-trips exactly with
   (declare (indent 0) (debug t))
   (let ((win-sym (make-symbol "win"))
         (row-sym (make-symbol "row")))
-    `(if decklet-edit--preserving-point
-         (progn ,@body)
-       (let* ((decklet-edit--preserving-point t)
-              (,win-sym (get-buffer-window (current-buffer) 0))
-              (,row-sym (and ,win-sym
-                             (with-selected-window ,win-sym
-                               (when-let* ((posn (posn-at-point)))
-                                 (cdr (posn-col-row posn)))))))
-         (prog1 (progn ,@body)
-           (when (and ,win-sym ,row-sym (window-live-p ,win-sym))
-             (with-selected-window ,win-sym
-               (recenter ,row-sym))))))))
+    `(let* ((,win-sym (get-buffer-window (current-buffer) 0))
+            (,row-sym (and ,win-sym
+                           (with-selected-window ,win-sym
+                             (when-let* ((posn (posn-at-point)))
+                               (cdr (posn-col-row posn)))))))
+       (prog1 (progn ,@body)
+         (when (and ,win-sym ,row-sym (window-live-p ,win-sym))
+           (with-selected-window ,win-sym
+             (recenter ,row-sym)))))))
 
 (defun decklet-edit--nearest-surviving-card-id (deleted-card-ids)
   "Return the nearest table card id not listed in DELETED-CARD-IDS.
@@ -298,7 +288,7 @@ nearest surviving card otherwise."
       (let ((decklet-edit--inhibit-callback-refresh t))
         (unwind-protect
             (mapc action card-ids)
-          (decklet-edit-refresh)))
+          (decklet-edit--refresh-table)))
       (or (decklet-edit--goto-card-id origin-card-id)
           (decklet-edit--goto-card-id target-card-id)))))
 
@@ -502,6 +492,14 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
 
 ;;; Edit mode commands
 
+(defun decklet-edit--refresh-table ()
+  "Rebuild and reprint the edit table without touching window position."
+  (setq tabulated-list-format (decklet-edit--tabulated-list-format))
+  (tabulated-list-init-header)
+  (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
+  (tabulated-list-print t)
+  (decklet-edit--apply-marks))
+
 (defun decklet-edit-refresh ()
   "Refresh the card list buffer.
 Point is kept on the same screen line via
@@ -509,11 +507,7 @@ Point is kept on the same screen line via
 command-driven refreshes do not scroll the edit window."
   (interactive)
   (decklet-edit--preserving-window-position
-    (setq tabulated-list-format (decklet-edit--tabulated-list-format))
-    (tabulated-list-init-header)
-    (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
-    (tabulated-list-print t)
-    (decklet-edit--apply-marks)))
+    (decklet-edit--refresh-table)))
 
 (defun decklet-edit-mark-at-point ()
   "Mark card(s) at point.
@@ -761,7 +755,7 @@ Registered on `window-selection-change-functions'."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
-  (decklet-db--register-owner-buffer)
+  (decklet-db-register-session-buffer 'primary)
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)

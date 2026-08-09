@@ -35,53 +35,26 @@ Set to nil to disable pruning."
   :type '(choice (const :tag "Disabled" nil) integer)
   :group 'decklet-db)
 
-(defcustom decklet-backup-restore-completion-setup
-  (lambda ()
-    '((vertico-sort-override-function . identity)))
-  "Function returning temporary completion bindings for backup restore.
-When non-nil, it is called with no arguments inside
-`decklet-db-restore' and should return an alist of
-\(SYMBOL . VALUE) pairs to bind dynamically around `completing-read'."
-  :type 'function
-  :group 'decklet-db)
-
 (defconst decklet-backup--backup-timestamp-re "[0-9]\\{8\\}T[0-9]\\{6\\}Z"
   "Regex matching the UTC timestamp produced by `decklet--timestamp-utc'.")
 
 (defun decklet-backup--backup-file-pattern (base ext)
-  "Return a regexp matching timestamped backup files for BASE.EXT.
-Includes an optional collision suffix (e.g. `-1', `-2')."
-  (format "\\`%s-\\(%s\\(?:-[0-9]+\\)?\\)\\.%s\\'"
+  "Return a regexp matching timestamped backup files for BASE.EXT."
+  (format "\\`%s-\\(%s\\)\\.%s\\'"
           (regexp-quote base)
           decklet-backup--backup-timestamp-re
           (regexp-quote ext)))
 
-(defun decklet-backup--backup-target (backup-dir base ext timestamp)
-  "Return a unique backup filename in BACKUP-DIR using BASE, EXT, TIMESTAMP."
-  (let ((suffix 0))
-    (cl-loop for candidate = (expand-file-name
-                              (format "%s-%s%s.%s"
-                                      base
-                                      timestamp
-                                      (if (zerop suffix) "" (format "-%d" suffix))
-                                      ext)
-                              backup-dir)
-             while (file-exists-p candidate)
-             do (cl-incf suffix)
-             finally return candidate)))
+(defun decklet-backup--backup-name (base ext timestamp)
+  "Return the backup file name for BASE.EXT at TIMESTAMP."
+  (format "%s-%s.%s" base timestamp ext))
 
 (defun decklet-backup--backup-token (file base ext)
-  "Return FILE's timestamp/collision token for BASE.EXT, or nil."
+  "Return FILE's timestamp token for BASE.EXT, or nil."
   (let ((name (file-name-nondirectory file))
         (pattern (decklet-backup--backup-file-pattern base ext)))
     (when (string-match pattern name)
       (match-string 1 name))))
-
-(defun decklet-backup--token-collision-index (token)
-  "Return TOKEN's numeric collision suffix, defaulting to zero."
-  (if (string-match "-\\([0-9]+\\)\\'" token)
-      (string-to-number (match-string 1 token))
-    0))
 
 (defun decklet-backup--backup-prune (backup-dir base ext)
   "Prune old backup files in BACKUP-DIR matching BASE.EXT.
@@ -102,23 +75,33 @@ lexicographic order matches chronological order."
                     (error-message-string err))))))))
 
 (defun decklet-backup--backup ()
-  "Create a paired database/review-log backup and prune old backup pairs."
+  "Create a paired database/review-log backup and prune old backup pairs.
+A second backup within the same second overwrites the first — both
+are valid snapshots of the same state."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
          (timestamp (decklet--timestamp-utc))
-         (backup-file (decklet-backup--backup-target backup-dir base "sqlite" timestamp))
-         (token (decklet-backup--backup-token backup-file base "sqlite"))
-         (log-base (file-name-base decklet-review-log-file))
-         (log-ext (file-name-extension decklet-review-log-file))
+         (backup-file (expand-file-name
+                       (decklet-backup--backup-name base "sqlite" timestamp)
+                       backup-dir))
          (log-backup (expand-file-name
-                      (format "%s-%s.%s" log-base token log-ext)
+                      (decklet-backup--backup-name
+                       (file-name-base decklet-review-log-file)
+                       (file-name-extension decklet-review-log-file)
+                       timestamp)
                       backup-dir))
-         (created (list backup-file)))
+         (created nil))
     (make-directory backup-dir t)
     (condition-case err
         (progn
+          ;; Track only files this attempt creates, so the error
+          ;; cleanup never deletes a backup that already existed
+          ;; (e.g. the same-second pair being overwritten).
+          (unless (file-exists-p backup-file)
+            (push backup-file created))
           (copy-file decklet-db-file backup-file t t t)
-          (push log-backup created)
+          (unless (file-exists-p log-backup)
+            (push log-backup created))
           (if (file-exists-p decklet-review-log-file)
               (copy-file decklet-review-log-file log-backup t t t)
             (let ((coding-system-for-write 'utf-8-unix))
@@ -143,20 +126,10 @@ their backups to ride in the same rotation; register a handler on
 `decklet-db-post-backup-functions' and call this from it."
   (let* ((base (file-name-base source-file))
          (ext (file-name-extension source-file))
-         (target (decklet-backup--backup-target backup-dir base ext timestamp)))
+         (target (expand-file-name (decklet-backup--backup-name base ext timestamp)
+                                   backup-dir)))
     (copy-file source-file target t t t)
     (decklet-backup--backup-prune backup-dir base ext)))
-
-(defun decklet-backup--backup-timestamp (file)
-  "Return the backup timestamp for FILE, or nil if unavailable."
-  (let ((pattern (format "\\`%s-\\(%s\\)"
-                         (regexp-quote (file-name-base decklet-db-file))
-                         decklet-backup--backup-timestamp-re))
-        (filename (file-name-base file)))
-    (when (string-match pattern filename)
-      (condition-case nil
-          (date-to-time (match-string 1 filename))
-        (error nil)))))
 
 (defun decklet-backup--matching-review-log-backup (database-backup)
   "Return the review-log backup paired with DATABASE-BACKUP, or nil."
@@ -221,33 +194,25 @@ their backups to ride in the same rotation; register a handler on
           (delete-file (cdr entry)))))))
 
 (defun decklet-backup--backup-files ()
-  "Return backup files sorted by newest timestamp first."
-  (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
-         (base (file-name-base decklet-db-file))
-         (pattern (decklet-backup--backup-file-pattern base "sqlite"))
-         (files (when (file-directory-p backup-dir)
-                  (directory-files backup-dir t pattern))))
-    (sort files
-          (lambda (a b)
-            (let* ((ta (or (decklet-backup--backup-timestamp a)
-                           (file-attribute-modification-time (file-attributes a))))
-                   (tb (or (decklet-backup--backup-timestamp b)
-                           (file-attribute-modification-time (file-attributes b))))
-                   (token-a (decklet-backup--backup-token a base "sqlite"))
-                   (token-b (decklet-backup--backup-token b base "sqlite")))
-              (if (time-equal-p ta tb)
-                  (> (decklet-backup--token-collision-index token-a)
-                     (decklet-backup--token-collision-index token-b))
-                (time-less-p tb ta)))))))
+  "Return backup files sorted by newest first.
+Filenames embed a UTC timestamp, so lexicographic order is
+chronological order."
+  (let ((backup-dir (file-name-as-directory decklet-backup-directory))
+        (pattern (decklet-backup--backup-file-pattern
+                  (file-name-base decklet-db-file) "sqlite")))
+    (when (file-directory-p backup-dir)
+      (sort (directory-files backup-dir t pattern) #'string>))))
 
 (defun decklet-backup--read-backup-choice (choices default)
-  "Read backup choice from CHOICES with DEFAULT using completion."
-  (let* ((bindings (when (functionp decklet-backup-restore-completion-setup)
-                     (funcall decklet-backup-restore-completion-setup)))
-         (symbols (mapcar #'car bindings))
-         (values (mapcar #'cdr bindings)))
-    (cl-progv symbols values
-      (completing-read "Restore backup: " choices nil t nil nil default))))
+  "Read backup choice from CHOICES with DEFAULT using completion.
+CHOICES arrive newest-first; `display-sort-function' metadata keeps
+the completion UI from re-sorting them."
+  (let ((table (lambda (string pred action)
+                 (if (eq action 'metadata)
+                     '(metadata (display-sort-function . identity)
+                                (cycle-sort-function . identity))
+                   (complete-with-action action choices string pred)))))
+    (completing-read "Restore backup: " table nil t nil nil default)))
 
 ;;;###autoload
 (defun decklet-db-backup ()
@@ -294,7 +259,7 @@ their backups to ride in the same rotation; register a handler on
         (user-error "No backup selected"))
       (unless review-log-backup
         (user-error "The selected database backup has no matching review log"))
-      (when (decklet-db--session-buffer-live-p)
+      (when (decklet-db--session-buffers)
         (user-error
          "Please disconnect Decklet before restore; use `decklet-disconnect'"))
       (when (yes-or-no-p (format "Restore %s to %s? "
