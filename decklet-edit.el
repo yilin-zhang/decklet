@@ -39,34 +39,9 @@
   "Face for displaying archived words in edit lists."
   :group 'decklet-edit)
 
-(decklet-defface decklet-edit-hint-face
-  `((t :foreground ,(face-attribute 'decklet-color-hint :foreground)))
-  "Face for displaying the hint in edit lists."
-  :group 'decklet-edit)
-
-(decklet-defface decklet-edit-added-face
-  `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)))
-  "Face for displaying added timestamps in edit lists."
-  :group 'decklet-edit)
-
-(decklet-defface decklet-edit-last-review-face
-  `((t :foreground ,(face-attribute 'ansi-color-bright-cyan :foreground)))
-  "Face for displaying last review timestamps in edit lists."
-  :group 'decklet-edit)
-
-(decklet-defface decklet-edit-due-face
-  `((t :foreground ,(face-attribute 'ansi-color-bright-green :foreground)))
-  "Face for displaying due timestamps in edit lists."
-  :group 'decklet-edit)
-
-(decklet-defface decklet-edit-stability-face
-  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
-  "Face for displaying stability values in edit lists."
-  :group 'decklet-edit)
-
-(decklet-defface decklet-edit-difficulty-face
-  `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
-  "Face for displaying difficulty values in edit lists."
+(defface decklet-edit-metadata-face
+  '((t :inherit font-lock-comment-face))
+  "Face for displaying scheduling metadata in edit lists."
   :group 'decklet-edit)
 
 (decklet-defface decklet-edit-state-new-face
@@ -340,7 +315,7 @@ changes propagate through the next format rebuild."
   (vconcat
    (list
     (list "Word" 24 (decklet-edit--column-sorter "Word"))
-    (list "Hint" 40 t)
+    (list "Hint" 28 t)
     (list "Back" 5 nil))
    (mapcar (lambda (column)
              (list (plist-get column :name)
@@ -401,31 +376,35 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                   (state-text (decklet-fsrs-state-string effective-state))
                   (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
                   (hint (if hint
-                            (replace-regexp-in-string "[\r\n]+" "↵" hint nil 'literal)
+                            (replace-regexp-in-string
+                             "[\r\n]+"
+                             (lambda (_line-break)
+                               (propertize "↵" 'face 'decklet-edit-metadata-face))
+                             hint)
                           "")))
        (list card-id
              (vconcat
               (vector
                (propertize display-word 'face word-face)
-               (propertize hint 'face 'decklet-edit-hint-face)
+               hint
                (if back (propertize "♦" 'face 'decklet-edit-card-back-indicator-face) ""))
               (apply #'vector (decklet-edit--sidecar-column-cells row))
               (vector
                (propertize state-text 'face state-face)
                (propertize (decklet-edit--format-timestamp added)
-                           'face 'decklet-edit-added-face
+                           'face 'decklet-edit-metadata-face
                            'decklet-sort-key added)
                (propertize (decklet-edit--format-timestamp last-review)
-                           'face 'decklet-edit-last-review-face
+                           'face 'decklet-edit-metadata-face
                            'decklet-sort-key last-review)
                (propertize (decklet-edit--format-timestamp due)
-                           'face 'decklet-edit-due-face
+                           'face 'decklet-edit-metadata-face
                            'decklet-sort-key due)
                (propertize (if stability (format "%.3f" stability) "")
-                           'face 'decklet-edit-stability-face
+                           'face 'decklet-edit-metadata-face
                            'decklet-sort-number (or stability 0))
                (propertize (if difficulty (format "%.3f" difficulty) "")
-                           'face 'decklet-edit-difficulty-face
+                           'face 'decklet-edit-metadata-face
                            'decklet-sort-number (or difficulty 0)))))))
    (decklet-db--select-card-rows decklet-edit--filter
                                  (decklet-edit--db-sort-key tabulated-list-sort-key))))

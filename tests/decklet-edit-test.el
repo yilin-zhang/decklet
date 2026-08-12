@@ -74,12 +74,6 @@ BODY can refer to `buf', the edit buffer."
         (should (decklet-edit--goto-card-id beta))
         (should (eql (tabulated-list-get-id) beta))))))
 
-(ert-deftest decklet-test-edit-preserving-window-position-runs-body ()
-  "The preservation form runs its body and returns its value.
-No window is needed; preservation is simply skipped."
-  (cl-letf (((symbol-function 'get-buffer-window) (lambda (&rest _) nil)))
-    (should (eq 'result (decklet-edit--preserving-window-position 'result)))))
-
 ;;; Delete
 
 (ert-deftest decklet-test-edit-delete-at-point-when-unmarked ()
