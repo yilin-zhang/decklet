@@ -50,13 +50,25 @@ Receives a list of added words.")
 (defconst decklet--batch-hint-re "^[ \t]*#\\(.*\\)"
   "Regex matching a hint line.  Group 1 captures the hint text.")
 
+(decklet-defface decklet-add-card-batch-word-face
+  `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
+       :weight bold))
+  "Face for word lines in batch card entry."
+  :group 'decklet)
+
 (defvar decklet-add-card-batch-font-lock-keywords
-  `((,decklet--batch-hint-re . font-lock-comment-face))
+  `((,decklet--batch-hint-re
+     (0 'font-lock-comment-face)
+     (1 'default t))
+    ("^[ \t]*\\([^ \t\n].*\\)$"
+     (1 (unless (string-match-p decklet--batch-hint-re
+                                (match-string-no-properties 0))
+          'decklet-add-card-batch-word-face))))
   "Font-lock rules for `decklet-add-card-batch-mode'.")
 
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
   "Major mode for editing batch word entries.
-Lines starting with `#' are highlighted as comments containing hints."
+Word lines are emphasized; only the hint prefix is subdued."
   (setq-local font-lock-defaults '(decklet-add-card-batch-font-lock-keywords))
   (font-lock-refresh-defaults))
 
