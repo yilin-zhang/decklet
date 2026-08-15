@@ -28,14 +28,12 @@
 ;;; Faces
 
 (defface decklet-edit-word-face
-  `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-word :weight bold))
   "Face for displaying the word in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-word-archived-face
-  `((t :foreground ,(face-attribute 'ansi-color-cyan :foreground)
-       :weight bold))
+  '((t :inherit ansi-color-cyan :background reset :weight bold))
   "Face for displaying archived words in edit lists."
   :group 'decklet-edit)
 
@@ -45,26 +43,22 @@
   :group 'decklet-edit)
 
 (defface decklet-edit-state-new-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-new :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-state-new :weight bold))
   "Face for new-card state labels in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-state-learning-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-state-learning :weight bold))
   "Face for learning-card state labels in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-state-review-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-state-review :weight bold))
   "Face for review-card state labels in edit lists."
   :group 'decklet-edit)
 
 (defface decklet-edit-card-back-indicator-face
-  `((t :foreground ,(face-attribute 'decklet-color-card-back :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-card-back :weight bold))
   "Face for the back indicator in edit lists."
   :group 'decklet-edit)
 
@@ -75,7 +69,7 @@
   :group 'decklet-edit)
 
 (defface decklet-edit-mark-indicator-face
-  `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)))
+  '((t :inherit ansi-color-yellow :background reset))
   "Face for the mark indicator character."
   :group 'decklet-edit)
 

@@ -99,112 +99,100 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
 ;; Faces
 
 (defface decklet-review-word-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'decklet-color-word :foreground)
+  '((((type graphic))
+     :inherit decklet-color-word
      :weight bold
      :height 1.5)
     (((type tty))
-     :foreground ,(face-attribute 'decklet-color-word :foreground)
+     :inherit decklet-color-word
      :weight bold
      :height 1.0))
   "Face for displaying the current word."
   :group 'decklet-review)
 
 (defface decklet-review-state-new-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'decklet-color-state-new :foreground)
+  '((((type graphic))
+     :inherit decklet-color-state-new
      :weight bold
      :height 1.2)
     (((type tty))
-     :foreground ,(face-attribute 'decklet-color-state-new :foreground)
+     :inherit decklet-color-state-new
      :weight bold
      :height 1.0))
   "Face for displaying the `NEW WORD' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-learning-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
+  '((((type graphic))
+     :inherit decklet-color-state-learning
      :weight bold
      :height 1.2)
     (((type tty))
-     :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
+     :inherit decklet-color-state-learning
      :weight bold
      :height 1.0))
   "Face for displaying the `LEARNING' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-review-face
-  `((((type graphic))
-     :foreground ,(face-attribute 'decklet-color-state-review :foreground)
+  '((((type graphic))
+     :inherit decklet-color-state-review
      :weight bold
      :height 1.2)
     (((type tty))
-     :foreground ,(face-attribute 'decklet-color-state-review :foreground)
+     :inherit decklet-color-state-review
      :weight bold
      :height 1.0))
   "Face for displaying the `REVIEWING' status."
   :group 'decklet-review)
 
 (defface decklet-review-counter-new-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-new :foreground)
-       :weight bold
-       :underline t))
+  '((t :inherit decklet-color-state-new :weight bold :underline t))
   "Face for displaying the number of new words."
   :group 'decklet-review)
 
 (defface decklet-review-counter-reviewed-face
-  '((t :inherit default
-       :weight bold
-       :underline t))
+  '((t :inherit default :weight bold :underline t))
   "Face for displaying reviewed numbers."
   :group 'decklet-review)
 
 (defface decklet-review-counter-review-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
-       :weight bold
-       :underline t))
+  '((t :inherit decklet-color-state-review :weight bold :underline t))
   "Face for displaying review-due numbers."
   :group 'decklet-review)
 
 (defface decklet-review-counter-due-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-learning :foreground)
-       :weight bold
-       :underline t))
+  '((t :inherit decklet-color-state-learning :weight bold :underline t))
   "Face for displaying learning-due numbers."
   :group 'decklet-review)
 
 (defface decklet-review-state-goal-face
-  `((t :foreground ,(face-attribute 'decklet-color-state-review :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-state-review :weight bold))
   "Face for displaying the `DAILY GOAL REACHED' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-progress-face
-  `((t :inherit default))
+  '((t :inherit default))
   "Face for displaying the daily goal progress bar."
   :group 'decklet-review)
 
 (defface decklet-review-rating-interval-face
-  `((t :foreground ,(face-attribute 'shadow :foreground)))
+  '((t :inherit shadow))
   "Face for displaying rating interval hints."
   :group 'decklet-review)
 
 (defface decklet-review-separator-face
-  `((t :foreground ,(face-attribute 'shadow :foreground)
-       :weight bold))
+  '((t :inherit shadow :weight bold))
   "Face for horizontal separators."
   :group 'decklet-review)
 
 (defface decklet-review-hint-indicator-face
-  `((t :foreground ,(face-attribute 'decklet-color-hint :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-hint :weight bold))
   "Face for displaying the hint placeholder."
   :group 'decklet-review)
 
 (defface decklet-review-card-back-indicator-face
-  `((t :foreground ,(face-attribute 'decklet-color-card-back :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-card-back :weight bold))
   "Face for the card back indicator in the review UI."
   :group 'decklet-review)
 

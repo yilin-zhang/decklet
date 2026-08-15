@@ -22,45 +22,43 @@
 
 ;; Shared colors
 ;;
-;; These are pure color definitions: both `:foreground' and
-;; `:background' are set to the same color value and no weight is
-;; specified.  Derived faces should pull either the foreground or the
-;; background via `face-attribute' and layer on whatever weight or
+;; These are pure color definitions: they carry a foreground color and
+;; nothing else.  The color is inherited from the `ansi-color' palette
+;; (or `shadow'), which themes redefine, and `:inherit' is resolved at
+;; face-realization time -- so these follow the active theme without
+;; any refresh machinery.  The `ansi-color' faces set `:background' to
+;; the same color as `:foreground', which would render as a solid
+;; block, so `:background reset' pins it back to the `default' face.
+;; Derived faces inherit from these and layer on whatever weight or
 ;; height they need for their context.
 
 (defface decklet-color-word
-  `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
-       :background ,(face-attribute 'ansi-color-red :foreground)))
+  '((t :inherit ansi-color-red :background reset))
   "Shared color for words."
   :group 'decklet)
 
 (defface decklet-color-state-new
-  `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)
-       :background ,(face-attribute 'ansi-color-magenta :foreground)))
+  '((t :inherit ansi-color-magenta :background reset))
   "Shared color for new-card state indicators."
   :group 'decklet)
 
 (defface decklet-color-state-learning
-  `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)
-       :background ,(face-attribute 'ansi-color-yellow :foreground)))
+  '((t :inherit ansi-color-yellow :background reset))
   "Shared color for learning-card state indicators."
   :group 'decklet)
 
 (defface decklet-color-state-review
-  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
-       :background ,(face-attribute 'ansi-color-green :foreground)))
+  '((t :inherit ansi-color-green :background reset))
   "Shared color for review-card state indicators."
   :group 'decklet)
 
 (defface decklet-color-hint
-  `((t :foreground ,(face-attribute 'shadow :foreground)
-       :background ,(face-attribute 'shadow :foreground)))
+  '((t :inherit shadow))
   "Shared color for hint-like elements."
   :group 'decklet)
 
 (defface decklet-color-card-back
-  `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)
-       :background ,(face-attribute 'ansi-color-bright-blue :foreground)))
+  '((t :inherit ansi-color-bright-blue :background reset))
   "Shared color for card-back indicators."
   :group 'decklet)
 

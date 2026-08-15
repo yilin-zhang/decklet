@@ -51,8 +51,7 @@ Receives a list of added words.")
   "Regex matching a hint line.  Group 1 captures the hint text.")
 
 (defface decklet-add-card-batch-word-face
-  `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
-       :weight bold))
+  '((t :inherit decklet-color-word :weight bold))
   "Face for word lines in batch card entry."
   :group 'decklet)
 

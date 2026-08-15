@@ -883,6 +883,30 @@ from one-shot commands outside a session needs no special handling.
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
 
+#### Faces
+
+Define faces with plain `defface` and get colors through `:inherit`,
+never by embedding a `face-attribute` lookup in a backquoted spec.
+`:inherit` is resolved when the face is realized, so it follows the
+active theme; a backquoted `face-attribute` call is evaluated once at
+load time and freezes whatever palette happened to be active then.
+
+Decklet's shared `decklet-color-*` carriers exist for exactly this:
+they name a color role and carry a single foreground inherited from
+the `ansi-color` palette. Inherit from those rather than reaching into
+`ansi-color` yourself, and layer on your own weight or height:
+
+```emacs-lisp
+(defface my/decklet-indicator-face
+  '((t :inherit decklet-color-state-review :weight bold))
+  "Face for my extension's review indicator."
+  :group 'my-decklet-extension)
+```
+
+If you must inherit straight from an `ansi-color` face, add
+`:background reset` — those faces set `:background` to the same color
+as `:foreground`, which otherwise renders as a solid block.
+
 #### Edit-mode columns
 
 `decklet-edit-sidecar-columns` lets an extension add its own columns to the
