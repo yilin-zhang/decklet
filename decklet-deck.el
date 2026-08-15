@@ -69,6 +69,12 @@ Receives a list of added words.")
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
   "Major mode for editing batch word entries.
 Word lines are emphasized; only the hint prefix is subdued."
+  ;; Hint lines are data, not comments, and only a leading `#' is special.
+  ;; Configure comment commands without teaching the syntax table that every
+  ;; `#' starts a comment (which would misclassify words such as "C#").
+  (setq-local comment-start "# ")
+  (setq-local comment-end "")
+  (setq-local comment-start-skip "#+[ \t]*")
   (setq-local font-lock-defaults '(decklet-add-card-batch-font-lock-keywords))
   (font-lock-refresh-defaults))
 
