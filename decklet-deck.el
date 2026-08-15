@@ -50,7 +50,7 @@ Receives a list of added words.")
 (defconst decklet--batch-hint-re "^[ \t]*#\\(.*\\)"
   "Regex matching a hint line.  Group 1 captures the hint text.")
 
-(decklet-defface decklet-add-card-batch-word-face
+(defface decklet-add-card-batch-word-face
   `((t :foreground ,(face-attribute 'decklet-color-word :foreground)
        :weight bold))
   "Face for word lines in batch card entry."

@@ -883,24 +883,6 @@ from one-shot commands outside a session needs no special handling.
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
 
-#### Theme-aware faces
-
-Faces whose spec reads colors from other faces via `face-attribute`
-should be defined with `decklet-defface` instead of `defface`. The
-macro has the same shape but re-evaluates the spec whenever a theme is
-enabled or disabled, so the face follows the active palette instead of
-freezing whatever colors were current at load time. All of Decklet's
-own palette-derived faces (including the shared `decklet-color-*`
-carriers) are defined this way; `decklet-refresh-faces` re-evaluates
-every registered spec on demand.
-
-```emacs-lisp
-(decklet-defface my/decklet-indicator-face
-  `((t :foreground ,(face-attribute 'ansi-color-green :foreground)))
-  "Face for my extension's review indicator."
-  :group 'my-decklet-extension)
-```
-
 #### Edit-mode columns
 
 `decklet-edit-sidecar-columns` lets an extension add its own columns to the

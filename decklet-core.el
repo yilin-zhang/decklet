@@ -20,49 +20,6 @@
   :type 'directory
   :group 'decklet)
 
-;; Dynamic faces
-;;
-;; Most Decklet faces pull their colors from other faces (the
-;; `ansi-color' palette, `shadow', the shared `decklet-color-*'
-;; carriers below) via `face-attribute'; `decklet-defface' keeps such
-;; specs in sync with the active theme.
-
-(defvar decklet--dynamic-faces nil
-  "Ordered list of (FACE . SPEC-FN) pairs refreshed after a theme change.
-SPEC-FN is a zero-argument function returning a face spec.  Order
-matters: derived faces must be refreshed after the faces they read
-via `face-attribute', which registration order guarantees as long
-as files define shared faces before derived ones.")
-
-(defun decklet--register-dynamic-face (face spec-fn)
-  "Register FACE with SPEC-FN for theme-change refreshes.
-Re-registering FACE moves it to the end of the refresh order."
-  (setq decklet--dynamic-faces
-        (append (assq-delete-all face decklet--dynamic-faces)
-                (list (cons face spec-fn)))))
-
-(defmacro decklet-defface (face spec doc &rest args)
-  "Define FACE with SPEC and DOC like `defface', but theme-aware.
-SPEC is re-evaluated by `decklet-refresh-faces' whenever a theme
-is enabled or disabled, so specs built from `face-attribute'
-lookups follow the active palette instead of freezing at load
-time.  ARGS are passed through to `defface'."
-  (declare (indent defun) (doc-string 3))
-  `(progn
-     (decklet--register-dynamic-face ',face (lambda () ,spec))
-     (defface ,face ,spec ,doc ,@args)))
-
-(defun decklet-refresh-faces (&rest _)
-  "Re-evaluate every `decklet-defface' spec against the current theme.
-Runs from `enable-theme-functions' and `disable-theme-functions'.
-Can also be called manually after changing whatever a face spec
-reads its colors from."
-  (pcase-dolist (`(,face . ,spec-fn) decklet--dynamic-faces)
-    (face-spec-set face (funcall spec-fn) 'face-defface-spec)))
-
-(add-hook 'enable-theme-functions #'decklet-refresh-faces)
-(add-hook 'disable-theme-functions #'decklet-refresh-faces)
-
 ;; Shared colors
 ;;
 ;; These are pure color definitions: both `:foreground' and
@@ -71,37 +28,37 @@ reads its colors from."
 ;; background via `face-attribute' and layer on whatever weight or
 ;; height they need for their context.
 
-(decklet-defface decklet-color-word
+(defface decklet-color-word
   `((t :foreground ,(face-attribute 'ansi-color-red :foreground)
        :background ,(face-attribute 'ansi-color-red :foreground)))
   "Shared color for words."
   :group 'decklet)
 
-(decklet-defface decklet-color-state-new
+(defface decklet-color-state-new
   `((t :foreground ,(face-attribute 'ansi-color-magenta :foreground)
        :background ,(face-attribute 'ansi-color-magenta :foreground)))
   "Shared color for new-card state indicators."
   :group 'decklet)
 
-(decklet-defface decklet-color-state-learning
+(defface decklet-color-state-learning
   `((t :foreground ,(face-attribute 'ansi-color-yellow :foreground)
        :background ,(face-attribute 'ansi-color-yellow :foreground)))
   "Shared color for learning-card state indicators."
   :group 'decklet)
 
-(decklet-defface decklet-color-state-review
+(defface decklet-color-state-review
   `((t :foreground ,(face-attribute 'ansi-color-green :foreground)
        :background ,(face-attribute 'ansi-color-green :foreground)))
   "Shared color for review-card state indicators."
   :group 'decklet)
 
-(decklet-defface decklet-color-hint
+(defface decklet-color-hint
   `((t :foreground ,(face-attribute 'shadow :foreground)
        :background ,(face-attribute 'shadow :foreground)))
   "Shared color for hint-like elements."
   :group 'decklet)
 
-(decklet-defface decklet-color-card-back
+(defface decklet-color-card-back
   `((t :foreground ,(face-attribute 'ansi-color-bright-blue :foreground)
        :background ,(face-attribute 'ansi-color-bright-blue :foreground)))
   "Shared color for card-back indicators."
