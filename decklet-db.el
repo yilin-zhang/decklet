@@ -58,7 +58,7 @@ disconnects.")
   "DB columns that use numeric COALESCE for sorting.")
 
 (defconst decklet-db--sortable-columns
-  '("word" "hint" "added_date" "last_review" "due" "state"
+  '("word" "added_date" "last_review" "due" "state"
     "stability" "difficulty")
   "DB columns that card SELECTs may be sorted by.
 `decklet-db--edit-order-sql' rejects anything outside this set;

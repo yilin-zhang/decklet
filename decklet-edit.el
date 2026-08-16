@@ -119,7 +119,6 @@ Sidecar columns are inserted after the built-in `Back' column.")
 
 (defconst decklet-edit--db-sort-columns
   '(("Word" . "word")
-    ("Hint" . "hint")
     ("Added" . "added_date")
     ("Last Review" . "last_review")
     ("Due" . "due")
@@ -309,7 +308,7 @@ changes propagate through the next format rebuild."
   (vconcat
    (list
     (list "Word" 24 (decklet-edit--column-sorter "Word"))
-    (list "Hint" 28 t)
+    (list "Hint" 28 nil)
     (list "Back" 5 nil))
    (mapcar (lambda (column)
              (list (plist-get column :name)
