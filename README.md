@@ -873,12 +873,38 @@ before writing your own.
 
 If your extension opens its own popup or side buffer that belongs to
 the Decklet session (like the built-in card-back popup), call
-`(decklet-db-register-session-buffer)` once during that buffer's setup.
+`(decklet-db-acquire-session-buffer)` once during that buffer's setup.
 Session buffers keep the shared SQLite connection open while they
 live; quitting the last review/edit buffer closes them first (each may
 prompt to save), `decklet-disconnect` closes them explicitly, and a
 backup restore refuses to run while any is open. Querying the deck
 from one-shot commands outside a session needs no special handling.
+
+`decklet-db-acquire-session-buffer` returns a disposer — call it to
+release the lease. If the buffer lives exactly as long as its use of
+the DB, you can ignore the disposer: killing the buffer releases the
+lease. If the buffer can outlive it — a minor mode the user can switch
+off, say — keep the disposer and call it when you let go, or the
+connection stays open with nothing holding it:
+
+```elisp
+(defvar-local my-ext--release-session nil)
+
+(define-minor-mode my-ext-mode
+  "..."
+  (if my-ext-mode
+      (unless my-ext--release-session
+        (setq my-ext--release-session (decklet-db-acquire-session-buffer)))
+    (when my-ext--release-session
+      (funcall my-ext--release-session)
+      (setq my-ext--release-session nil))))
+```
+
+The disposer is idempotent and stays safe once the buffer is dead, so
+the mode-off and kill-buffer paths can both run without coordination.
+`(decklet-db-register-session-buffer)` remains available for the
+lease-for-the-buffer's-lifetime case; it is the same call with the
+disposer discarded.
 
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.

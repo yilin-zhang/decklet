@@ -82,6 +82,71 @@
       (should (buffer-live-p attached))
       (should decklet-db--conn))))
 
+(ert-deftest decklet-test-db-release-lease-disconnects-when-last ()
+  "Releasing the last lease disconnects, without killing the buffer."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf)
+      (let ((release (with-current-buffer buf
+                       (decklet-db-acquire-session-buffer))))
+        (should decklet-db--conn)
+        (funcall release)
+        (should (buffer-live-p buf))
+        (should-not (buffer-local-value 'decklet-db--session-buffer buf))
+        (should-not (memq buf (decklet-db--session-buffers)))
+        (should-not decklet-db--conn)))))
+
+(ert-deftest decklet-test-db-release-lease-keeps-connection-for-others ()
+  "Releasing one lease leaves the connection open for the remaining ones."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (kept released)
+      (with-current-buffer kept (decklet-db-register-session-buffer))
+      (let ((release (with-current-buffer released
+                       (decklet-db-acquire-session-buffer))))
+        (funcall release)
+        (should decklet-db--conn)
+        (should (memq kept (decklet-db--session-buffers)))))))
+
+(ert-deftest decklet-test-db-release-lease-is-idempotent ()
+  "A disposer can be called twice, and after its buffer is dead."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf)
+      (let ((release (with-current-buffer buf
+                       (decklet-db-acquire-session-buffer))))
+        (funcall release)
+        (funcall release)
+        (should-not decklet-db--conn)
+        (kill-buffer buf)
+        (funcall release)))))
+
+(ert-deftest decklet-test-db-kill-buffer-still-releases-lease ()
+  "Killing a buffer that never releases its lease still disconnects."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf)
+      (with-current-buffer buf (decklet-db-acquire-session-buffer))
+      (should decklet-db--conn)
+      (kill-buffer buf)
+      (should-not decklet-db--conn))))
+
+(ert-deftest decklet-test-db-card-back-mode-off-releases-lease ()
+  "Turning off `decklet-card-back-mode' releases the lease it acquired.
+The popup buffer outlives the mode, so the connection must not be
+left open with nothing holding it."
+  (decklet-test--with-temp-db
+    (decklet-db--ensure)
+    (decklet-test--with-temp-buffers (buf)
+      (with-current-buffer buf
+        (decklet-card-back-mode 1)
+        (should decklet-db--session-buffer)
+        (should decklet-db--conn)
+        (decklet-card-back-mode -1)
+        (should-not decklet-db--session-buffer))
+      (should (buffer-live-p buf))
+      (should-not decklet-db--conn))))
+
 (ert-deftest decklet-test-db-disconnect-kills-session-buffers-and-closes-db ()
   "`decklet-disconnect' kills session buffers and closes the connection.
 It fires the pre-disconnect hook exactly once."

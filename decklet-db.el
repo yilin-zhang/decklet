@@ -151,7 +151,17 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 
-(defun decklet-db-register-session-buffer (&optional primary)
+(defun decklet-db--clear-session-markers ()
+  "Drop the current buffer's session markers and lifecycle hooks.
+Leaves the connection alone; callers decide when to check for idleness."
+  (kill-local-variable 'decklet-db--session-buffer)
+  (kill-local-variable 'decklet-db--session-primary)
+  (remove-hook 'kill-buffer-query-functions
+               #'decklet-db--primary-kill-query t)
+  (remove-hook 'kill-buffer-hook
+               #'decklet-db--on-session-buffer-killed t))
+
+(defun decklet-db-acquire-session-buffer (&optional primary)
   "Mark the current buffer as part of the Decklet session.
 Extension-owned popups that read or write the DB should call this
 once during setup: session buffers keep the connection open while
@@ -160,13 +170,43 @@ they live, are closed by `decklet-disconnect', and block
 
 PRIMARY is for Decklet's own review/edit buffers: when the last
 primary buffer is killed, the remaining session buffers are closed
-first (each may prompt to save) and the DB disconnects."
-  (setq-local decklet-db--session-buffer t)
-  (when primary
-    (setq-local decklet-db--session-primary t)
-    (add-hook 'kill-buffer-query-functions
-              #'decklet-db--primary-kill-query nil t))
-  (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t))
+first (each may prompt to save) and the DB disconnects.
+
+Return a disposer: a function of no arguments that releases the
+lease, dropping the buffer's session markers and disconnecting the
+DB when no session buffer is left.  Buffers that live exactly as
+long as their lease need not keep it — killing them releases the
+lease through `kill-buffer-hook'.  A buffer that outlives its lease
+\(a minor mode the user can switch off) must call the disposer, or
+the connection stays open with nothing holding it.
+
+The disposer is idempotent and stays safe once the buffer is dead."
+  (let ((buffer (current-buffer))
+        (released nil))
+    (setq-local decklet-db--session-buffer t)
+    (when primary
+      (setq-local decklet-db--session-primary t)
+      (add-hook 'kill-buffer-query-functions
+                #'decklet-db--primary-kill-query nil t))
+    (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t)
+    (lambda ()
+      (unless released
+        (setq released t)
+        (when (buffer-live-p buffer)
+          (with-current-buffer buffer
+            (decklet-db--clear-session-markers)))
+        (decklet-db--disconnect-if-idle)))))
+
+(defun decklet-db-register-session-buffer (&optional primary)
+  "Mark the current buffer as part of the Decklet session.
+PRIMARY is passed through to `decklet-db-acquire-session-buffer'.
+
+This is the lease-for-the-buffer's-lifetime form: it discards the
+disposer, so the lease is only released when the buffer is killed.
+Prefer `decklet-db-acquire-session-buffer' whenever the buffer can
+outlive its use of the DB."
+  (decklet-db-acquire-session-buffer primary)
+  nil)
 
 (define-obsolete-function-alias 'decklet-db-register-dependent-buffer
   #'decklet-db-register-session-buffer "0.1.0")

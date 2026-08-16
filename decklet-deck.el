@@ -592,19 +592,27 @@ declines both save and discard."
       (?d (set-buffer-modified-p nil) t)
       (?c nil))))
 
+(defvar-local decklet-card-back--release-session nil
+  "Disposer for this buffer's DB session lease, or nil when not held.
+Held while `decklet-card-back-mode' is on: the popup buffer can
+outlive the mode, so the lease has to be released when the mode is
+switched off rather than only when the buffer is killed.")
+
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
   :lighter " DeckletEdit"
   (if decklet-card-back-mode
       (progn
-        (decklet-db-register-session-buffer)
+        (unless decklet-card-back--release-session
+          (setq decklet-card-back--release-session
+                (decklet-db-acquire-session-buffer)))
         (add-hook 'write-contents-functions
                   #'decklet-card-back--write-contents nil t)
         (add-hook 'kill-buffer-query-functions
                   #'decklet-card-back--kill-buffer-query nil t))
-    (setq decklet-db--session-buffer nil)
-    (remove-hook 'kill-buffer-hook
-                 #'decklet-db--on-session-buffer-killed t)
+    (when decklet-card-back--release-session
+      (funcall decklet-card-back--release-session)
+      (setq decklet-card-back--release-session nil))
     (remove-hook 'write-contents-functions
                  #'decklet-card-back--write-contents t)
     (remove-hook 'kill-buffer-query-functions
