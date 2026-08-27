@@ -119,5 +119,93 @@ Its elapsed-day count is zero."
       (should (file-exists-p file-a))
       (should (file-exists-p file-b)))))
 
+;;; Daily consumption accounting
+
+(ert-deftest decklet-test-review-log-daily-counts-tally-effective-state ()
+  "Today's ratings are tallied by the state each card was handed out in."
+  (decklet-test--with-temp-db
+    (decklet-test--log-rated "new")
+    (decklet-test--log-rated "new")
+    (decklet-test--log-rated "review")
+    (setq decklet-review-log--scan-cache nil)
+    (let ((counts (decklet-review-log-daily-state-counts)))
+      (should (= 2 (cdr (assq :new counts))))
+      (should (= 1 (cdr (assq :review counts))))
+      (should-not (assq :learning counts)))))
+
+(ert-deftest decklet-test-review-log-daily-counts-count-cards-once ()
+  "Repeated ratings of one card from the same state consume one slot."
+  (decklet-test--with-temp-db
+    (let ((id (decklet-review-log--mint-record-id)))
+      (dotimes (_ 3)
+        (decklet-review-log--append-line
+         (list :kind decklet-review-log-kind-rated
+               :id (decklet-review-log--mint-record-id)
+               :card_id id
+               :t (decklet--now)
+               :word "repeat"
+               :grade 3
+               :pre_state "learning"
+               :pre_effective_state "learning"
+               :pre_stability 1.0
+               :elapsed_days 0.0))))
+    (setq decklet-review-log--scan-cache nil)
+    (should (= 1 (cdr (assq :learning
+                            (decklet-review-log-daily-state-counts)))))))
+
+(ert-deftest decklet-test-review-log-daily-counts-skip-earlier-days ()
+  "Records from before the day rollover are not counted."
+  (decklet-test--with-temp-db
+    (decklet-test--log-rated "new" "20250101T000000Z")
+    (setq decklet-review-log--scan-cache nil)
+    (should-not (decklet-review-log-daily-state-counts))))
+
+(ert-deftest decklet-test-review-log-daily-counts-fall-back-to-null-stability ()
+  "Legacy records without `pre_effective_state' are still classified.
+A null `pre_stability' marks a card's first ever review, which the
+stored `pre_state' cannot distinguish from an ongoing learning step."
+  (decklet-test--with-temp-db
+    (decklet-review-log--append-line
+     (list :kind decklet-review-log-kind-rated
+           :id (decklet-review-log--mint-record-id)
+           :card_id 1
+           :t (decklet--now)
+           :word "legacy-new"
+           :grade 3
+           :pre_state "learning"
+           :pre_stability nil
+           :elapsed_days 0.0))
+    (decklet-review-log--append-line
+     (list :kind decklet-review-log-kind-rated
+           :id (decklet-review-log--mint-record-id)
+           :card_id 2
+           :t (decklet--now)
+           :word "legacy-learning"
+           :grade 3
+           :pre_state "learning"
+           :pre_stability 2.5
+           :elapsed_days 1.0))
+    (setq decklet-review-log--scan-cache nil)
+    (let ((counts (decklet-review-log-daily-state-counts)))
+      (should (= 1 (cdr (assq :new counts))))
+      (should (= 1 (cdr (assq :learning counts)))))))
+
+(ert-deftest decklet-test-review-log-daily-counts-survive-missing-log ()
+  "An absent log reports nothing consumed rather than signalling."
+  (decklet-test--with-temp-db
+    (setq decklet-review-log--scan-cache nil)
+    (should-not (file-exists-p decklet-review-log-file))
+    (should-not (decklet-review-log-daily-state-counts))))
+
+(ert-deftest decklet-test-review-log-daily-counts-pick-up-appended-records ()
+  "The cached scan is extended when the log grows within a session."
+  (decklet-test--with-temp-db
+    (decklet-test--log-rated "new")
+    (setq decklet-review-log--scan-cache nil)
+    (should (= 1 (cdr (assq :new (decklet-review-log-daily-state-counts)))))
+    ;; No cache reset here: the incremental path must notice the append.
+    (decklet-test--log-rated "new")
+    (should (= 2 (cdr (assq :new (decklet-review-log-daily-state-counts)))))))
+
 (provide 'decklet-review-log-test)
 ;;; decklet-review-log-test.el ends here

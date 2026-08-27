@@ -36,13 +36,16 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           ;; Reset id counters so each test mints from a fresh state.
           (decklet-db--last-card-id nil)
           (decklet-review-log--next-record-id nil)
+          ;; Drop the cached log scan so daily-limit accounting starts
+          ;; from an empty log in every test.
+          (decklet-review-log--scan-cache nil)
           ;; Use the real production default so config regressions are caught.
           (decklet-review-order (default-value 'decklet-review-order))
           ;; Reset UI state to prevent cross-test pollution.
           (decklet-current-card-id nil)
           (decklet-last-added-word nil)
           (decklet-due-card-ids nil)
-          (decklet--counter '(:reviewed 0 :due-review 0 :due-learning 0 :new 0)))
+          (decklet--counter (copy-sequence (default-value 'decklet--counter))))
      (unwind-protect
          (progn ,@body)
        (when (and (boundp 'decklet-db--conn) decklet-db--conn)
@@ -105,6 +108,23 @@ Return the import stats plist from `decklet-db-import-json'."
         (json-encoding-pretty-print t))
     (with-temp-file file (insert (json-encode rows)))
     (decklet-db-import-json file)))
+
+(defun decklet-test--log-rated (state &optional stamp)
+  "Append a rated log record whose effective pre-state is STATE.
+STAMP defaults to now.  Returns the record id."
+  (let ((id (decklet-review-log--mint-record-id)))
+    (decklet-review-log--append-line
+     (list :kind decklet-review-log-kind-rated
+           :id id
+           :card_id id
+           :t (or stamp (decklet--now))
+           :word (format "logged-%s" id)
+           :grade 3
+           :pre_state state
+           :pre_effective_state state
+           :pre_stability nil
+           :elapsed_days 0.0))
+    id))
 
 (defun decklet-test--read-log ()
   "Return the review-log records as plists, or nil when the file is empty.

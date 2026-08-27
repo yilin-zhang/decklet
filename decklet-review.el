@@ -10,6 +10,7 @@
 
 (require 'ansi-color)
 (require 'cl-lib)
+(require 'fsrs)
 (require 'seq)
 
 (require 'decklet-core)
@@ -535,11 +536,14 @@ When LENGTH is non-nil, use it as the separator width."
       (propertize "REVIEWING" 'face 'decklet-review-state-review-face)))))
 
 (defun decklet-review-component-counters ()
-  "Return the counter block for the instructions."
+  "Return the counter block for the instructions.
+The due and new figures are what is left to hand out today, so a
+`daily-limit' in `decklet-review-order' shows up here as a smaller
+number than the deck actually holds."
   (let* ((n-reviewed (plist-get decklet--counter :reviewed))
-         (n-due-review (plist-get decklet--counter :due-review))
-         (n-due-learning (plist-get decklet--counter :due-learning))
-         (n-new (plist-get decklet--counter :new)))
+         (n-due-review (plist-get decklet--counter :due-review-remaining))
+         (n-due-learning (plist-get decklet--counter :due-learning-remaining))
+         (n-new (plist-get decklet--counter :new-remaining)))
     (decklet-center-text
      (format "%s reviewed / %s review due / %s learning due / %s new"
              (propertize (number-to-string n-reviewed)
@@ -729,6 +733,22 @@ back; discard them rather than presenting a nonexistent card."
              :grade nil
              :pre-meta (copy-decklet-card-meta meta))))))
 
+(defun decklet-review--nothing-due-message ()
+  "Return the message explaining why no card is on offer.
+An empty queue has three quite different causes: a `daily-limit'
+in `decklet-review-order' is spent, cards are still in a learning
+step and come due later today, or there is genuinely nothing left."
+  (decklet--refresh-counter)
+  (let ((next-due (decklet-db--next-due-time)))
+    (cond
+     ((plist-get decklet--counter :limited)
+      "Daily limit reached; the rest of the deck waits until tomorrow")
+     (next-due
+      (format "Nothing due right now; next card in %s"
+              (decklet--format-interval
+               (fsrs-timestamp-difference next-due (decklet--now)))))
+     (t "No words to review"))))
+
 (defun decklet-review--advance ()
   "Show the next card from the trail or the due queue, or quit."
   (setq decklet-review--trail-future
@@ -741,7 +761,9 @@ back; discard them rather than presenting a nonexistent card."
         (decklet--refresh-due-card-ids))
       (if decklet-due-card-ids
           (decklet-review--present-card (pop decklet-due-card-ids))
-        (decklet-review-quit)))))
+        (let ((reason (decklet-review--nothing-due-message)))
+          (decklet-review-quit)
+          (message "%s" reason))))))
 
 (defun decklet-review-next-card ()
   "Review the next due card.
@@ -905,7 +927,7 @@ is needed here."
   (interactive)
   (decklet--refresh-due-card-ids)
   (if (null decklet-due-card-ids)
-      (message "No words to review")
+      (message "%s" (decklet-review--nothing-due-message))
     ;; Only fire start-hook once we know a real session will open.
     ;; Otherwise `decklet-review-quit-hook' (fired from the review buffer's
     ;; `kill-buffer-hook') would never run, leaving start-hook setup like

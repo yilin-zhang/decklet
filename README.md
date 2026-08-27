@@ -40,6 +40,7 @@ It is built differently from many SRS tools:
   - [Data Location](#data-location)
 - [Customization](#customization)
   - [Review Order](#review-order)
+    - [Daily Limits](#daily-limits)
   - [Interval Labels](#interval-labels)
   - [Add and Refresh](#add-and-refresh)
   - [Scheduling](#scheduling)
@@ -82,6 +83,11 @@ It is built differently from many SRS tools:
 
                              ♦
 ```
+
+The counter line reads: cards rated so far today, then how many review,
+learning and new cards the queue will still hand out today. Those last three
+are what remains under any [daily limits](#daily-limits) you configured, not
+the deck's totals.
 
 ### Edit Mode
 
@@ -411,6 +417,12 @@ Note that it is only a pacing indicator. Decklet does not enforce a hard
 cap. You can continue reviewing and learning new cards after the goal is
 reached.
 
+The daily goal is independent of the `daily-limit` in
+[Review Order](#review-order): the goal is a number you aim for, the limit is
+a number the queue will not exceed. Decklet never derives one from the other,
+so if you set limits that add up to less than your goal, the goal simply stays
+out of reach.
+
 You can also do some automation around this signal through hooks. For example,
 `decklet-review-daily-goal-reached-hook` can trigger a check-in message,
 play a sound, or run your own logging function for habit tracking.
@@ -488,8 +500,8 @@ you should set this variable before the package is loaded. If you use
 ### Review Order
 
 `decklet-review-order` lets you control the queue shape. For example: finish
-learning cards first, mix learning and review together, or prioritize difficult
-review cards.
+learning cards first, mix learning and review together, prioritize difficult
+review cards, or cap how many new words a day introduces.
 
 Examples:
 
@@ -520,12 +532,35 @@ Examples:
       '((:review . (sort :difficulty :desc))
         ((:learning :relearning) . (sort :due :asc))
         (:new . (sort :added :desc))))
+
+;; Steady intake: at most 120 review cards a day, and 10 new words
+;; distributed through them instead of queued up behind them.
+(setq decklet-review-order
+      '(((:learning :relearning) . (sort :due :asc))
+        (:review . (daily-limit 120 shuffle))
+        (:new    . (spread (daily-limit 10 (sort :added :desc))))))
 ```
 
-Syntax — each entry is `(TARGETS . SPEC)`:
-- `SPEC` is `shuffle` to shuffle cards from the target group.
-- `SPEC` is `(sort FIELD ORDER)` to sort cards by one field and order.
+Syntax — each entry is `(TARGETS . SPEC)`, where `SPEC` follows:
+
+```text
+SPEC   := PLACED
+PLACED := SIZED | (spread SIZED)
+SIZED  := BASE  | (daily-limit N BASE)
+BASE   := shuffle | (sort FIELD ORDER)
+```
+
 - `TARGETS` is a single target keyword or a list of them.
+- `BASE` is `shuffle` to shuffle the step's cards, or `(sort FIELD ORDER)` to
+  sort them by one field and order.
+- `daily-limit` caps how many cards the step hands out — see
+  [Daily Limits](#daily-limits).
+- `spread` distributes the step through everything the preceding steps
+  gathered, instead of appending after them.
+
+The nesting is fixed: `spread` on the outside, `daily-limit` inside it, the
+ordering innermost. Each step is evaluated in that order too — gather, sort or
+shuffle, truncate to the remaining allowance, then place.
 
 Fields:
 - `:due`: Sort by next due time.
@@ -543,6 +578,45 @@ Targets:
 - `:relearning`: Previously graduated cards that lapsed and returned to short-interval study.
 - `:review`: Cards in normal review state.
 - `:new`: Cards not reviewed yet.
+
+A target may appear in only one step, and a target you leave out of the order
+is never handed out at all.
+
+#### Daily Limits
+
+Without a limit, every due card and every new word sits in the queue, and how
+much you study is whatever you stop at. That couples new words to your review
+backlog: while a backlog is being cleared new words never come up, and on the
+day the backlog finally empties they all arrive at once.
+
+`(daily-limit N BASE)` breaks that coupling. `N` is a budget for the whole
+review day, not per session — the step gathers at most `N` minus what it
+already handed out today, so quitting Emacs and starting a new session does not
+grant a fresh `N`. The count comes from the review log, and an undone rating
+returns its slot. `N` may be `0` to pause a step for the day.
+
+`(spread SIZED)` is the other half. New words placed with `spread` are
+distributed evenly through the cards the preceding steps gathered, so you reach
+them even on a day you stop halfway through a backlog. The queue never opens
+with a spread card unless nothing precedes it.
+
+Together they give a steady intake: a fixed handful of new words every day,
+mixed into a bounded review session, whatever the backlog looks like.
+
+Two things to know:
+
+- **Do not limit `:learning` or `:relearning`.** It is allowed, but those cards
+  come back several times a day by design, and they would compete for a single
+  allowance — cards stranded mid-step then wait until the next day. Limits are
+  meant for `:review` and `:new`.
+- **The review-mode counters show what is left today**, not what the deck
+  holds. With `(daily-limit 10 ...)` on `:new`, a deck of 500 unlearned words
+  reads `10 new`. When a limit is what emptied the queue, review mode says so
+  on the way out instead of claiming there is nothing left to study.
+
+The review log is what makes the daily budget survive restarts. If it is
+missing or unwritable, Decklet grants the full allowance rather than blocking
+the review, so a lost log costs you a few extra cards, never a stalled session.
 
 ### Interval Labels
 

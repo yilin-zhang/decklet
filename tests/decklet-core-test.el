@@ -74,5 +74,22 @@ from `:inherit', never from a value baked in at load time."
                     offenders))))))
     (should-not offenders)))
 
+(ert-deftest decklet-test-core-interleave-evenly-spaces-items ()
+  "Items land at half-stride offsets through the base list."
+  (should (equal (decklet--interleave-evenly '(a b c) '(x))
+                 '(a b x c)))
+  (should (equal (decklet--interleave-evenly '(a b c d e f g h i) '(x y z))
+                 '(a b x c d e y f g h z i))))
+
+(ert-deftest decklet-test-core-interleave-evenly-handles-degenerate-input ()
+  "Empty inputs and item-heavy lists still return every element once."
+  (should (equal (decklet--interleave-evenly '(a b c) nil) '(a b c)))
+  (should (equal (decklet--interleave-evenly nil '(x y)) '(x y)))
+  (should (equal (decklet--interleave-evenly nil nil) nil))
+  ;; More items than base entries: nothing is dropped or duplicated.
+  (let ((merged (decklet--interleave-evenly '(a) '(x y z))))
+    (should (= 4 (length merged)))
+    (should (equal (sort (copy-sequence merged) #'string<) '(a x y z)))))
+
 (provide 'decklet-core-test)
 ;;; decklet-core-test.el ends here

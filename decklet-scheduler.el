@@ -86,8 +86,16 @@ is invalidated.  Public entry point for tuners that install a
 fine-tuned parameter vector."
   (decklet--set-scheduler-option 'decklet-fsrs-parameters params))
 
-(defvar decklet--counter '(:reviewed 0 :due-review 0 :due-learning 0 :new 0)
-  "Counter for reviewed, due-review, due-learning, and new cards.")
+(defvar decklet--counter
+  '(:reviewed 0 :due-review 0 :due-learning 0 :new 0
+              :due-review-remaining 0 :due-learning-remaining 0 :new-remaining 0
+              :limited nil)
+  "Counter for reviewed, due-review, due-learning, and new cards.
+The plain keys count what the deck holds; the `-remaining' keys
+count what `decklet-review-order' will still hand out today, which
+is smaller when a step carries a `daily-limit'.  `:limited' is
+non-nil when such a limit is holding cards back.  Refreshed from
+the database by `decklet--refresh-counter'.")
 
 (cl-defstruct (decklet-card-meta)
   ;; Scheduling metadata only.  Content fields (hint, back) live in the DB.

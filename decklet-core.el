@@ -187,6 +187,35 @@ Fisher-Yates; Emacs has no built-in shuffle."
         (aset vec j tmp)))
     (append vec nil)))
 
+(defun decklet--interleave-evenly (base items)
+  "Return a new list with ITEMS distributed evenly through BASE.
+ITEMS are placed at half-stride offsets, so the result never starts
+with an element of ITEMS unless BASE is empty, and never ends with
+a run of them.  Order within BASE and within ITEMS is preserved."
+  (let ((n-base (length base))
+        (n-items (length items)))
+    (cond
+     ((null items) (copy-sequence base))
+     ((null base) (copy-sequence items))
+     (t
+      (let* ((total (+ n-base n-items))
+             (stride (/ (float total) n-items))
+             (rest base)
+             (pending items)
+             ;; Half-stride offset keeps the first slot for BASE.
+             (slot (round (/ stride 2.0)))
+             (placed 1)
+             (result nil))
+        (dotimes (i total)
+          (cond
+           ((and pending (= i slot))
+            (push (pop pending) result)
+            (setq slot (round (+ (* stride placed) (/ stride 2.0)))
+                  placed (1+ placed)))
+           (rest (push (pop rest) result))
+           (pending (push (pop pending) result))))
+        (nreverse result))))))
+
 (defun decklet--mint-monotonic-id (counter-sym &optional seed-fn)
   "Return the next strictly monotonic microsecond id stored in COUNTER-SYM.
 When the counter is nil, it is seeded from SEED-FN (a zero-arg

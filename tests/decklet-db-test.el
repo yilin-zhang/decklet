@@ -280,6 +280,128 @@ This is the public API the calendar extension relies on."
    (decklet-db--review-validate-order
     '((:learning . (sort :stability :desc))))))
 
+(ert-deftest decklet-test-db-review-order-accepts-limit-and-spread ()
+  "Daily limits and spread placement validate in their canonical nesting."
+  (decklet-db--review-validate-order
+   '(((:learning :relearning) . (sort :due :asc))
+     (:review . (daily-limit 120 shuffle))
+     (:new    . (spread (daily-limit 10 (sort :added :desc))))))
+  (decklet-db--review-validate-order
+   '((:review . shuffle)
+     (:new    . (spread shuffle))))
+  ;; A zero limit is a legitimate way to pause a step for the day.
+  (decklet-db--review-validate-order
+   '((:new . (daily-limit 0 shuffle)))))
+
+(ert-deftest decklet-test-db-review-order-rejects-malformed-limit-and-spread ()
+  "The spec grammar rejects bad limits and non-canonical nesting."
+  ;; A limit must be a non-negative integer.
+  (should-error
+   (decklet-db--review-validate-order '((:new . (daily-limit -1 shuffle)))))
+  (should-error
+   (decklet-db--review-validate-order '((:new . (daily-limit 1.5 shuffle)))))
+  ;; `spread' belongs outside `daily-limit', not inside it.
+  (should-error
+   (decklet-db--review-validate-order
+    '((:review . shuffle)
+      (:new . (daily-limit 10 (spread shuffle))))))
+  ;; Nested wrappers of the same kind are meaningless.
+  (should-error
+   (decklet-db--review-validate-order
+    '((:review . shuffle)
+      (:new . (spread (spread shuffle))))))
+  ;; A spread step placed first has nothing to distribute into.
+  (should-error
+   (decklet-db--review-validate-order '((:new . (spread shuffle)))))
+  ;; The inner ordering still has to be a valid BASE.
+  (should-error
+   (decklet-db--review-validate-order
+    '((:review . (daily-limit 10 (sort :due :sideways)))))))
+
+(ert-deftest decklet-test-db-daily-limit-truncates-step ()
+  "A step hands out at most its daily limit."
+  (decklet-test--with-temp-db
+    (let ((decklet-review-order '((:new . (daily-limit 2 (sort :added :asc)))))
+          (ts "20250101T000000Z"))
+      (dolist (word '("new-a" "new-b" "new-c"))
+        (decklet-test--add-card-meta word :state :new :last-review nil
+                                     :timestamp ts))
+      (should (equal (decklet-db--select-due-card-ids)
+                     (mapcar #'decklet-test--card-id '("new-a" "new-b")))))))
+
+(ert-deftest decklet-test-db-daily-limit-subtracts-todays-ratings ()
+  "The limit is a whole-day budget, so cards already graded today count."
+  (decklet-test--with-temp-db
+    (let ((decklet-review-order '((:new . (daily-limit 2 (sort :added :asc)))))
+          (ts "20250101T000000Z"))
+      (dolist (word '("new-a" "new-b" "new-c"))
+        (decklet-test--add-card-meta word :state :new :last-review nil
+                                     :timestamp ts))
+      (decklet-test--log-rated "new")
+      (setq decklet-review-log--scan-cache nil)
+      (should (equal (decklet-db--select-due-card-ids)
+                     (list (decklet-test--card-id "new-a"))))
+      ;; A second rating exhausts the day's allowance entirely.
+      (decklet-test--log-rated "new")
+      (setq decklet-review-log--scan-cache nil)
+      (should (null (decklet-db--select-due-card-ids))))))
+
+(ert-deftest decklet-test-db-daily-limit-ignores-voided-ratings ()
+  "An undone rating gives its allowance back."
+  (decklet-test--with-temp-db
+    (let ((decklet-review-order '((:new . (daily-limit 1 (sort :added :asc)))))
+          (ts "20250101T000000Z"))
+      (decklet-test--add-card-meta "new-a" :state :new :last-review nil
+                                   :timestamp ts)
+      (let ((id (decklet-test--log-rated "new")))
+        (setq decklet-review-log--scan-cache nil)
+        (should (null (decklet-db--select-due-card-ids)))
+        (decklet-review-log-append-void id))
+      (setq decklet-review-log--scan-cache nil)
+      (should (equal (decklet-db--select-due-card-ids)
+                     (list (decklet-test--card-id "new-a")))))))
+
+(ert-deftest decklet-test-db-spread-distributes-step-through-queue ()
+  "A spread step is interleaved into what the preceding steps gathered."
+  (decklet-test--with-temp-db
+    (let* ((decklet-review-order
+            '((:review . (sort :due :asc))
+              (:new    . (spread (sort :added :asc)))))
+           (now (current-time))
+           (at (lambda (secs)
+                 (decklet-test--ts (time-add now (seconds-to-time secs))))))
+      (dolist (pair '(("review-a" . -300) ("review-b" . -200) ("review-c" . -100)))
+        (decklet-test--add-card-meta
+         (car pair) :state :review
+         :added-date (funcall at -7200) :last-review (funcall at -3600)
+         :due (funcall at (cdr pair))))
+      (decklet-test--add-card-meta "new-a" :state :new :last-review nil
+                                   :added-date (funcall at 0)
+                                   :due (funcall at 0))
+      ;; Three review cards plus one new card: the new one lands at the
+      ;; half-stride offset rather than at either end.
+      (should (equal (decklet-db--select-due-card-ids)
+                     (mapcar #'decklet-test--card-id
+                             '("review-a" "review-b" "new-a" "review-c")))))))
+
+(ert-deftest decklet-test-db-counts-report-remaining-allowance ()
+  "Counts report both what the deck holds and what today still offers."
+  (decklet-test--with-temp-db
+    (let ((decklet-review-order '((:new . (daily-limit 2 (sort :added :asc)))))
+          (ts "20250101T000000Z"))
+      (dolist (word '("new-a" "new-b" "new-c"))
+        (decklet-test--add-card-meta word :state :new :last-review nil
+                                     :timestamp ts))
+      (let ((counts (decklet-db--counts)))
+        (should (= 3 (plist-get counts :new)))
+        (should (= 2 (plist-get counts :new-remaining)))
+        (should (plist-get counts :limited)))
+      ;; Without a limit nothing is held back.
+      (let* ((decklet-review-order '((:new . (sort :added :asc))))
+             (counts (decklet-db--counts)))
+        (should (= 3 (plist-get counts :new-remaining)))
+        (should-not (plist-get counts :limited))))))
+
 ;;; Card back — DB layer
 
 (ert-deftest decklet-test-db-card-back-update-select-and-isolation ()
