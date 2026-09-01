@@ -737,16 +737,22 @@ back; discard them rather than presenting a nonexistent card."
   "Return the message explaining why no card is on offer.
 An empty queue has three quite different causes: a `daily-limit'
 in `decklet-review-order' is spent, cards are still in a learning
-step and come due later today, or there is genuinely nothing left."
+step and come due later today, or there is genuinely nothing left.
+The first two can hold at once -- a spent limit on `:review' or
+`:new' says nothing about the learning cards that come due in a
+few minutes -- so mention the wait whenever there is one."
   (decklet--refresh-counter)
-  (let ((next-due (decklet-db--next-due-time)))
+  (let* ((next-due (decklet-db--next-due-time))
+         (wait (and next-due
+                    (format "next card in %s"
+                            (decklet--format-interval
+                             (fsrs-timestamp-difference next-due (decklet--now)))))))
     (cond
+     ((and (plist-get decklet--counter :limited) wait)
+      (format "Daily limit reached; %s" wait))
      ((plist-get decklet--counter :limited)
       "Daily limit reached; the rest of the deck waits until tomorrow")
-     (next-due
-      (format "Nothing due right now; next card in %s"
-              (decklet--format-interval
-               (fsrs-timestamp-difference next-due (decklet--now)))))
+     (wait (format "Nothing due right now; %s" wait))
      (t "No words to review"))))
 
 (defun decklet-review--advance ()
