@@ -55,12 +55,13 @@ Receives a list of added words.")
   "Face for word lines in batch card entry."
   :group 'decklet)
 
-(defvar decklet-add-card-batch-font-lock-keywords
-  `((,decklet--batch-hint-re
+(defconst decklet-add-card-batch-font-lock-keywords
+  `(("^[ \t]*:.*$" . 'decklet-color-tags)
+    (,decklet--batch-hint-re
      (0 'font-lock-comment-face)
      (1 'default t))
     ("^[ \t]*\\([^ \t\n].*\\)$"
-     (1 (unless (string-match-p decklet--batch-hint-re
+     (1 (unless (string-match-p "^[ \t]*[#:]"
                                 (match-string-no-properties 0))
           'decklet-add-card-batch-word-face))))
   "Font-lock rules for `decklet-add-card-batch-mode'.")
@@ -186,6 +187,53 @@ the current review word is used.  In edit mode, the word on the
 current line is used.  Otherwise the minibuffer is read with an
 optional PROMPT, defaulting to the word at point."
   (decklet--resolve-word nil prompt))
+
+;; Public API — tags
+
+(defun decklet-get-card-tags (card-id)
+  "Return the current tag strings for CARD-ID, or nil."
+  (plist-get (decklet-db--select-card-row card-id) :tags))
+
+(defun decklet-list-tags ()
+  "Return all tag names in the deck, sorted and deduplicated."
+  (let ((tags nil))
+    (maphash (lambda (_id names) (setq tags (append names tags)))
+             (decklet-db--tag-map))
+    (decklet-normalize-tags tags)))
+
+(defun decklet-set-card-tags (card-id tags)
+  "Replace CARD-ID's TAGS and return their normalized value.
+Emit a field-updated event only when the tags changed."
+  (let ((old (decklet-get-card-tags card-id))
+        (new (decklet-normalize-tags tags)))
+    (decklet-db--require-card-row card-id)
+    (unless (equal old new)
+      (decklet-db--update-tags card-id new)
+      (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
+                                   :card-id card-id :field 'tags))
+    new))
+
+(defun decklet-add-card-tags (card-id tags)
+  "Merge TAGS into CARD-ID's existing tags and return the result."
+  (decklet-set-card-tags card-id (append (decklet-get-card-tags card-id) tags)))
+
+(defun decklet-remove-card-tags (card-id tags)
+  "Remove TAGS from CARD-ID and return the remaining tags."
+  (decklet-normalize-tags tags)
+  (decklet-set-card-tags card-id (seq-difference (decklet-get-card-tags card-id) tags)))
+
+(defun decklet-read-tags (&optional initial prompt)
+  "Read tag names with completion, using INITIAL names and optional PROMPT.
+Names are separated by whitespace; an empty response clears the list."
+  (let ((crm-separator "[ \t]+"))
+    (decklet-normalize-tags
+     (completing-read-multiple (or prompt "Tags (space-separated): ")
+                               (decklet-list-tags) nil nil
+                               (string-join initial " ")))))
+
+(defun decklet-prompt-set-tags (card-id)
+  "Prompt to replace CARD-ID's tags, returning the new list."
+  (decklet-set-card-tags card-id (decklet-read-tags (decklet-get-card-tags card-id))))
 
 ;; Public API — card mutations
 ;;
@@ -386,24 +434,25 @@ preserves its existing `card-id'."
 
 ;;;###autoload
 (defun decklet-add-card (word)
-  "Add WORD as a new card.
-After adding a card, prompts if you want to add another."
-  (interactive "sWord to add: ")
-  (let ((status-msg (plist-get (decklet--add-card word) :message)))
-    (when (called-interactively-p 'any)
-      (let ((choice (read-char-choice
-                     (concat status-msg "Add another card? (y/n, ENTER for yes, t for hint): ")
-                     '(?y ?n ?\r ?t))))
-        (pcase choice
-          ((or ?y ?\r)
-           (call-interactively #'decklet-add-card))
-          (?t
-           (let ((hint-status-msg (call-interactively #'decklet-add-hint)))
-             (when (memq (read-char-choice
-                          (concat hint-status-msg "Add another card? (y/n, ENTER for yes): ")
-                          '(?y ?n ?\r))
-                         '(?y ?\r))
-               (call-interactively #'decklet-add-card)))))))))
+  "Add WORD, then offer hint and tag editing when called interactively."
+  (interactive (list (read-string "Word to add: ")))
+  (let ((interactive-p (called-interactively-p 'any))
+        (more t))
+    (while more
+      (let* ((result (decklet--add-card word))
+             (card-id (plist-get result :card-id))
+             (status (plist-get result :message))
+             (editing interactive-p))
+        (setq more nil)
+        (while editing
+          (pcase (read-char-choice
+                  (concat status "Add another? (y/n, ENTER=yes, H=hint, t=tags): ")
+                  '(?y ?n ?\r ?H ?t))
+            (?H (decklet-prompt-set-hint card-id))
+            (?t (decklet-prompt-set-tags card-id))
+            ((or ?y ?\r)
+             (setq word (read-string "Word to add: ") more t editing nil))
+            (?n (setq editing nil))))))))
 
 (defun decklet-add-hint (hint &optional target)
   "Add HINT to TARGET word, defaulting to the last added word."
@@ -427,31 +476,34 @@ Lines that are empty or contain only whitespace are removed."
            (split-string (buffer-string) "\n" nil))))
 
 (defun decklet--batch-collect-cards ()
-  "Parse current batch buffer and return card plists.
-Each returned plist contains `:word' and optional `:hint'.  Any line
-whose first non-whitespace character is `#' is treated as a hint line
-for the most recent word.  Hint lines are joined with newlines."
-  (let* ((lines (decklet--batch-clean-lines))
-         (cards nil)
-         (current-word nil)
-         (current-hints nil)
-         (flush (lambda ()
-                  (when current-word
-                    (push (list :word current-word
-                                :hint (when current-hints
-                                        (string-join (nreverse current-hints) "\n")))
-                          cards)
-                    (setq current-word nil
-                          current-hints nil)))))
-    (dolist (line lines)
-      (if (string-match decklet--batch-hint-re line)
-          (progn
-            (unless current-word
-              (user-error "Hint line must follow a word line: %s" line))
-            (push (string-trim (match-string 1 line)) current-hints))
-        (funcall flush)
-        (setq current-word line)))
-    (funcall flush)
+  "Parse the batch buffer into word, hint and optional tags plists.
+Lines starting with # add hint text; lines starting with : contain
+space-separated :tag tokens.  Both attach to the preceding word and
+may be interleaved.  Validate the entire buffer before writing cards."
+  (let ((cards nil) (current nil))
+    (dolist (line (decklet--batch-clean-lines))
+      (cond
+       ((string-prefix-p "#" line)
+        (unless current (user-error "Hint line must follow a word: %s" line))
+        (let ((hint (string-trim (substring line 1))))
+          (plist-put current :hint
+                     (if (plist-get current :hint)
+                         (concat (plist-get current :hint) "\n" hint)
+                       hint))))
+       ((string-prefix-p ":" line)
+        (unless current (user-error "Tag line must follow a word: %s" line))
+        (let ((tags (mapcar
+                     (lambda (token)
+                       (unless (and (string-prefix-p ":" token) (> (length token) 1))
+                         (user-error "Expected :tag token, got: %s" token))
+                       (substring token 1))
+                     (split-string line "[[:space:]]+" t))))
+          (plist-put current :tags
+                     (decklet-normalize-tags (append (plist-get current :tags) tags)))))
+       (t
+        (when current (push current cards))
+        (setq current (list :word line :hint nil)))))
+    (when current (push current cards))
     (nreverse cards)))
 
 (defun decklet-add-card-batch-confirm ()
@@ -466,7 +518,7 @@ the granularity of `decklet--add-card's status result."
   (let* ((cards (decklet--batch-collect-cards))
          (conn (decklet-db--ensure))
          (added-events nil)
-         (hint-events nil)
+         (field-events nil)
          (added 0)
          (refreshed 0)
          (exists 0))
@@ -487,7 +539,11 @@ the granularity of `decklet--add-card's status result."
                 ('refreshed (cl-incf refreshed))
                 ('exists    (cl-incf exists)))
               (when (and hint (decklet-set-card-hint card-id hint))
-                (push (list :card-id card-id :field 'hint) hint-events))))
+                (push (list :card-id card-id :field 'hint) field-events))
+              (when (plist-member card :tags)
+                (let ((old (decklet-get-card-tags card-id)))
+                  (unless (equal old (decklet-add-card-tags card-id (plist-get card :tags)))
+                    (push (list :card-id card-id :field 'tags) field-events))))))
           (sqlite-execute conn "COMMIT;"))
       (error
        (sqlite-execute conn "ROLLBACK;")
@@ -495,9 +551,9 @@ the granularity of `decklet--add-card's status result."
     (when added-events
       (decklet-run-hook-isolated 'decklet-cards-added-functions
                                  (nreverse added-events)))
-    (when hint-events
+    (when field-events
       (decklet-run-hook-isolated 'decklet-cards-field-updated-functions
-                                 (nreverse hint-events)))
+                                 (nreverse field-events)))
     (when (functionp decklet-add-card-batch--on-confirm)
       (condition-case err
           (funcall decklet-add-card-batch--on-confirm

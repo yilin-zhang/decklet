@@ -32,6 +32,7 @@ It is built differently from many SRS tools:
   - [Browser Lookup](#browser-lookup)
     - [Lookup Providers](#lookup-providers)
   - [Hints](#hints)
+  - [Tags](#tags)
   - [Card Back](#card-back)
   - [Undo](#undo)
   - [Daily Goal](#daily-goal)
@@ -159,7 +160,8 @@ cards just like most flashcard apps.
 | `u` | Undo last rating or skip            |
 | `g` | Refresh review buffer               |
 | `e` | Edit current word                   |
-| `t` | Edit current hint                   |
+| `H` | Edit current hint                   |
+| `t` | Edit current tags                   |
 | `b` | Show or edit card back              |
 | `D` | Delete current card                 |
 | `q` | Quit review                         |
@@ -183,7 +185,9 @@ See [Edit Mode Workflow](#edit-mode-workflow) for more information.
 | `A`   | Archive/Unarchive current or marked cards |
 | `D`   | Delete current or marked cards            |
 | `e`   | Edit word at point                        |
-| `t`   | Edit hint at point                        |
+| `H`   | Edit hint at point                        |
+| `t`   | Edit tags; add/remove tags on marked cards |
+| `. t` | Filter by tag; empty input clears filter   |
 | `b`   | Show or edit card back                    |
 | `. r` | Filter review cards                       |
 | `. l` | Filter learning cards                     |
@@ -351,13 +355,50 @@ word itself.
 If this behavior is not what you want, you can set `decklet-review-hint-delay`
 to nil to disable it.
 
-`t` is the universal key for hint editing:
-- You can edit hints with `t` in both review mode and edit mode.
-- During add flow, after adding a new word, you can press `t` at the follow-up
+`H` is the universal key for hint editing:
+- You can edit hints with `H` in both review mode and edit mode.
+- During add flow, after adding a new word, you can press `H` at the follow-up
   prompt.
+
+Hint display keeps its existing automatic timing; `H` edits the text and is
+not a reveal or popup command. The images extension keeps `i` for viewing an
+image, while the stats extension uses `C-c H` for the deck-wide heatmap.
 
 Note: In minibuffer hint input, you can use `M-j` to insert a newline for
 multi-line hints.
+
+### Tags
+
+Cards can have multiple tags, such as `botany`, `medicine`, `astronomy`,
+or `reading`. Names are case-sensitive strings, support Unicode, and cannot
+contain whitespace or colons. Tags have no scheduling effect until a
+[review-order selector](#review-order) explicitly uses them.
+
+- Press `t` in review or edit mode to replace the current card's tags. Enter
+  space-separated names with completion; an empty response clears the tags.
+- After adding a single card, `H` edits its hint and `t` edits its tags. You can
+  do both before answering `y`/Enter to add another card, or `n` to finish.
+- In edit mode, the compact `Tags` column shows names in a separate face.
+  Long lists are clipped in the column; `t` opens the full list for editing.
+- With marked rows, `t` offers **add** or **remove**, preserving unrelated tags.
+- `. t` filters the edit list by one tag, in addition to the current state or
+  archive filter. Empty input clears the tag filter.
+- Batch add accepts `:tag` lines as described below. Re-adding an existing word
+  merges explicitly supplied tags instead of replacing them. Omitting tags
+  preserves existing tags and does not reset learning progress.
+
+Tags live in the core SQLite database, follow the card's stable id across
+renames, and are included in backups and JSON export. Existing databases gain
+an empty tags field automatically. JSON `"tags": ["botany", "flower"]` replaces
+that field when overwriting a card; an omitted field preserves existing tags,
+and `"tags": []` explicitly clears them.
+
+Tag edits do **not** append review-log events. Daily quotas combine today's
+valid ratings with the cards' **current** tags and the **current** review rules.
+Correcting a tag therefore reallocates today's consumption immediately. If a
+corrected group is already over its limit, it offers no more cards today;
+completed ratings remain intact. Deleted cards have no current tags and are
+classified as untagged when counting their historical ratings.
 
 ### Card Back
 
@@ -453,29 +494,30 @@ point or mark multiple cards with `m` then press `D` to delete all marked cards.
 
 ### Batch Add Buffer
 
-`M-x decklet-add-card-batch` opens a buffer where you can paste or type
-multiple words at once; `C-c C-c` parses the buffer into cards and hints
-and imports them in a single transaction.
+`M-x decklet-add-card-batch` opens a buffer for multiple word entries.
+`C-c C-c` validates the whole input and imports it in one transaction;
+`C-c C-k` cancels.
 
-In batch buffers, each non-empty non-`#` line starts a new word block.
-Lines starting with `#` are treated as hint lines and attached to the most
-recent word.
+- A nonempty line not starting with `#` or `:` begins a word.
+- `#` lines add hint text to the preceding word, joined with newlines.
+- `:` lines contain whitespace-separated `:tag` tokens for the preceding word.
+  Multiple tag lines merge and deduplicate their names.
+- Hint and tag lines can appear in either order or be interleaved.
+- Empty lines are ignored. Orphan hint/tag lines and malformed tag tokens are
+  errors. A `#` line always remains hint text, even when it contains `:tags`.
+- Tag lines use `decklet-color-tags`, distinct from words and hints. The colon
+  marks batch syntax; the stored tag is `botany`, not `:botany`.
 
-Rules:
-
-- Empty lines and whitespace-only lines are ignored.
-- One word line can have multiple `#` hint lines.
-- Hint lines are joined with newlines.
-
-Example:
+These two entries use equivalent metadata ordering:
 
 ```text
-lucid
-# She gave a *lucid* explanation of the model.
-# /ˈluːsɪd/
-zephyr
-# A warm *zephyr* drifted through the room.
-# /ˈzefər/
+rose
+:botany :flower
+# A fragrant garden flower.
+
+lily
+# A garden flower with large petals.
+:botany :flower
 ```
 
 ### Data Location
@@ -499,124 +541,130 @@ you should set this variable before the package is loaded. If you use
 
 ### Review Order
 
-`decklet-review-order` lets you control the queue shape. For example: finish
-learning cards first, mix learning and review together, prioritize difficult
-review cards, or cap how many new words a day introduces.
-
-Examples:
+`decklet-review-order` separates **which step owns a card** from **where the
+step places its cards**. Each entry is `(SOURCE SPEC)`, with no dotted pair.
+State names are plain symbols: `learning`, `relearning`, `review`, and `new`.
+The former keyword/dotted-pair syntax is no longer accepted.
 
 ```emacs-lisp
-;; Default review order
-;; 1) finish due learning + relearning cards first (earliest due first)
-;; 2) then review cards in random order
-;; 3) finally show new cards, newest first
+;; Default: short learning steps first, then reviews, then newest-added words.
 (setq decklet-review-order
-      '(((:learning :relearning) . (sort :due :asc))
-        (:review . shuffle)
-        (:new    . (sort :added :desc))))
+      '(((learning relearning) (sort :due :asc))
+        (review shuffle)
+        (new (sort :added :desc))))
 
-;; Prioritize lapsed (relearning) cards before anything else.
+;; Steady general intake: at most 120 reviews and 10 new cards per day.
 (setq decklet-review-order
-      '((:relearning . (sort :due :asc))
-        (:learning   . (sort :due :asc))
-        (:review     . shuffle)
-        (:new        . (sort :added :desc))))
+      '(((learning relearning) (sort :due :asc))
+        (review (daily-limit 120 shuffle))
+        (new (spread (daily-limit 10 (sort :added :desc))))))
 
-;; Mix learning + review together, then shuffle them.
+;; Bulk-import topic vocabulary, but introduce only a few words each day.
 (setq decklet-review-order
-      '(((:learning :relearning :review) . shuffle)
-        (:new . (sort :added :desc))))
-
-;; Focus on tough review cards first.
-(setq decklet-review-order
-      '((:review . (sort :difficulty :desc))
-        ((:learning :relearning) . (sort :due :asc))
-        (:new . (sort :added :desc))))
-
-;; Steady intake: at most 120 review cards a day, and 10 new words
-;; distributed through them instead of queued up behind them.
-(setq decklet-review-order
-      '(((:learning :relearning) . (sort :due :asc))
-        (:review . (daily-limit 120 shuffle))
-        (:new    . (spread (daily-limit 10 (sort :added :desc))))))
+      '(((learning relearning) (sort :due :asc))
+        (review shuffle)
+        (new (spread (daily-limit 10 (sort :added :desc))))
+        ((new :tags "botany")
+         (spread (daily-limit 2 shuffle)))
+        ((new :tags "medicine")
+         (spread (daily-limit 1 shuffle)))
+        ((new :tags "astronomy")
+         (spread (daily-limit 1 shuffle)))))
 ```
 
-Syntax — each entry is `(TARGETS . SPEC)`, where `SPEC` follows:
+In the last example, the plain `new` step takes **only the remaining new
+cards**, despite being written before the tag steps. Topic steps own their
+entire matching groups, including cards held back by limits. Thus importing
+300 `botany` words cannot bypass its limit through the plain `new` step.
+This configuration offers at most 14 new cards per day: 10 ordinary, 2 botany,
+1 medicine, and 1 astronomy. Unused group slots are not transferred elsewhere.
+
+**Ownership is determined globally before selecting cards:**
+
+1. A matching tag-selector step takes priority over a plain fallback step,
+   regardless of their positions in the configuration.
+2. When multiple tag selectors match the same card's state and tags, the
+   first matching selector owns it. A card tagged both `botany` and `medicine`
+   therefore belongs only to the botany step in the example, including for
+   quota accounting. If that step is full or paused, the card does not spill
+   into medicine or the fallback.
+3. Each state allows at most one fallback step. States may appear in multiple
+   tag-selector steps. Cards matched by neither a selector nor a fallback
+   are not offered.
+4. Ownership applies within the selected states. A `(new :tags "botany")`
+   rule does not filter botany cards out of the ordinary `review` step.
+
+After ownership is assigned, each step sorts or shuffles its cards, takes its
+remaining daily allowance, and places the result in **configuration order**.
+`spread` inserts evenly through everything preceding steps have gathered;
+otherwise the step appends. It cannot be the first step. If preceding steps
+produce no cards, its own cards are still offered. It is not a global shuffle
+or a promise of a fixed ratio when other groups are empty.
+
+Sources and selectors:
+
+```emacs-lisp
+new                                         ; all otherwise-unclaimed new cards
+(learning relearning)                       ; shared step for two states
+(new :tags "botany")                        ; one tag
+(new :tags (or "botany" "flower"))           ; either tag
+(new :tags (and "medicine" "suffix"))        ; both tags
+(new :tags (not "paused"))                   ; lacks this tag
+(learning :tags "botany")                    ; selectors work on every state
+(relearning :tags "medicine")
+((learning relearning) :tags "botany")       ; combined states with a selector
+```
+
+`and` and `or` require at least one expression; `not` requires exactly one.
+Expressions may nest, for example `(and "botany" (not "paused"))`.
 
 ```text
-SPEC   := PLACED
-PLACED := SIZED | (spread SIZED)
-SIZED  := BASE  | (daily-limit N BASE)
+STEP   := (SOURCE SPEC)
+SOURCE := STATES | (STATES :tags SELECTOR)
+STATES := STATE | (STATE ...)
+STATE  := learning | relearning | review | new
+SPEC   := SIZED | (spread SIZED)
+SIZED  := BASE | (daily-limit N BASE)
 BASE   := shuffle | (sort FIELD ORDER)
+SELECTOR := "tag" | (or SELECTOR ...) | (and SELECTOR ...) | (not SELECTOR)
 ```
 
-- `TARGETS` is a single target keyword or a list of them.
-- `BASE` is `shuffle` to shuffle the step's cards, or `(sort FIELD ORDER)` to
-  sort them by one field and order.
-- `daily-limit` caps how many cards the step hands out — see
-  [Daily Limits](#daily-limits).
-- `spread` distributes the step through everything the preceding steps
-  gathered, instead of appending after them.
-
-The nesting is fixed: `spread` on the outside, `daily-limit` inside it, the
-ordering innermost. Each step is evaluated in that order too — gather, sort or
-shuffle, truncate to the remaining allowance, then place.
-
-Fields:
-- `:due`: Sort by next due time.
-- `:added`: Sort by card creation time.
-- `:last-review`: Sort by the last review timestamp.
-- `:difficulty`: Sort by FSRS difficulty value.
-- `:stability`: Sort by FSRS stability value.
-
-Orders:
-- `:asc`: Smallest/earliest value first.
-- `:desc`: Largest/latest value first.
-
-Targets:
-- `:learning`: Cards in the initial learning phase.
-- `:relearning`: Previously graduated cards that lapsed and returned to short-interval study.
-- `:review`: Cards in normal review state.
-- `:new`: Cards not reviewed yet.
-
-A target may appear in only one step, and a target you leave out of the order
-is never handed out at all.
+Sorting uses `:asc` or `:desc`. Every source supports `:due` and `:added`;
+review-only sources also support `:last-review`, `:difficulty`, and
+`:stability`. A combined-state step has one shared daily allowance.
 
 #### Daily Limits
 
-Without a limit, every due card and every new word sits in the queue, and how
-much you study is whatever you stop at. That couples new words to your review
-backlog: while a backlog is being cleared new words never come up, and on the
-day the backlog finally empties they all arrive at once.
+`(daily-limit N BASE)` limits a step over the entire **review day**, using
+Decklet's configured day boundary. It selects at most `N` minus today's
+consumption. Reopening review or restarting Emacs does not reset the budget;
+unused allowance does not accumulate. `N = 0` pauses the step.
 
-`(daily-limit N BASE)` breaks that coupling. `N` is a budget for the whole
-review day, not per session — the step gathers at most `N` minus what it
-already handed out today, so quitting Emacs and starting a new session does not
-grant a fresh `N`. The count comes from the review log, and an undone rating
-returns its slot. `N` may be `0` to pause a step for the day.
+Consumption counts distinct **(card id, pre-rating state)** pairs from valid
+ratings today. Opening or skipping a card does not consume a slot. Undo alone
+only revisits the previous card and leaves its rating in place; re-rating
+replaces the previous record via the existing log-void mechanism.
 
-`(spread SIZED)` is the other half. New words placed with `spread` are
-distributed evenly through the cards the preceding steps gathered, so you reach
-them even on a day you stop halfway through a backlog. The queue never opens
-with a spread card unless nothing precedes it.
+To allocate consumption to steps, Decklet uses each rated card's current tags
+and the current selector priority. Changing tags or reordering selectors
+recalculates today's quotas, rather than preserving outdated classifications.
+The rating's pre-state still comes from the log: a word first learned today
+counts as `new` consumption even after it graduates to `review`.
 
-Together they give a steady intake: a fixed handful of new words every day,
-mixed into a bounded review session, whatever the backlog looks like.
+Use limits mainly for `new` and, if desired, `review`. Limits on `learning`
+or `relearning` are allowed, but an exhausted step stops offering **all** its
+cards, including short-interval repeats. No special repeat exemption is added.
 
-Two things to know:
+Review-mode counters show what is still offered today, not the entire stock.
+A deck containing 500 new cards with a limit of 10 can show `10 new`. Queue
+selection and counters share the same plan; refreshing counters does not
+reshuffle unchanged candidates. Tag changes invalidate the pending queue;
+the currently displayed card and undo history remain available. Day and
+review-order changes are checked when advancing to the next card.
 
-- **Do not limit `:learning` or `:relearning`.** It is allowed, but those cards
-  come back several times a day by design, and they would compete for a single
-  allowance — cards stranded mid-step then wait until the next day. Limits are
-  meant for `:review` and `:new`.
-- **The review-mode counters show what is left today**, not what the deck
-  holds. With `(daily-limit 10 ...)` on `:new`, a deck of 500 unlearned words
-  reads `10 new`. When a limit is what emptied the queue, review mode says so
-  on the way out instead of claiming there is nothing left to study.
-
-The review log is what makes the daily budget survive restarts. If it is
-missing or unwritable, Decklet grants the full allowance rather than blocking
-the review, so a lost log costs you a few extra cards, never a stalled session.
+When a limit holds cards back, an empty queue reports the daily limit instead
+of claiming that nothing remains. Missing or unreadable logs grant the full
+allowance, as before. An unwritable log prevents a rating from being committed.
 
 ### Interval Labels
 
@@ -645,7 +693,7 @@ already exists but is still new (unreviewed).
 
 This feature is mainly for bringing stale new cards forward. It is most useful
 when new cards are sorted by added time in descending order (e.g.
-`(:new . (sort :added :desc))`).
+`(new (sort :added :desc))`).
 
 For example, you might import a large chunk of words, then revisit one of them a
 few months later. Refreshing that card helps surface it sooner so you can review
@@ -762,6 +810,7 @@ JSON item format:
     "stability": 32.41,
     "difficulty": 3.12,
     "hint": "/ˈluːsɪd/",
+    "tags": ["reading"],
     "back": "From Latin *lucidus* (light, bright). Think: a lucid dream is one where the light of awareness shines through."
   }
 ]
@@ -914,10 +963,12 @@ before writing your own.
 | Function | Returns |
 |---|---|
 | `(decklet-card-exists-p CARD-ID)` | non-nil if `CARD-ID` is in the deck |
-| `(decklet-get-card CARD-ID)` | plist `(:card-id :word :hint :back :meta)` or nil |
+| `(decklet-get-card CARD-ID)` | plist `(:card-id :word :hint :back :tags :meta)` or nil |
 | `(decklet-require-card CARD-ID)` | same as above, but signals a `user-error` instead of returning nil |
 | `(decklet-get-card-hint CARD-ID)` | hint string or nil |
 | `(decklet-get-card-back CARD-ID)` | card back content or nil |
+| `(decklet-get-card-tags CARD-ID)` | sorted tag strings or nil |
+| `(decklet-list-tags)` | all tag names, sorted and unique |
 | `(decklet-get-card-meta CARD-ID)` | `decklet-card-meta` struct or nil |
 | `(decklet-get-card-word CARD-ID)` | current word string or nil |
 | `(decklet-get-card-id-by-word WORD)` | card id or nil |
@@ -930,10 +981,26 @@ before writing your own.
 |---|---|
 | `(decklet-set-card-hint CARD-ID HINT)` | update hint; fires field-updated hook |
 | `(decklet-set-card-back CARD-ID CONTENT)` | update card back; fires field-updated hook |
+| `(decklet-set-card-tags CARD-ID TAGS)` | replace tags; fires field-updated event with `:field tags` when changed |
+| `(decklet-add-card-tags CARD-ID TAGS)` | merge tags without replacing existing ones |
+| `(decklet-remove-card-tags CARD-ID TAGS)` | remove only the specified tags |
 | `(decklet-set-card-word CARD-ID NEW-WORD)` | rename a card's word; fires renamed hook |
 | `(decklet-delete-card CARD-ID)` | delete a card; fires deleted hook |
 | `(decklet-archive-card CARD-ID)` / `(decklet-unarchive-card CARD-ID)` | fire archived/unarchived hooks |
 | `(decklet-rate-card CARD-ID GRADE &optional PRIOR-GRADE)` | grade a card; fires rated hook |
+
+#### Tag matching and daily history
+
+- `(decklet-validate-tag-selector SELECTOR)` checks the selector grammar.
+- `(decklet-tags-match-p TAGS SELECTOR)` matches a validated selector against
+  tag strings without querying the database.
+- `(decklet-review-log-daily-card-states &optional TIME)` returns distinct
+  `(CARD-ID . STATE)` pairs for valid ratings in that review day, excluding
+  voided records. `STATE` is the pre-rating FSRS keyword (`:new`, etc.);
+  only the review-order configuration uses plain state symbols. Extensions
+  can combine these pairs with current card tags for their own statistics.
+- `(decklet-review-log-daily-state-counts &optional TIME)` remains available
+  for aggregate per-state counts.
 
 #### Context helpers
 
@@ -1061,7 +1128,7 @@ carries `:card-id`; richer events carry the extra keys shown below.
 | `decklet-cards-renamed-functions` | `:card-id`, `:old-word`, `:new-word` | a card's word key changes |
 | `decklet-cards-archived-functions` | `:card-id` | a card is archived |
 | `decklet-cards-unarchived-functions` | `:card-id` | a card is unarchived |
-| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, `import` for bulk JSON imports, or an extension-defined symbol such as `image`) | hint/back changes, JSON-import overwrites, or extension-owned sidecar changes |
+| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, `tags`, `import` for bulk JSON imports, or an extension-defined symbol such as `image`) | hint/back/tag changes, JSON-import overwrites, or extension-owned sidecar changes |
 | `decklet-cards-rated-functions` | `:card-id`, `:old-meta`, `:grade`, `:new-meta`, `:prior-grade` | a card is rated in review or edit mode |
 
 Consumers iterate over the events:

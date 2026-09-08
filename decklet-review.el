@@ -276,7 +276,8 @@ onto `decklet-review--trail-past'.")
     "g" #'decklet-review-refresh
     "D" #'decklet-review-delete-card
     "e" #'decklet-review-set-word
-    "t" #'decklet-review-set-hint
+    "H" #'decklet-review-set-hint
+    "t" #'decklet-review-set-tags
     "u" #'decklet-review-undo
     "b" #'decklet-review-show-card-back)
   "Keymap for `decklet-review-mode'.")
@@ -755,8 +756,31 @@ few minutes -- so mention the wait whenever there is one."
      (wait (format "Nothing due right now; %s" wait))
      (t "No words to review"))))
 
+(defvar decklet-review--queue-context nil
+  "Day and rule snapshot used to validate the pending queue.")
+
+(defun decklet-review--queue-context ()
+  "Return the current learning day and a copy of the review rules."
+  (list (decklet-day-start-time) (copy-tree decklet-review-order)))
+
+(defun decklet-review--invalidate-queue (&optional _events)
+  "Discard pending cards after mutations described by _EVENTS.
+The visible card and undo history remain in place."
+  (setq decklet-due-card-ids nil))
+
+(defun decklet-review--on-fields-changed (events)
+  "Invalidate pending cards when EVENTS change tags or import scheduling."
+  (when (cl-some (lambda (event) (memq (plist-get event :field) '(tags import))) events)
+    (decklet-review--invalidate-queue)
+    (when (get-buffer decklet-review-buffer-name)
+      (decklet--refresh-counter)
+      (decklet-review--refresh-visible))))
+
 (defun decklet-review--advance ()
   "Show the next card from the trail or the due queue, or quit."
+  (unless (equal decklet-review--queue-context (decklet-review--queue-context))
+    (when decklet-review--queue-context (decklet-review--invalidate-queue))
+    (setq decklet-review--queue-context (decklet-review--queue-context)))
   (setq decklet-review--trail-future
         (decklet-review--trail-drop-dead decklet-review--trail-future))
   (if (decklet-review--undo-in-progress-p)
@@ -800,9 +824,13 @@ always leave the same amount of state behind."
     (when (kill-buffer buffer)
       (message "Review session finished"))))
 
+(defvar decklet-review--grading nil
+  "Non-nil while the review UI is committing a grade.")
+
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next card."
-  (let* ((card-id (decklet--require-current-card-id "rate"))
+  (let* ((decklet-review--grading t)
+         (card-id (decklet--require-current-card-id "rate"))
          (row (decklet-db--require-card-row card-id))
          (word (plist-get row :word))
          (goal-was-reached (decklet-review--daily-goal-reached-p)))
@@ -898,6 +926,12 @@ hook; no explicit refresh is needed here."
   (let ((card-id (decklet--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-word card-id))))
 
+(defun decklet-review-set-tags ()
+  "Edit the current review card's tags."
+  (interactive)
+  (decklet-prompt-set-tags (decklet--require-current-card-id "tag")))
+
+;;;###autoload
 (defun decklet-review-set-hint ()
   "Prompt to update the current card's hint.
 The review buffer re-renders via the
@@ -932,6 +966,7 @@ is needed here."
   "Start a review session."
   (interactive)
   (decklet--refresh-due-card-ids)
+  (setq decklet-review--queue-context (decklet-review--queue-context))
   (if (null decklet-due-card-ids)
       (message "%s" (decklet-review--nothing-due-message))
     ;; Only fire start-hook once we know a real session will open.
@@ -975,6 +1010,17 @@ is needed here."
 
 (add-hook 'decklet-cards-deleted-functions
           #'decklet-review--on-cards-deleted)
+
+(defun decklet-review--on-external-rating (_events)
+  "Invalidate pending cards after external rating _EVENTS."
+  (unless decklet-review--grading
+    (decklet-review--invalidate-queue)))
+
+(add-hook 'decklet-cards-rated-functions #'decklet-review--on-external-rating)
+(add-hook 'decklet-cards-field-updated-functions #'decklet-review--on-fields-changed)
+(dolist (hook '(decklet-cards-added-functions decklet-cards-deleted-functions
+                                              decklet-cards-archived-functions decklet-cards-unarchived-functions))
+  (add-hook hook #'decklet-review--invalidate-queue))
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

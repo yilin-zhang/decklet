@@ -93,6 +93,9 @@
 (defvar decklet-edit--marked (make-hash-table :test 'eql)
   "Hash table of marked card ids in the edit view.")
 
+(defvar decklet-edit--tag-filter nil
+  "Tag required by the edit view, or nil to show all tags.")
+
 (defvar decklet-edit--filter 'all
   "Current filter for the edit table.
 One of: all, review, learning, archived.")
@@ -130,7 +133,7 @@ Values must stay within `decklet-db--sortable-columns'.")
 
 (defun decklet-edit--columns ()
   "Return ordered edit table column names, including sidecar columns."
-  (append '("Word" "Hint" "Back")
+  (append '("Word" "Hint" "Tags" "Back")
           (mapcar (lambda (column) (plist-get column :name)) decklet-edit-sidecar-columns)
           '("State" "Added" "Last Review" "Due" "Stability" "Difficulty")))
 
@@ -154,7 +157,8 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
 (defun decklet-edit--clean-up ()
   "Clear edit session state."
   (setq decklet-edit--marked (make-hash-table :test 'eql))
-  (setq decklet-edit--filter 'all))
+  (setq decklet-edit--filter 'all
+        decklet-edit--tag-filter nil))
 
 (defun decklet-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."
@@ -309,6 +313,7 @@ changes propagate through the next format rebuild."
    (list
     (list "Word" 24 (decklet-edit--column-sorter "Word"))
     (list "Hint" 28 nil)
+    (list "Tags" 16 nil)
     (list "Back" 5 nil))
    (mapcar (lambda (column)
              (list (plist-get column :name)
@@ -353,7 +358,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
   "Return tabulated list entries for the edit buffer."
   (mapcar
    (lambda (row)
-     (pcase-let* (((map :card-id :word :hint :back :added :last-review :due
+     (pcase-let* (((map :card-id :word :hint :tags :back :added :last-review :due
                         :state :stability :difficulty)
                    row)
                   (last-review (or last-review ""))
@@ -380,6 +385,8 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
               (vector
                (propertize display-word 'face word-face)
                hint
+               (propertize (string-join tags " ") 'face 'decklet-color-tags
+                           'help-echo (string-join tags " "))
                (if back (propertize "♦" 'face 'decklet-edit-card-back-indicator-face) ""))
               (apply #'vector (decklet-edit--sidecar-column-cells row))
               (vector
@@ -399,8 +406,11 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                (propertize (if difficulty (format "%.3f" difficulty) "")
                            'face 'decklet-edit-metadata-face
                            'decklet-sort-number (or difficulty 0)))))))
-   (decklet-db--select-card-rows decklet-edit--filter
-                                 (decklet-edit--db-sort-key tabulated-list-sort-key))))
+   (seq-filter
+    (lambda (row) (or (null decklet-edit--tag-filter)
+                      (member decklet-edit--tag-filter (plist-get row :tags))))
+    (decklet-db--select-card-rows decklet-edit--filter
+                                  (decklet-edit--db-sort-key tabulated-list-sort-key)))))
 
 (defun decklet-edit--apply-marks ()
   "Apply mark overlays to all currently-marked rows."
@@ -548,6 +558,30 @@ review buffer, which refreshes if the renamed card is on screen."
   (message "Updated \"%s\""
            (decklet-prompt-set-word (decklet-edit--card-id-at-point))))
 
+(defun decklet-edit-set-tags ()
+  "Edit tags at point, or add/remove tags on marked cards."
+  (interactive)
+  (let ((marked (decklet-edit--marked-card-ids)))
+    (if (null marked)
+        (decklet-prompt-set-tags (decklet-edit--card-id-at-point))
+      (let* ((action (read-char-choice "Marked tags: (a)dd or (r)emove? " '(?a ?r)))
+             (tags (decklet-read-tags)))
+        (decklet-edit--execute-mutation
+         (lambda (id)
+           (funcall (if (eq action ?a) #'decklet-add-card-tags #'decklet-remove-card-tags)
+                    id tags))
+         marked)))))
+
+;;;###autoload
+(defun decklet-edit-filter-tag ()
+  "Filter the edit view by a tag; empty input clears the tag filter."
+  (interactive)
+  (setq decklet-edit--tag-filter
+        (let ((tag (completing-read "Tag (empty for all): " (decklet-list-tags))))
+          (unless (string-empty-p tag) tag)))
+  (decklet-edit-refresh))
+
+;;;###autoload
 (defun decklet-edit-set-hint ()
   "Set the hint for the card at point.
 `decklet-cards-field-updated-functions' carries the change to the
@@ -703,7 +737,9 @@ Registered on `window-selection-change-functions'."
   (define-keymap
     :parent tabulated-list-mode-map
     "e" #'decklet-edit-set-word
-    "t" #'decklet-edit-set-hint
+    "H" #'decklet-edit-set-hint
+    "t" #'decklet-edit-set-tags
+    ". t" #'decklet-edit-filter-tag
     "b" #'decklet-edit-show-card-back
     "D" #'decklet-edit-delete-card
     ". r" #'decklet-edit-filter-review

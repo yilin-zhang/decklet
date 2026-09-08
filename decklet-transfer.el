@@ -128,7 +128,7 @@ FSRS only accepts learning/review/relearning scheduler states."
 (defun decklet-transfer--import-record->card (record)
   "Convert JSON RECORD alist to a card plist.
 Returns a card plist with keys :card-id, :word, :hint, :back,
-:meta, and :archived-at.  The :archived-at key is specific to the
+:tags, :meta, and :archived-at.  The :archived-at key is specific to the
 import flow and is not present on cards produced by
 `decklet-db--row->card'.
 
@@ -136,7 +136,8 @@ import flow and is not present on cards produced by
 `decklet-transfer--import-text-value': nil (missing — preserve existing
 value on overwrite), `:clear' (present as JSON null or blank —
 clear existing value on overwrite), or a normalized non-empty
-string."
+string.  The :tags value is nil when absent, otherwise
+  (:present . TAGS), including an empty list for an explicit empty array."
   (unless (listp record)
     (user-error "Invalid JSON record: expected object, got %S" record))
   (let* ((now (decklet--now))
@@ -170,6 +171,11 @@ string."
            :word word
            :hint hint
            :back back
+           :tags (when (assq 'tags record)
+                   (let ((raw (cdr (assq 'tags record))))
+                     (unless (or (vectorp raw) (null raw))
+                       (user-error "Tags must be a JSON array"))
+                     (cons :present (decklet-normalize-tags (append raw nil)))))
            :meta meta
            :archived-at archived-at))))
 
@@ -231,6 +237,8 @@ unarchived."
     (let ((card-id (plist-get (decklet-db--select-card-row-by-word word) :card-id)))
       (decklet-transfer--apply-import-text-field card-id 'hint hint overwrite-p)
       (decklet-transfer--apply-import-text-field card-id 'back back overwrite-p)
+      (when (plist-get card :tags)
+        (decklet-db--update-tags card-id (cdr (plist-get card :tags))))
       (if archived-at
           (decklet-db--archive-card card-id archived-at)
         (when overwrite-p
@@ -338,13 +346,16 @@ file under `decklet-directory'."
              (rows (sqlite-select
                     (decklet-db--ensure)
                     "SELECT word, hint, back, added_date, last_review, due,
-                      archived_at, state, step, stability, difficulty
+                      archived_at, state, step, stability, difficulty, tags
                FROM cards
                ORDER BY added_date ASC, word ASC;"))
              (fields '(word hint back added_date last_review due
-                            archived_at state step stability difficulty))
+                            archived_at state step stability difficulty tags))
              (payload (mapcar (lambda (row)
-                                (cl-mapcar #'cons fields row))
+                                (let ((record (cl-mapcar #'cons fields row)))
+                                  (setcdr (assq 'tags record)
+                                          (json-parse-string (cdr (assq 'tags record))))
+                                  record))
                               rows))
              (json-encoding-pretty-print t)
              (json-encoding-default-indentation "  "))

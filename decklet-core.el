@@ -9,6 +9,8 @@
 ;;; Code:
 
 (require 'ansi-color)
+(require 'cl-lib)
+(require 'subr-x)
 
 (defgroup decklet nil
   "A spaced repetition system using the FSRS algorithm."
@@ -62,6 +64,47 @@
   "Shared color for card-back indicators."
   :group 'decklet)
 
+;; Tags
+
+(defface decklet-color-tags
+  '((t :inherit ansi-color-cyan :background reset))
+  "Shared face for card tags."
+  :group 'decklet)
+
+(defun decklet-normalize-tags (tags)
+  "Validate TAGS and return a sorted list of unique tag strings.
+Names are case-sensitive, nonempty, and contain no whitespace or colon."
+  (unless (proper-list-p tags)
+    (user-error "Tags must be a list of strings"))
+  (dolist (tag tags)
+    (unless (and (stringp tag) (not (string-empty-p tag))
+                 (not (string-match-p "[[:space:]:]" tag)))
+      (user-error "Invalid tag: %S" tag)))
+  (sort (delete-dups (copy-sequence tags)) #'string<))
+
+(defun decklet-validate-tag-selector (selector)
+  "Validate tag SELECTOR, a string or an `and', `or', or `not' expression."
+  (cond
+   ((stringp selector) (decklet-normalize-tags (list selector)))
+   ((and (proper-list-p selector)
+         (memq (car selector) '(and or not))
+         (cdr selector)
+         (or (not (eq (car selector) 'not)) (= (length selector) 2)))
+    (mapc #'decklet-validate-tag-selector (cdr selector)))
+   (t (error "Invalid tag selector: %S" selector))))
+
+(defun decklet-tags-match-p (tags selector)
+  "Return non-nil if TAGS match validated SELECTOR.
+SELECTOR is a tag string or a nested `and', `or', or `not' expression."
+  (if (stringp selector)
+      (and (member selector tags) t)
+    (pcase (car selector)
+      ('and (cl-every (lambda (part) (decklet-tags-match-p tags part))
+                      (cdr selector)))
+      ('or (cl-some (lambda (part) (decklet-tags-match-p tags part))
+                    (cdr selector)))
+      ('not (not (decklet-tags-match-p tags (cadr selector)))))))
+
 ;; Lifecycle hooks for extensions
 ;;
 ;; These abnormal hooks allow extensions to react to card mutations
@@ -92,7 +135,7 @@ Each event plist has keys:
 Each event plist has keys:
   :card-id  id of the deleted card.
   :card     full card plist captured before deletion, with keys
-            `:word', `:hint', `:back', and `:meta'.")
+            `:word', `:hint', `:back', `:tags', and `:meta'.")
 
 (defvar decklet-cards-renamed-functions nil
   "Abnormal hook called with (EVENTS) after cards are renamed.
@@ -117,7 +160,7 @@ Each event plist has keys:
   "Abnormal hook called with (EVENTS) after card fields are updated.
 Each event plist has keys:
   :card-id  id of the updated card.
-  :field    symbol naming the field (`hint', `back', `import' for
+  :field    symbol naming the field (`hint', `back', `tags', `import' for
             bulk JSON imports, or an extension-defined symbol such
             as `image').")
 

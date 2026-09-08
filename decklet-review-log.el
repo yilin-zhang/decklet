@@ -37,8 +37,7 @@
 ;; The log writer is owned by Decklet core so every rating is
 ;; captured transactionally with the card update.  External
 ;; consumers (dashboards, optimizers, analytics) should read the
-;; file directly; the only reader in core is
-;; `decklet-review-log-daily-state-counts', which serves the daily
+;; file directly; core exposes daily card/state readers for the daily
 ;; limits in `decklet-review-order' and is documented in the "Daily
 ;; consumption accounting" section below.
 
@@ -282,34 +281,33 @@ nil when the log file cannot be read."
                         :records (car folded)
                         :voided (cdr folded)))))))))
 
+(defun decklet-review-log-daily-card-states (&optional time)
+  "Return distinct (CARD-ID . STATE) pairs rated on the review day at TIME.
+STATE is the pre-rating effective FSRS keyword.  Voided ratings are
+excluded.  Missing or unreadable logs return nil.  Tags are deliberately
+not stored here: callers can group these records using current card tags."
+  (let* ((day-start (decklet--time->fsrs-timestamp (decklet-day-start-time time)))
+         (cache (decklet-review-log--refresh-scan day-start))
+         (voided (make-hash-table :test 'eql))
+         (seen (make-hash-table :test 'equal))
+         (pairs nil))
+    (dolist (id (plist-get cache :voided)) (puthash id t voided))
+    (dolist (record (plist-get cache :records))
+      (pcase-let ((`(,id ,card-id ,state) record))
+        (when (and state (not (gethash id voided)))
+          (let ((pair (cons card-id (decklet--normalize-fsrs-state state))))
+            (unless (gethash pair seen)
+              (puthash pair t seen)
+              (push pair pairs))))))
+    pairs))
+
 (defun decklet-review-log-daily-state-counts (&optional time)
-  "Return an alist of (STATE . COUNT) for the review day containing TIME.
-STATE is one of the keywords `:new', `:learning', `:relearning' or
-`:review', naming the effective state a card was in when it was
-graded -- that is, the `decklet-review-order' target that handed it
-out.  A card is counted once per state no matter how many times it
-was graded from that state.  Ratings retired by a void event are
-ignored.  An unreadable or absent log yields nil, so callers treat
-the day as having consumed nothing."
-  (let* ((day-start (decklet--time->fsrs-timestamp
-                     (decklet-day-start-time time)))
-         (cache (decklet-review-log--refresh-scan day-start)))
-    (when cache
-      (let ((voided (plist-get cache :voided))
-            (seen (make-hash-table :test 'equal))
-            (counts nil))
-        (dolist (record (plist-get cache :records))
-          (pcase-let ((`(,id ,card-id ,state) record))
-            (unless (or (member id voided)
-                        (null state)
-                        (gethash (cons state card-id) seen))
-              (puthash (cons state card-id) t seen)
-              (let* ((key (decklet--normalize-fsrs-state state))
-                     (cell (assq key counts)))
-                (if cell
-                    (setcdr cell (1+ (cdr cell)))
-                  (push (cons key 1) counts))))))
-        counts))))
+  "Return (STATE . COUNT) entries for the review day containing TIME.
+Each card counts once per pre-rating state; voided ratings are ignored."
+  (let ((counts nil))
+    (dolist (pair (decklet-review-log-daily-card-states time))
+      (cl-incf (alist-get (cdr pair) counts 0)))
+    counts))
 
 (provide 'decklet-review-log)
 

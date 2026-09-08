@@ -45,6 +45,9 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           (decklet-current-card-id nil)
           (decklet-last-added-word nil)
           (decklet-due-card-ids nil)
+          (decklet-db--review-plan-cache nil)
+          (decklet-review--queue-context nil)
+          (decklet-edit--tag-filter nil)
           (decklet--counter (copy-sequence (default-value 'decklet--counter))))
      (unwind-protect
          (progn ,@body)
@@ -70,15 +73,15 @@ STATE defaults to `:review'.  TIMESTAMP, when provided, is used for
 explicitly in ARGS.  When TIMESTAMP is nil, the current time is
 used.  Any additional keys in ARGS override the defaults."
   (let* ((ts (or timestamp (decklet-test--ts (current-time))))
-	 (defaults (list :added-date ts :last-review ts :due ts :state state))
-	 (merged (copy-sequence defaults)))
+	     (defaults (list :added-date ts :last-review ts :due ts :state state))
+	     (merged (copy-sequence defaults)))
     ;; Strip our own keyword args so we don't forward :timestamp to
     ;; `make-decklet-card-meta' (which would signal).
     (let ((clean args))
       (while clean
-	(unless (eq (car clean) :timestamp)
-	  (setq merged (plist-put merged (car clean) (cadr clean))))
-	(setq clean (cddr clean))))
+	    (unless (eq (car clean) :timestamp)
+	      (setq merged (plist-put merged (car clean) (cadr clean))))
+	    (setq clean (cddr clean))))
     (apply #'make-decklet-card-meta merged)))
 
 (defun decklet-test--card-id (word)
@@ -96,8 +99,8 @@ KEYS are forwarded to `decklet-test--make-card-meta'."
 GRADE defaults to 3; pass `:grade nil' for a skip entry.  PRE-META
 defaults to a fresh `decklet-card-meta'."
   (list :card-id card-id
-	:grade grade
-	:pre-meta (or pre-meta (make-decklet-card-meta))))
+	    :grade grade
+	    :pre-meta (or pre-meta (make-decklet-card-meta))))
 
 ;;; JSON import / review-log readback
 
