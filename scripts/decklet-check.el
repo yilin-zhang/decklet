@@ -96,7 +96,8 @@ When DECKLET_FIX_INDENT is set, rewrite files instead of failing."
           (let ((emacs-lisp-mode-hook nil))
             (emacs-lisp-mode))
           ;; Keep the result independent of host and user defaults.
-          (setq-local indent-tabs-mode nil)
+          (setq-local indent-tabs-mode nil
+                      tab-width 8)
           (indent-region (point-min) (point-max))
           (unless (string-equal original (buffer-string))
             (if (getenv "DECKLET_FIX_INDENT")

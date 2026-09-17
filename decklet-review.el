@@ -1018,8 +1018,8 @@ is needed here."
 
 (add-hook 'decklet-cards-rated-functions #'decklet-review--on-external-rating)
 (add-hook 'decklet-cards-field-updated-functions #'decklet-review--on-fields-changed)
-(dolist (hook '(decklet-cards-added-functions decklet-cards-deleted-functions
-                                              decklet-cards-archived-functions decklet-cards-unarchived-functions))
+(dolist (hook '(decklet-cards-added-functions
+                decklet-cards-archived-functions decklet-cards-unarchived-functions))
   (add-hook hook #'decklet-review--invalidate-queue))
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"

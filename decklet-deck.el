@@ -9,6 +9,7 @@
 ;;; Code:
 
 (require 'cl-lib)
+(require 'crm)
 (require 'seq)
 (require 'subr-x)
 

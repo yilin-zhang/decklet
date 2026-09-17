@@ -658,7 +658,8 @@ cards, including short-interval repeats. No special repeat exemption is added.
 Review-mode counters show what is still offered today, not the entire stock.
 A deck containing 500 new cards with a limit of 10 can show `10 new`. Queue
 selection and counters share the same plan; refreshing counters does not
-reshuffle unchanged candidates. Tag changes invalidate the pending queue;
+reshuffle unchanged candidates. Deleting a card removes only that card from
+the pending queue, preserving the order of the remaining cards. Tag changes invalidate the pending queue;
 the currently displayed card and undo history remain available. Day and
 review-order changes are checked when advancing to the next card.
 

@@ -605,7 +605,8 @@ Fields are :due and :added, plus :last-review, :stability and
   :group 'decklet-review)
 
 (defun decklet-db--review-owner (state tags steps)
-  "Return the owning index for STATE and TAGS in parsed STEPS, or nil."
+  "Return the owning index for a card with STATE and TAGS, or nil.
+Search the parsed review rules in STEPS."
   (let ((fallback nil) (owner nil))
     (cl-loop for step in steps for index from 0 do
              (when (memq state (car step))
