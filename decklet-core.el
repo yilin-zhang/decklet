@@ -208,6 +208,23 @@ case of a single-card lifecycle event — avoids hand-writing the
 `(list (list ...))' shape at every fire site."
   (decklet-run-hook-isolated hook (list plist)))
 
+;; Per-card files
+;;
+;; Extensions that keep files beside the deck (images, audio) key them
+;; by card id.  The id is the card's identity: it survives renames, so
+;; files need no migration when a word changes, and it never collides.
+;; Words do collide on disk -- "Polish" and "polish" are two cards, but
+;; a case-insensitive file system such as macOS's default APFS folds
+;; their names into one file.
+
+(defun decklet-card-sidecar-file (directory card-id extension)
+  "Return CARD-ID's file with EXTENSION under DIRECTORY.
+The file need not exist.  This is the shared naming scheme for
+per-card files kept by extensions."
+  (unless (integerp card-id)
+    (error "Invalid card id: %S" card-id))
+  (expand-file-name (format "%d.%s" card-id extension) directory))
+
 ;; Utility functions used across modules
 
 (defun decklet--clamp (value min-val max-val)

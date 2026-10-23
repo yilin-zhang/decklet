@@ -57,7 +57,7 @@ It is built differently from many SRS tools:
   - [Existing extension packages](#existing-extension-packages)
   - [Public API](#public-api)
   - [Lifecycle hooks](#lifecycle-hooks)
-  - [Example: per-word image sidecar](#example-per-word-image-sidecar)
+  - [Example: per-card image sidecar](#example-per-card-image-sidecar)
 - [Testing and CI](#testing-and-ci)
 - [License](#license)
 
@@ -1018,6 +1018,18 @@ before writing your own.
   active region, the current review word, the word on the current edit
   line, or the minibuffer.
 
+#### Per-card files
+
+Extensions that keep a file per card (images, audio) should name it by card
+id, not by word:
+
+- `(decklet-card-sidecar-file DIRECTORY CARD-ID EXTENSION)` — the path
+  `DIRECTORY/CARD-ID.EXTENSION`, whether or not it exists.
+
+The id survives renames, so files need no migration when a word changes. Words
+are also unsafe as file names: `Polish` and `polish` are two cards, but a
+case-insensitive file system (macOS's default) folds them into one file.
+
 #### Session buffers
 
 If your extension opens its own popup or side buffer that belongs to
@@ -1097,7 +1109,7 @@ edit table, inserted after the built-in `Back` column. Each entry is a plist:
                    :width 4
                    :value (lambda (row)
                             (if (file-exists-p
-                                 (my/decklet-image-path (plist-get row :word)))
+                                 (my/decklet-image-path (plist-get row :card-id)))
                                 "♦"
                               ""))))
 ```
@@ -1167,44 +1179,39 @@ grading action, in both review and edit modes.
 - Confirming an undone rating (`n` on an undone card) does not fire
   the hook either — the original event already reflects the final state.
 
-### Example: per-word image sidecar
+### Example: per-card image sidecar
 
-A complete example of a sidecar that stores a PNG per word in a folder,
+A complete example of a sidecar that stores a PNG per card in a folder,
 keeps it in sync with the deck, and shows an `[IMG]` indicator in the
 review UI:
 
 ```emacs-lisp
 (defvar my/decklet-image-dir "~/decklet-images/"
-  "Directory where per-word PNG files live.")
+  "Directory where per-card PNG files live.")
 
-(defun my/decklet-image-path (word)
-  (expand-file-name (concat word ".png") my/decklet-image-dir))
+(defun my/decklet-image-path (card-id)
+  (decklet-card-sidecar-file my/decklet-image-dir card-id "png"))
 
 (defun my/decklet-image-delete (events)
   (dolist (event events)
-    (let ((path (my/decklet-image-path
-                 (plist-get (plist-get event :card) :word))))
+    (let ((path (my/decklet-image-path (plist-get event :card-id))))
       (when (file-exists-p path) (delete-file path)))))
 
-(defun my/decklet-image-rename (events)
-  (dolist (event events)
-    (let ((old (my/decklet-image-path (plist-get event :old-word)))
-          (new (my/decklet-image-path (plist-get event :new-word))))
-      (when (file-exists-p old)
-        (rename-file old new t)))))
-
 (defun my/decklet-image-indicator ()
-  "Review UI component showing [IMG] when the current word has an image."
-  (when-let ((word (and decklet-current-card-id
-                        (decklet-get-card-word decklet-current-card-id))))
-    (when (file-exists-p (my/decklet-image-path word))
-      (decklet-center-text
-       (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face)))))
+  "Review UI component showing [IMG] when the current card has an image."
+  (when (and decklet-current-card-id
+             (file-exists-p (my/decklet-image-path decklet-current-card-id)))
+    (decklet-center-text
+     (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face))))
 
 (add-hook 'decklet-cards-deleted-functions #'my/decklet-image-delete)
-(add-hook 'decklet-cards-renamed-functions #'my/decklet-image-rename)
 (add-to-list 'decklet-review-floating-components #'my/decklet-image-indicator)
 ```
+
+Because files are keyed by card id, a rename needs no handling at all. A
+sidecar whose content depends on the word itself (pronunciation audio, say)
+would also subscribe to `decklet-cards-renamed-functions` and discard or
+regenerate the file there.
 
 No drift patrol needed: the sidecar is kept in sync automatically
 because the core broadcasts the events. Calls to `decklet-set-card-*`

@@ -91,5 +91,11 @@ from `:inherit', never from a value baked in at load time."
     (should (= 4 (length merged)))
     (should (equal (sort (copy-sequence merged) #'string<) '(a x y z)))))
 
+(ert-deftest decklet-test-core-card-sidecar-file-keys-by-id ()
+  "Per-card files are named by card id, so case variants get distinct files."
+  (should (equal "/media/42.png" (decklet-card-sidecar-file "/media" 42 "png")))
+  (should (equal "/media/42.png" (decklet-card-sidecar-file "/media/" 42 "png")))
+  (should-error (decklet-card-sidecar-file "/media" "Polish" "png")))
+
 (provide 'decklet-core-test)
 ;;; decklet-core-test.el ends here
