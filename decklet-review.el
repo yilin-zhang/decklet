@@ -712,6 +712,24 @@ back; discard them rather than presenting a nonexistent card."
      (not (decklet-card-exists-p (plist-get entry :card-id))))
    entries))
 
+(defun decklet-review--trail-drop-later-entries (card-id)
+  "Retire CARD-ID's entries after the one currently being revisited.
+Each later entry was rated from a state the re-rate just replaced, so
+its pre-meta is stale and its rating no longer matches the database.
+Void their log records and drop them, as if they never happened."
+  (let ((dropped 0))
+    (setcdr decklet-review--trail-future
+            (seq-remove (lambda (entry)
+                          (when (eql (plist-get entry :card-id) card-id)
+                            (when-let* ((log-id (plist-get entry :log-id)))
+                              (decklet-review-log-append-void log-id))
+                            (cl-incf dropped)
+                            t))
+                        (cdr decklet-review--trail-future)))
+    (when (> dropped 0)
+      (message "Discarded %d later review%s of this card"
+               dropped (if (= dropped 1) "" "s")))))
+
 (defun decklet-review--trail-delete (card-id)
   "Remove entries for CARD-ID from both sides of the trail."
   (let ((keep (lambda (e) (not (eql (plist-get e :card-id) card-id)))))
@@ -847,6 +865,7 @@ always leave the same amount of state behind."
           ;; Best-effort: a failed void already reports itself.
           (when prior-log-id
             (decklet-review-log-append-void prior-log-id))
+          (decklet-review--trail-drop-later-entries card-id)
           (decklet-review--trail-update-and-advance grade))
       ;; Normal forward rating: snapshot pre-meta, rate, append.
       (let* ((old-meta (decklet-db--row->card-meta row))

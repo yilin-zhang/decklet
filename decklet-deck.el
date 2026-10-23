@@ -11,6 +11,7 @@
 (require 'cl-lib)
 (require 'crm)
 (require 'seq)
+(require 'sqlite)
 (require 'subr-x)
 
 (require 'decklet-core)
@@ -252,18 +253,6 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
          (old-meta (decklet-db--row->card-meta row)))
     (decklet--rate-card-state card-id word old-meta grade prior-grade)))
 
-(defun decklet--commit-card-rating (card-id word old-meta new-meta grade prior-grade)
-  "Store CARD-ID's rating and notify consumers.
-WORD, OLD-META, NEW-META, GRADE, and PRIOR-GRADE describe the rating."
-  (decklet-db--upsert-card word new-meta)
-  (decklet--refresh-counter)
-  (decklet-fire-one-card-event 'decklet-cards-rated-functions
-                               :card-id card-id
-                               :old-meta old-meta
-                               :grade grade
-                               :new-meta new-meta
-                               :prior-grade prior-grade))
-
 (defun decklet--rate-card-state (card-id word old-meta grade &optional prior-grade)
   "Update CARD-ID using WORD and OLD-META with review GRADE (1-4).
 PRIOR-GRADE, when non-nil, is the rating being replaced."
@@ -272,14 +261,22 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
                   word card-id grade old-meta new-meta)))
     (unless log-id
       (user-error "Could not write rating to the review log"))
+    ;; Only the DB write is rolled back against the log: once it has
+    ;; landed the rating stands, so a later failure must not void it.
     (condition-case err
-        (decklet--commit-card-rating
-         card-id word old-meta new-meta grade prior-grade)
+        (decklet-db--upsert-card word new-meta)
       (error
        ;; Best-effort: retire the orphaned log record before re-signaling.
        ;; A failed void already reports itself from the log writer.
        (decklet-review-log-append-void log-id)
        (signal (car err) (cdr err))))
+    (decklet--refresh-counter)
+    (decklet-fire-one-card-event 'decklet-cards-rated-functions
+                                 :card-id card-id
+                                 :old-meta old-meta
+                                 :grade grade
+                                 :new-meta new-meta
+                                 :prior-grade prior-grade)
     log-id))
 
 (defun decklet-set-card-word (card-id new-word)
@@ -523,32 +520,29 @@ the granularity of `decklet--add-card's status result."
          (added 0)
          (refreshed 0)
          (exists 0))
-    (sqlite-execute conn "BEGIN;")
-    (condition-case err
-        ;; Suppress per-card hook fires inside the loop; we fire one
-        ;; batch event for each hook after COMMIT.
-        (let ((decklet-cards-added-functions nil)
-              (decklet-cards-field-updated-functions nil))
-          (dolist (card cards)
-            (let* ((word (plist-get card :word))
-                   (hint (plist-get card :hint))
-                   (result (decklet--add-card word))
-                   (card-id (plist-get result :card-id)))
-              (pcase (plist-get result :status)
-                ('added     (cl-incf added)
-                            (push (list :card-id card-id) added-events))
-                ('refreshed (cl-incf refreshed))
-                ('exists    (cl-incf exists)))
-              (when (and hint (decklet-set-card-hint card-id hint))
-                (push (list :card-id card-id :field 'hint) field-events))
-              (when (plist-member card :tags)
-                (let ((old (decklet-get-card-tags card-id)))
-                  (unless (equal old (decklet-add-card-tags card-id (plist-get card :tags)))
-                    (push (list :card-id card-id :field 'tags) field-events))))))
-          (sqlite-execute conn "COMMIT;"))
-      (error
-       (sqlite-execute conn "ROLLBACK;")
-       (signal (car err) (cdr err))))
+    ;; `with-sqlite-transaction' rolls back on any non-local exit,
+    ;; including a `quit', so no transaction is left open behind us.
+    (with-sqlite-transaction conn
+      ;; Suppress per-card hook fires inside the loop; we fire one
+      ;; batch event for each hook after COMMIT.
+      (let ((decklet-cards-added-functions nil)
+            (decklet-cards-field-updated-functions nil))
+        (dolist (card cards)
+          (let* ((word (plist-get card :word))
+                 (hint (plist-get card :hint))
+                 (result (decklet--add-card word))
+                 (card-id (plist-get result :card-id)))
+            (pcase (plist-get result :status)
+              ('added     (cl-incf added)
+                          (push (list :card-id card-id) added-events))
+              ('refreshed (cl-incf refreshed))
+              ('exists    (cl-incf exists)))
+            (when (and hint (decklet-set-card-hint card-id hint))
+              (push (list :card-id card-id :field 'hint) field-events))
+            (when (plist-member card :tags)
+              (let ((old (decklet-get-card-tags card-id)))
+                (unless (equal old (decklet-add-card-tags card-id (plist-get card :tags)))
+                  (push (list :card-id card-id :field 'tags) field-events))))))))
     (when added-events
       (decklet-run-hook-isolated 'decklet-cards-added-functions
                                  (nreverse added-events)))
@@ -683,22 +677,32 @@ switched off rather than only when the buffer is killed.")
          (back (plist-get card :back))
          (buf-name (format "*Decklet Card Back: %s*" word))
          (buffer (get-buffer-create buf-name)))
-    (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (funcall decklet-card-back-buffer-major-mode)
-        (setq-local decklet-card-back--card-id card-id)
-        (when back
-          (insert back))
-        (goto-char (point-min)))
-      ;; read-only by default
-      (setq buffer-read-only (and back t))
-      ;; Loading content from the DB isn't a user edit; clear the modified
-      ;; flag so `decklet-card-back--kill-buffer-query' doesn't prompt on a
-      ;; buffer the user hasn't actually touched.
-      (set-buffer-modified-p nil)
-      (decklet-card-back-mode 1))
-    (pop-to-buffer buffer)))
+    ;; A popup with unsaved edits is the user's work in progress, not a
+    ;; stale view: show it as is instead of reloading over it.
+    (if (and (buffer-modified-p buffer)
+             (eql (buffer-local-value 'decklet-card-back--card-id buffer)
+                  card-id))
+        (pop-to-buffer buffer)
+      (decklet-card-back--load buffer card-id back)
+      (pop-to-buffer buffer))))
+
+(defun decklet-card-back--load (buffer card-id back)
+  "Fill BUFFER with CARD-ID's card BACK and enable the popup mode."
+  (with-current-buffer buffer
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (funcall decklet-card-back-buffer-major-mode)
+      (setq-local decklet-card-back--card-id card-id)
+      (when back
+        (insert back))
+      (goto-char (point-min)))
+    ;; read-only by default
+    (setq buffer-read-only (and back t))
+    ;; Loading content from the DB isn't a user edit; clear the modified
+    ;; flag so `decklet-card-back--kill-buffer-query' doesn't prompt on a
+    ;; buffer the user hasn't actually touched.
+    (set-buffer-modified-p nil)
+    (decklet-card-back-mode 1)))
 
 (provide 'decklet-deck)
 ;;; decklet-deck.el ends here

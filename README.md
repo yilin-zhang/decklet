@@ -445,6 +445,11 @@ Press `u` during review to go back to a previously rated or skipped card.
 The previous rating is highlighted. Press `1`–`4` to re-rate, or `n` to
 keep the original rating and move on.
 
+Re-rating rewrites history from that point for the card. If the same card was
+reviewed again later in the session (a learning card coming back after its
+step, say), those later reviews were based on the rating you just replaced, so
+they are discarded and voided in the review log rather than revisited.
+
 Edit-mode rating is disabled while a review session is active.
 
 ### Daily Goal
@@ -819,7 +824,9 @@ JSON item format:
 
 `decklet-db-import-json` is useful when you want to migrate FSRS metadata from
 another tool or from a transformed export file. The importer reads the same
-schema used by the export function, as shown above.
+schema used by the export function, as shown above. Timestamps may be any
+ISO 8601 date-time, with or without a UTC offset; they are stored converted to
+UTC (`2025-04-12T16:18:00Z`), the form Decklet itself writes.
 
 ### Review Log
 
@@ -1153,6 +1160,9 @@ grading action, in both review and edit modes.
   within the same session, `:prior-grade` is the grade being replaced.
   Extensions that track per-grade statistics should decrement the
   prior-grade counter to compensate for the original event.
+- A re-rate also discards the same card's later reviews in that session
+  (see [Undo](#undo)). No event is fired for those; consumers that need exact
+  per-grade totals should rebuild them from the review log, which voids them.
 - Undo alone does not fire this hook (no DB change).
 - Confirming an undone rating (`n` on an undone card) does not fire
   the hook either — the original event already reflects the final state.

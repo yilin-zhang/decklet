@@ -572,10 +572,13 @@ review buffer, which refreshes if the renamed card is on screen."
                     id tags))
          marked)))))
 
-;;;###autoload
 (defun decklet-edit-filter-tag ()
   "Filter the edit view by a tag; empty input clears the tag filter."
   (interactive)
+  ;; The refresh reprints the current buffer as the card table, so
+  ;; running this anywhere else would overwrite that buffer's text.
+  (unless (derived-mode-p 'decklet-edit-mode)
+    (user-error "Not in a Decklet edit buffer"))
   (setq decklet-edit--tag-filter
         (let ((tag (completing-read "Tag (empty for all): " (decklet-list-tags))))
           (unless (string-empty-p tag) tag)))

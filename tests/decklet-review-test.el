@@ -289,6 +289,49 @@ new-card base), not the stability left behind by the undone rating."
         (should (= 3 (plist-get good :grade)))
         (should (null (plist-get good :pre_stability)))))))
 
+(ert-deftest decklet-test-review-rerate-drops-later-entries-of-same-card ()
+  "Re-rating an earlier review retires the same card's later reviews.
+Those were rated from the state the re-rate replaced, so keeping them
+would leave a log rating the database no longer reflects."
+  (decklet-test--with-temp-db
+    (decklet--add-card "a")
+    (decklet--add-card "b")
+    (let ((a (decklet-test--card-id "a"))
+          (b (decklet-test--card-id "b"))
+          (decklet-due-card-ids nil)
+          (decklet-review--trail-past nil)
+          (decklet-review--trail-future nil))
+      (cl-letf (((symbol-function 'decklet-review--advance)
+                 (lambda ()
+                   (setq decklet-current-card-id
+                         (plist-get (decklet-review--trail-current-entry) :card-id))))
+                ((symbol-function 'decklet-review--present-card)
+                 (lambda (id) (setq decklet-current-card-id id))))
+        (setq decklet-current-card-id a) (decklet-review--handle-grade 1)
+        (setq decklet-current-card-id b) (decklet-review--handle-grade 3)
+        (setq decklet-current-card-id a) (decklet-review--handle-grade 3)
+        (setq decklet-current-card-id nil)
+        (dotimes (_ 3) (decklet-review-undo))
+        (should (eql a decklet-current-card-id))
+        (decklet-review--handle-grade 4))
+      ;; Only B is left to revisit; A's later rating is gone from the trail.
+      (should (equal (list b) (mapcar (lambda (e) (plist-get e :card-id))
+                                      decklet-review--trail-future)))
+      (let* ((records (decklet-test--read-log))
+             (rated-a (seq-filter (lambda (r) (and (equal (plist-get r :kind) "rated")
+                                                   (eql (plist-get r :card_id) a)))
+                                  records))
+             (voided (mapcar (lambda (r) (plist-get r :voids))
+                             (seq-filter (lambda (r) (equal (plist-get r :kind) "void"))
+                                         records)))
+             (effective (seq-remove (lambda (r) (memql (plist-get r :id) voided))
+                                    rated-a)))
+        ;; Both original ratings of A are voided; the re-rate stands alone
+        ;; and matches the database.
+        (should (equal '(4) (mapcar (lambda (r) (plist-get r :grade)) effective)))
+        (should (= (plist-get (car effective) :post_stability)
+                   (decklet-card-meta-stability (decklet-get-card-meta a))))))))
+
 (ert-deftest decklet-test-review-next-card-after-confirm-resumes-forward ()
   "Confirming the last undone card resumes forward review.
 The next due card appears with only one prior trail entry."

@@ -142,5 +142,15 @@ Under the archived filter, the same command unarchives it."
       (decklet-edit-test--confirm #'decklet-edit-archive-card)
       (should (= 0 (length (decklet-db--select-card-rows 'archived nil)))))))
 
+(ert-deftest decklet-test-edit-filter-tag-refuses-other-buffers ()
+  "Filtering by tag outside the edit buffer leaves that buffer untouched."
+  (decklet-test--with-temp-db
+    (decklet--add-card "gamma")
+    (with-temp-buffer
+      (insert "user text\n")
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "")))
+        (should-error (decklet-edit-filter-tag) :type 'user-error))
+      (should (string= "user text\n" (buffer-string))))))
+
 (provide 'decklet-edit-test)
 ;;; decklet-edit-test.el ends here

@@ -147,6 +147,24 @@ No ghost card-id leaks to `decklet-cards-added-functions'."
       (should-error (decklet-test--import (list record)) :type 'user-error))
     (should-not (decklet-list-words))))
 
+(ert-deftest decklet-test-transfer-import-normalizes-timestamps-to-utc ()
+  "Import rewrites offset timestamps into the canonical UTC form.
+The DB compares timestamps as strings, so a stored offset would make
+an overdue card look like it falls due hours later."
+  (decklet-test--with-temp-db
+    (let ((due (format-time-string "%FT%T+08:00" (time-subtract nil 3600) "UTC-8")))
+      (decklet-test--import
+       (list `((word . "alpha") (state . "review")
+               (last_review . "20250101T000000Z") (due . ,due)
+               (stability . 5.0) (difficulty . 5.0))))
+      (let ((meta (decklet-get-card-meta (decklet-test--card-id "alpha"))))
+        (should (string= "2025-01-01T00:00:00Z" (decklet-card-meta-last-review meta)))
+        (should (string-suffix-p "Z" (decklet-card-meta-due meta)))
+        (should (= 0 (round (fsrs-timestamp-difference
+                             (decklet-card-meta-due meta) due)))))
+      (should (equal (list (decklet-test--card-id "alpha"))
+                     (decklet-db--select-due-card-ids))))))
+
 (ert-deftest decklet-test-transfer-overwrite-notifies-card-change ()
   "Overwriting an imported card emits one refresh event after commit."
   (decklet-test--with-temp-db

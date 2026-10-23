@@ -10,6 +10,8 @@
 
 (require 'cl-lib)
 (require 'json)
+(require 'parse-time)
+(require 'sqlite)
 
 (require 'decklet-core)
 (require 'decklet-scheduler)
@@ -66,15 +68,20 @@ FSRS only accepts learning/review/relearning scheduler states."
       (decklet--fsrs-schedulable-state (or raw :learning))
     (error (user-error "Invalid card state in import: %S" raw))))
 
-(defun decklet-transfer--import-valid-timestamp-p (value)
-  "Return non-nil when VALUE is nil or a valid FSRS timestamp string."
-  (or (null value)
-      (and (stringp value)
-           (condition-case nil
-               (progn
-                 (fsrs-timestamp-difference value value)
-                 t)
-             (error nil)))))
+(defun decklet-transfer--import-timestamp (word field value)
+  "Return WORD's FIELD VALUE as a canonical FSRS timestamp, or nil.
+VALUE may be any ISO 8601 date-time, including offsets other than UTC.
+The DB compares timestamps as strings, so everything imported must be
+rewritten into the single UTC form `decklet--now' produces; storing
+\"…+08:00\" verbatim would make the card sort, and fall due, by its
+local digits.  Signal a `user-error' when VALUE does not parse."
+  (when value
+    (or (and (stringp value)
+             (ignore-errors
+               (decklet--time->fsrs-timestamp
+                (parse-iso8601-time-string value))))
+        (user-error "Card %S: %s must be a valid FSRS timestamp, got %S"
+                    word field value))))
 
 (defun decklet-transfer--import-validate-number (word field value predicate description)
   "Validate WORD's FIELD VALUE with PREDICATE, expecting DESCRIPTION."
@@ -90,14 +97,6 @@ FSRS only accepts learning/review/relearning scheduler states."
          (state (decklet-card-meta-state meta))
          (step (decklet-card-meta-step meta))
          (last-review (decklet-card-meta-last-review meta)))
-    (dolist (field-value
-             `(("added_date" ,(decklet-card-meta-added-date meta))
-               ("last_review" ,last-review)
-               ("due" ,(decklet-card-meta-due meta))
-               ("archived_at" ,(plist-get card :archived-at))))
-      (unless (decklet-transfer--import-valid-timestamp-p (cadr field-value))
-        (user-error "Card %S: %s must be a valid FSRS timestamp, got %S"
-                    word (car field-value) (cadr field-value))))
     (unless (or (and (eq state :review) (null step))
                 (and (integerp step) (>= step 0)))
       (user-error "Card %S: step must be a non-negative integer, got %S"
@@ -152,11 +151,14 @@ string.  The :tags value is nil when absent, otherwise
                 ((null step-raw) (if (eq state :review) nil 0))
                 ((numberp step-raw) step-raw)
                 (t step-raw)))
+         (timestamp (lambda (key)
+                      (decklet-transfer--import-timestamp
+                       word key (decklet-transfer--json-alist-get record key))))
          (meta (make-decklet-card-meta
                 :card-id (decklet-db--mint-card-id)
-                :added-date (or (decklet-transfer--json-alist-get record 'added_date) now)
-                :last-review (decklet-transfer--json-alist-get record 'last_review)
-                :due (or (decklet-transfer--json-alist-get record 'due) now)
+                :added-date (or (funcall timestamp 'added_date) now)
+                :last-review (funcall timestamp 'last_review)
+                :due (or (funcall timestamp 'due) now)
                 :state state
                 :step step
                 :stability (decklet-transfer--json-alist-get record 'stability)
@@ -165,7 +167,7 @@ string.  The :tags value is nil when absent, otherwise
                 (decklet-transfer--json-alist-get-raw record 'hint)))
          (back (decklet-transfer--import-text-value
                 (decklet-transfer--json-alist-get-raw record 'back)))
-         (archived-at (decklet-transfer--json-alist-get record 'archived_at)))
+         (archived-at (funcall timestamp 'archived_at)))
     (decklet-transfer--import-validate-card
      (list :card-id (decklet-card-meta-card-id meta)
            :word word
@@ -288,31 +290,25 @@ Return a plist with :added, :overwritten, and :skipped."
            (added 0) (overwritten 0) (skipped 0)
            (added-card-ids nil)
            (overwritten-card-ids nil))
-      ;; Write all cards in a single transaction.
-      (let ((conn (decklet-db--ensure)))
-        (sqlite-execute conn "BEGIN;")
-        (condition-case err
-            (progn
-              (dolist (entry planned)
-                (let ((card (car entry))
-                      (action (cdr entry)))
-                  (pcase action
-                    (:add
-                     (push (decklet-transfer--apply-import-card card nil)
-                           added-card-ids)
-                     (cl-incf added))
-                    (:skip
-                     (cl-incf skipped))
-                    (:overwrite
-                     (push (decklet-transfer--apply-import-card card t)
-                           overwritten-card-ids)
-                     (cl-incf overwritten))
-                    (_
-                     (error "Unknown import action: %S" action)))))
-              (sqlite-execute conn "COMMIT;"))
-          (error
-           (sqlite-execute conn "ROLLBACK;")
-           (signal (car err) (cdr err)))))
+      ;; Write all cards in a single transaction.  It rolls back on
+      ;; any non-local exit, including a `quit'.
+      (with-sqlite-transaction (decklet-db--ensure)
+        (dolist (entry planned)
+          (let ((card (car entry))
+                (action (cdr entry)))
+            (pcase action
+              (:add
+               (push (decklet-transfer--apply-import-card card nil)
+                     added-card-ids)
+               (cl-incf added))
+              (:skip
+               (cl-incf skipped))
+              (:overwrite
+               (push (decklet-transfer--apply-import-card card t)
+                     overwritten-card-ids)
+               (cl-incf overwritten))
+              (_
+               (error "Unknown import action: %S" action))))))
       ;; Fire lifecycle events after the transaction commits so
       ;; sidecar extensions only see successful imports.  One batched
       ;; event per successful import.

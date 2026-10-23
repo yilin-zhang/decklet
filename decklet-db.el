@@ -154,7 +154,8 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
 (defun decklet-db--disconnect ()
   "Close the SQLite connection used by Decklet."
   (when decklet-db--conn
-    (run-hooks 'decklet-db-pre-disconnect-hook)
+    ;; A failing extension must not keep the connection open.
+    (decklet-run-hook-isolated 'decklet-db-pre-disconnect-hook)
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 

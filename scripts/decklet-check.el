@@ -13,6 +13,7 @@
 ;; `cl-letf' bodies get measured against the fallback rule.
 (require 'cl-lib)
 (require 'seq)
+(require 'sqlite)
 (require 'subr-x)
 
 (defconst decklet-check--file (or load-file-name buffer-file-name)

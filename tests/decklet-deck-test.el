@@ -190,6 +190,73 @@ The database retains its old back."
           (with-current-buffer buf (set-buffer-modified-p nil))
           (kill-buffer buf))))))
 
+;;; Card back reopen
+
+(ert-deftest decklet-test-deck-card-back-reopen-keeps-unsaved-edits ()
+  "Reopening a modified card back shows the edits instead of reloading."
+  (decklet-test--with-temp-db
+    (decklet-test--add-card-meta "glow" :state :new :timestamp "20250101T000000Z")
+    (decklet-deck-test--show "glow")
+    (let ((buf (decklet-deck-test--card-back-buffer "glow")))
+      (unwind-protect
+          (progn
+            (with-current-buffer buf (insert "draft"))
+            (decklet-deck-test--show "glow")
+            (with-current-buffer buf
+              (should (buffer-modified-p))
+              (should (string= "draft" (buffer-string)))))
+        (when (buffer-live-p buf)
+          (with-current-buffer buf (set-buffer-modified-p nil))
+          (kill-buffer buf))))))
+
+;;; Rating commit
+
+(ert-deftest decklet-test-deck-rating-survives-failure-after-db-write ()
+  "A failure after the DB write leaves the rating standing in the log.
+Only a failed DB write retires the freshly written log record."
+  (decklet-test--with-temp-db
+    (decklet--add-card "w")
+    (let ((id (decklet-test--card-id "w")))
+      (cl-letf (((symbol-function 'decklet--refresh-counter)
+                 (lambda () (error "Counter refresh failed"))))
+        (should-error (decklet-rate-card id 3)))
+      (should (decklet-card-meta-last-review (decklet-get-card-meta id)))
+      (should (equal (list decklet-review-log-kind-rated)
+                     (mapcar (lambda (r) (plist-get r :kind))
+                             (decklet-test--read-log)))))))
+
+(ert-deftest decklet-test-deck-rating-voids-log-when-db-write-fails ()
+  "A failed DB write retires the log record written for the rating."
+  (decklet-test--with-temp-db
+    (decklet--add-card "w")
+    (let ((id (decklet-test--card-id "w")))
+      (cl-letf (((symbol-function 'decklet-db--upsert-card)
+                 (lambda (&rest _) (error "Disk full"))))
+        (should-error (decklet-rate-card id 3)))
+      (should-not (decklet-card-meta-last-review (decklet-get-card-meta id)))
+      (should (equal (list decklet-review-log-kind-rated
+                           decklet-review-log-kind-void)
+                     (mapcar (lambda (r) (plist-get r :kind))
+                             (decklet-test--read-log)))))))
+
+;;; Batch transaction
+
+(ert-deftest decklet-test-deck-batch-quit-rolls-back-transaction ()
+  "Quitting mid-batch rolls back and leaves no transaction open."
+  (decklet-test--with-temp-db
+    (with-temp-buffer
+      (insert "first\nsecond\n# hint\n")
+      (cl-letf (((symbol-function 'decklet-set-card-hint)
+                 (lambda (&rest _) (signal 'quit nil))))
+        (should (eq 'quit (condition-case nil
+                              (decklet-add-card-batch-confirm)
+                            (quit 'quit))))))
+    (should-not (decklet-list-words))
+    ;; A dangling transaction would make this BEGIN fail.
+    (with-sqlite-transaction (decklet-db--ensure)
+      (decklet--add-card "after"))
+    (should (equal '("after") (decklet-list-words)))))
+
 ;;; Batch collection parsing
 
 (ert-deftest decklet-test-deck-batch-collect-cards-with-hints ()
