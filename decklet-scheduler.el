@@ -1,6 +1,6 @@
 ;;; decklet-scheduler.el --- Scheduler core for Decklet -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 

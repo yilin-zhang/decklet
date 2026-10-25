@@ -388,5 +388,45 @@ The next due card appears with only one prior trail entry."
     (should (decklet-test--string-has-face-p
              output 'decklet-review-undo-highlight-face))))
 
+(ert-deftest decklet-test-review-undo-renders-from-pre-rating-meta ()
+  "While undoing, the review buffer renders the card's pre-rating meta.
+Re-rating applies the new grade to the trail entry's `:pre-meta', so the
+predicted intervals must be computed from that same state rather than
+from the already-rated row in the DB."
+  (decklet-test--with-temp-db
+    (let* ((id (plist-get (decklet--add-card "lucid") :card-id))
+           ;; A second due card keeps the session open after the grade.
+           (other (plist-get (decklet--add-card "vivid") :card-id))
+           (seen nil))
+      (with-current-buffer (get-buffer-create decklet-review-buffer-name)
+        (unwind-protect
+            (progn
+              (decklet-review-mode)
+              (setq decklet-current-card-id id
+                    decklet-due-card-ids (list other))
+              (cl-letf (((symbol-function 'run-hooks) #'ignore)
+                        ((symbol-function 'decklet-review-component-rates)
+                         (lambda ()
+                           (push (cons decklet-current-card-id
+                                       (decklet-card-meta-effective-state
+                                        decklet-review--render-meta))
+                                 seen)
+                           "")))
+                (decklet-review--handle-grade 3)
+                (decklet-review-undo)
+                ;; The DB row now holds the rated state...
+                (should (eq :learning
+                            (decklet-card-meta-effective-state
+                             (decklet-get-card-meta id))))
+                ;; ...but the undo render shows the card as it was
+                ;; before the rating being replaced.
+                (should (equal (cons id :new) (car seen)))
+                (should (eq (decklet-card-meta-effective-state
+                             (plist-get (decklet-review--trail-current-entry)
+                                        :pre-meta))
+                            (cdr (car seen))))))
+          (setq kill-buffer-query-functions nil)
+          (kill-buffer (current-buffer)))))))
+
 (provide 'decklet-review-test)
 ;;; decklet-review-test.el ends here

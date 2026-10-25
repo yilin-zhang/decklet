@@ -1,6 +1,6 @@
 ;;; decklet.el --- Spaced repetition system for language learning -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;; Author: Yilin Zhang
 ;; Keywords: tools
@@ -38,6 +38,8 @@
 (require 'decklet-transfer)
 (require 'decklet-backup)
 (require 'decklet-deck)
+(require 'decklet-batch)
+(require 'decklet-card-back)
 (require 'decklet-edit)
 (require 'decklet-review)
 (require 'decklet-lookup)

@@ -1,6 +1,6 @@
 ;;; decklet-backup.el --- Backup and restore for Decklet -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 
@@ -26,6 +26,14 @@ review log JSONL alongside the DB snapshot.")
   (expand-file-name "backups" decklet-directory)
   "Directory for Decklet database backups."
   :type 'file
+  :group 'decklet-db)
+
+(defcustom decklet-backup-automatic t
+  "Whether Decklet backs up the database around review and edit sessions.
+When non-nil, `decklet-db-backup' runs from the review and edit
+start and quit hooks, so every session begins and ends with a current
+snapshot pair.  Set to nil to back up only by hand."
+  :type 'boolean
   :group 'decklet-db)
 
 (defcustom decklet-backup-prune-max-count 20
@@ -234,6 +242,12 @@ the completion UI from re-sorting them."
         (decklet-backup--backup)
         (when (called-interactively-p 'any)
           (message "Backup created"))))))
+
+(defun decklet-backup-session ()
+  "Back up the database when `decklet-backup-automatic' is non-nil.
+Registered by the review and edit modules on their session hooks."
+  (when decklet-backup-automatic
+    (decklet-db-backup)))
 
 ;;;###autoload
 (defun decklet-db-restore ()

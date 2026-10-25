@@ -7,8 +7,10 @@ FSRS_DIR="$(./scripts/check-deps.sh)"
 
 TEST_LOAD_ARGS=()
 while IFS= read -r file; do
+  # `--cached' still lists files deleted but not yet committed.
+  [[ -f "$file" ]] || continue
   TEST_LOAD_ARGS+=(-l "$file")
-done < <(git ls-files 'tests/*-test.el')
+done < <(git ls-files --cached --others --exclude-standard 'tests/*-test.el')
 
 if [[ ${#TEST_LOAD_ARGS[@]} -eq 0 ]]; then
   echo "Error: no tracked ERT test files found" >&2

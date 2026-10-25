@@ -30,8 +30,10 @@ fi
 cd "$REPO_ROOT"
 PACKAGE_FILES=()
 while IFS= read -r file; do
+  # `--cached' still lists files deleted but not yet committed.
+  [[ -f "$file" ]] || continue
   PACKAGE_FILES+=("$file")
-done < <(git ls-files ':(top,glob)decklet*.el')
+done < <(git ls-files --cached --others --exclude-standard ':(top,glob)decklet*.el')
 
 if [[ ${#PACKAGE_FILES[@]} -eq 0 ]]; then
   echo "Error: no tracked Decklet package files found" >&2

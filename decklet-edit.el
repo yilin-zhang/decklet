@@ -1,6 +1,6 @@
 ;;; decklet-edit.el --- Edit mode for Decklet -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 
@@ -18,6 +18,7 @@
 (require 'decklet-db)
 (require 'decklet-backup)
 (require 'decklet-deck)
+(require 'decklet-card-back)
 
 (defvar decklet-review-buffer-name)
 
@@ -682,6 +683,8 @@ Runs whether the session is ended via `decklet-edit-quit' or by
 killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
   (decklet-edit--clean-up)
+  (remove-hook 'window-selection-change-functions
+               #'decklet-edit--flush-pending-refresh)
   (run-hooks 'decklet-edit-quit-hook))
 
 (defun decklet-edit-quit ()
@@ -690,9 +693,9 @@ always leave the same amount of state behind."
   (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
     (kill-buffer buffer)))
 
-;;; Backup
-(add-hook 'decklet-edit-start-hook #'decklet-db-backup)
-(add-hook 'decklet-edit-quit-hook #'decklet-db-backup)
+;;; Backup (see `decklet-backup-automatic')
+(add-hook 'decklet-edit-start-hook #'decklet-backup-session)
+(add-hook 'decklet-edit-quit-hook #'decklet-backup-session)
 
 ;; When the edit buffer isn't the selected window, refresh is deferred
 ;; and flushed on next focus: `tabulated-list-print t' falls back to
@@ -716,16 +719,14 @@ Accepts any hook signature; arguments are ignored."
 
 (defun decklet-edit--flush-pending-refresh (&rest _)
   "Flush a pending refresh when the edit buffer becomes selected.
-Registered on `window-selection-change-functions'."
+Installed on `window-selection-change-functions' by `decklet-edit-mode'
+and removed again when the edit buffer is killed."
   (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
     (when (and (eq buffer (window-buffer (selected-window)))
                (buffer-local-value 'decklet-edit--refresh-pending buffer))
       (with-current-buffer buffer
         (setq decklet-edit--refresh-pending nil)
         (decklet-edit-refresh)))))
-
-(add-hook 'window-selection-change-functions
-          #'decklet-edit--flush-pending-refresh)
 
 (dolist (hook '(decklet-cards-added-functions
                 decklet-cards-deleted-functions
@@ -770,6 +771,10 @@ Registered on `window-selection-change-functions'."
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)
+  ;; Global, so it is installed only while an edit buffer exists and
+  ;; removed by `decklet-edit--on-kill-buffer'.
+  (add-hook 'window-selection-change-functions
+            #'decklet-edit--flush-pending-refresh)
   (add-hook 'kill-buffer-hook #'decklet-edit--on-kill-buffer nil t))
 
 (provide 'decklet-edit)

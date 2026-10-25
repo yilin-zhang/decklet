@@ -1,6 +1,6 @@
 ;;; decklet-transfer.el --- JSON transfer for Decklet -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 

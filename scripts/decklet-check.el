@@ -26,11 +26,23 @@
   "Absolute path to the Decklet repository root.")
 
 (defun decklet-check--elisp-files ()
-  "Return absolute paths of tracked Decklet Elisp files."
+  "Return absolute paths of the Decklet Elisp files to check.
+Covers the package sources, their tests and the check scripts, whether
+already tracked or still untracked, so a freshly added file is checked
+before its first commit.  Other untracked Elisp in the repo root (a
+scratch config, say) is left alone."
   (let* ((default-directory decklet-check--root)
-         (files (mapcar (lambda (file)
-                          (expand-file-name file decklet-check--root))
-                        (process-lines "git" "ls-files" "*.el"))))
+         (files (seq-filter
+                 ;; `--cached' still lists files deleted from the work
+                 ;; tree but not yet committed.
+                 #'file-exists-p
+                 (mapcar (lambda (file)
+                           (expand-file-name file decklet-check--root))
+                         (process-lines "git" "ls-files" "--cached" "--others"
+                                        "--exclude-standard"
+                                        ":(top,glob)decklet*.el"
+                                        ":(top,glob)tests/*.el"
+                                        ":(top,glob)scripts/*.el")))))
     (if (member decklet-check--file files)
         files
       (cons decklet-check--file files))))

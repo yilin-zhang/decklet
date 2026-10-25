@@ -776,6 +776,8 @@ happens — an idle handle on a local file costs nothing.
 Backup behavior:
 
 - Backups are automatically triggered on review/edit session start and quit.
+  Set `decklet-backup-automatic` to nil to turn this off and back up only
+  by hand.
 - A backup is only created when the DB file has changed since the latest
   snapshot.
 - Each snapshot is a **pair**: the SQLite database and the review log JSONL
@@ -880,6 +882,11 @@ Decklet provides several session hooks for customization:
 
 For card-level lifecycle events (added/deleted/renamed/rated/etc.), see
 [Writing Extensions](#writing-extensions).
+
+Decklet itself uses the session hooks: the review and edit start/quit hooks
+run the automatic backup (see `decklet-backup-automatic`), and the review
+hooks install and remove the resize/text-scale refresh. Your own functions
+run alongside these.
 
 Gamification with sound effects is a good example of hook usage. Here's an example:
 

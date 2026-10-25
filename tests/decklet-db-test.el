@@ -241,31 +241,6 @@ The connection stays open and the pre-disconnect hook does not run."
         (should (= 1 (plist-get counts :due-learning)))
         (should (= 1 (plist-get counts :new)))))))
 
-(ert-deftest decklet-test-db-due-counts-by-date-splits-overdue-and-range ()
-  "`decklet-db-due-counts-by-date' separates overdue cards from in-range ones.
-This is the public API the calendar extension relies on."
-  (decklet-test--with-temp-db
-    (let* ((now (current-time))
-           (day-start (decklet-day-start-time now))
-           (cutoff (decklet--next-day-start-time now))
-           (ts-added (decklet-test--ts (time-subtract now (seconds-to-time 7200))))
-           (ts-last (decklet-test--ts (time-subtract now (seconds-to-time 1800)))))
-      (decklet-db--upsert-card
-       "overdue-card"
-       (make-decklet-card-meta
-        :added-date ts-added :last-review ts-last
-        :due (decklet-test--ts (time-subtract day-start (seconds-to-time 60)))
-        :state :review))
-      (decklet-db--upsert-card
-       "range-card"
-       (make-decklet-card-meta
-        :added-date ts-added :last-review ts-last
-        :due (decklet-test--ts (time-add day-start (seconds-to-time 3600)))
-        :state :review))
-      (let ((result (decklet-db-due-counts-by-date day-start cutoff)))
-        (should (= 1 (plist-get result :overdue)))
-        (should (= 1 (apply #'+ (mapcar #'cadr (plist-get result :rows)))))))))
-
 ;;; Review-order validation
 
 (ert-deftest decklet-test-db-review-order-rejects-duplicate-target ()
@@ -401,6 +376,33 @@ This is the public API the calendar extension relies on."
              (counts (decklet-db--counts)))
         (should (= 3 (plist-get counts :new-remaining)))
         (should-not (plist-get counts :limited))))))
+
+;;; Calendar due counts
+
+(ert-deftest decklet-test-db-due-counts-by-date-splits-overdue-and-range ()
+  "`decklet-db-due-counts-by-date' separates overdue cards from in-range ones.
+This is the public API the calendar extension relies on."
+  (decklet-test--with-temp-db
+    (let* ((now (current-time))
+           (day-start (decklet-day-start-time now))
+           (cutoff (decklet--next-day-start-time now))
+           (ts-added (decklet-test--ts (time-subtract now (seconds-to-time 7200))))
+           (ts-last (decklet-test--ts (time-subtract now (seconds-to-time 1800)))))
+      (decklet-db--upsert-card
+       "overdue-card"
+       (make-decklet-card-meta
+        :added-date ts-added :last-review ts-last
+        :due (decklet-test--ts (time-subtract day-start (seconds-to-time 60)))
+        :state :review))
+      (decklet-db--upsert-card
+       "range-card"
+       (make-decklet-card-meta
+        :added-date ts-added :last-review ts-last
+        :due (decklet-test--ts (time-add day-start (seconds-to-time 3600)))
+        :state :review))
+      (let ((result (decklet-db-due-counts-by-date day-start cutoff)))
+        (should (= 1 (plist-get result :overdue)))
+        (should (= 1 (apply #'+ (mapcar #'cadr (plist-get result :rows)))))))))
 
 ;;; Card back — DB layer
 

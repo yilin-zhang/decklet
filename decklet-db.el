@@ -1,10 +1,13 @@
 ;;; decklet-db.el --- Database layer for Decklet -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 
-;; SQLite connection management and card queries.
+;; SQLite connection management and card queries.  Also plans the
+;; review queue from `decklet-review-order': selecting due cards, assigning
+;; them to order steps, applying daily limits from the review log, and
+;; computing the review counters.
 
 ;;; Code:
 

@@ -1,6 +1,6 @@
 ;;; decklet-review.el --- Review mode for Decklet -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026
+;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 
@@ -16,6 +16,7 @@
 (require 'decklet-core)
 (require 'decklet-db)
 (require 'decklet-deck)
+(require 'decklet-card-back)
 (require 'decklet-review-log)
 (require 'decklet-backup)
 
@@ -663,6 +664,15 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
                            (let ((inhibit-read-only t))
                              (erase-buffer)
                              (insert (decklet-review--render-components))))))
+      ;; An undone card is re-rated from the state it had before the
+      ;; rating being replaced (`decklet-review--handle-grade' uses the
+      ;; trail entry's `:pre-meta'), while the DB already holds the
+      ;; rated state.  Render from the same base the re-rate will use,
+      ;; so the title and the predicted intervals describe what pressing
+      ;; a grade key actually does.
+      (when-let* ((entry (decklet-review--trail-current-entry))
+                  (pre-meta (plist-get entry :pre-meta)))
+        (setq decklet-review--render-meta pre-meta))
       ;; Render using the review window so centering uses its dimensions.
       (if window
           (with-selected-window window (funcall render))
@@ -999,9 +1009,9 @@ is needed here."
       (decklet--refresh-counter)
       (decklet-review-next-card))))
 
-;; Backup
-(add-hook 'decklet-review-start-hook #'decklet-db-backup)
-(add-hook 'decklet-review-quit-hook #'decklet-db-backup)
+;; Backup (see `decklet-backup-automatic')
+(add-hook 'decklet-review-start-hook #'decklet-backup-session)
+(add-hook 'decklet-review-quit-hook #'decklet-backup-session)
 ;; Auto-refresh
 (add-hook 'decklet-review-start-hook #'decklet-review--enable-resize-refresh)
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
