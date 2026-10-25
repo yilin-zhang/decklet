@@ -42,6 +42,13 @@ Seeded lazily from the current `MAX(card_id)' on first call,
 then incremented monotonically with each mint.  Reset to nil each
 Emacs session so the seed is recomputed from the DB on startup.")
 
+(defvar decklet-db-pre-connect-hook nil
+  "Hook run immediately before the SQLite connection is opened.
+A function may signal an error, typically a `user-error', to refuse
+the connection: the error reaches the command that needed the
+database and no connection is opened.  Use this to guard the
+database file, e.g. against opening it while it is out of sync.")
+
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
 Use this for last-chance cleanup of sidecar resources that depend
@@ -123,6 +130,7 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
 (defun decklet-db--ensure ()
   "Ensure SQLite connection and schema are initialized."
   (unless decklet-db--conn
+    (run-hooks 'decklet-db-pre-connect-hook)
     (decklet-db--ensure-db-dir)
     (setq decklet-db--conn (sqlite-open decklet-db-file))
     (sqlite-execute decklet-db--conn "PRAGMA journal_mode = TRUNCATE;")

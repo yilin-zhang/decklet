@@ -1077,6 +1077,13 @@ disposer discarded.
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
 
+`decklet-db-pre-connect-hook` runs right before Decklet opens the
+SQLite connection, once per connection.  A function on it may signal an
+error (usually a `user-error`) to refuse the connection: the error
+reaches whichever command needed the database, and nothing is opened.
+This guards every entry point at once (review, edit, adding cards,
+import/export), so prefer it over advising individual commands.
+
 #### Faces
 
 Define faces with plain `defface` and get colors through `:inherit`,

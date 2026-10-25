@@ -147,6 +147,28 @@ left open with nothing holding it."
       (should (buffer-live-p buf))
       (should-not decklet-db--conn))))
 
+(ert-deftest decklet-test-db-pre-connect-hook-runs-once-per-connection ()
+  "The pre-connect hook runs before opening, not on reuse."
+  (decklet-test--with-temp-db
+    (let* ((hook-count 0)
+	   (decklet-db-pre-connect-hook
+	    (list (lambda ()
+		    (should-not decklet-db--conn)
+		    (cl-incf hook-count)))))
+      (decklet-db--ensure)
+      (decklet-db--ensure)
+      (should decklet-db--conn)
+      (should (= hook-count 1)))))
+
+(ert-deftest decklet-test-db-pre-connect-hook-error-refuses-connection ()
+  "An error from the pre-connect hook leaves the DB unopened."
+  (decklet-test--with-temp-db
+    (let ((decklet-db-pre-connect-hook
+	   (list (lambda () (user-error "Refused")))))
+      (should-error (decklet-db--ensure) :type 'user-error)
+      (should-not decklet-db--conn)
+      (should-not (file-exists-p decklet-db-file)))))
+
 (ert-deftest decklet-test-db-disconnect-kills-session-buffers-and-closes-db ()
   "`decklet-disconnect' kills session buffers and closes the connection.
 It fires the pre-disconnect hook exactly once."
