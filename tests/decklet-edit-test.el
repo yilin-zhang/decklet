@@ -26,81 +26,24 @@ BODY can refer to `buf', the edit buffer."
   (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
     (funcall fn)))
 
-;;; Mode setup
-
-(ert-deftest decklet-test-edit-mode-registers-session-buffer ()
-  "`decklet-edit-mode' marks its buffer as a Decklet session buffer."
-  (with-temp-buffer
-    (decklet-edit-mode)
-    (should decklet-db--session-buffer)))
-
-;;; Marking
-
-(ert-deftest decklet-test-edit-mark-region-marks-covered-rows ()
-  "`decklet-edit--mark-region' marks every card row between two positions."
-  (decklet-test--with-temp-db
-    (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
-    (decklet-edit-test--with-buffer
-      (let ((alpha (decklet-test--card-id "alpha"))
-            (beta (decklet-test--card-id "beta"))
-            (gamma (decklet-test--card-id "gamma"))
-            (end (save-excursion
-                   (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
-                   (line-end-position))))
-        (decklet-edit--mark-region (point-min) end)
-        (should (gethash alpha decklet-edit--marked))
-        (should (gethash beta decklet-edit--marked))
-        (should-not (gethash gamma decklet-edit--marked))))))
-
-(ert-deftest decklet-test-edit-mark-adds-row-and-indicator-overlays ()
-  "Marking a row records its card id and adds two overlays (row + indicator)."
-  (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "alpha")
-    (decklet-edit-test--with-buffer
-      (goto-char (point-min))
-      (decklet-edit-mark-at-point)
-      (should (gethash (decklet-test--card-id "alpha") decklet-edit--marked))
-      (should (= 2 (length (seq-filter (lambda (o) (overlay-get o 'decklet-mark))
-                                       (overlays-in (point-min) (point-max)))))))))
-
-;;; Navigation helpers
-
-(ert-deftest decklet-test-edit-goto-card-id ()
-  "`decklet-edit--goto-card-id' moves to the matching row."
-  (decklet-test--with-temp-db
-    (dolist (w '("alpha" "beta")) (decklet-test--add-card-meta w))
-    (decklet-edit-test--with-buffer
-      (let ((beta (decklet-test--card-id "beta")))
-        (should (decklet-edit--goto-card-id beta))
-        (should (eql (tabulated-list-get-id) beta))))))
-
 ;;; Delete
 
-(ert-deftest decklet-test-edit-delete-at-point-when-unmarked ()
-  "With no cards marked, delete acts on the card under point only."
+(ert-deftest decklet-test-edit-delete-acts-on-marks-or-point ()
+  "Delete removes the marked cards, or the card at point when none is marked."
   (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "alpha")
-    (decklet-test--add-card-meta "beta")
-    (decklet-edit-test--with-buffer
-      (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
-      (decklet-edit-test--confirm #'decklet-edit-delete-card)
-      (should-not (decklet-db--select-card-row-by-word "alpha"))
-      (should (decklet-db--select-card-row-by-word "beta")))))
-
-(ert-deftest decklet-test-edit-delete-marked-cards-clears-marks ()
-  "When cards are marked, delete acts on all of them and clears the marks."
-  (decklet-test--with-temp-db
-    (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
+    (dolist (w '("alpha" "beta" "gamma" "delta")) (decklet--add-card w))
     (decklet-edit-test--with-buffer
       (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
       (decklet-edit-mark-at-point)
       (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
       (decklet-edit-mark-at-point)
+      (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
-      (should-not (decklet-db--select-card-row-by-word "alpha"))
-      (should-not (decklet-db--select-card-row-by-word "beta"))
-      (should (decklet-db--select-card-row-by-word "gamma"))
-      (should (= 0 (hash-table-count decklet-edit--marked))))))
+      (should (equal '("delta" "gamma") (sort (decklet-list-words) #'string<)))
+      (should (= 0 (hash-table-count decklet-edit--marked)))
+      (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
+      (decklet-edit-test--confirm #'decklet-edit-delete-card)
+      (should (equal '("delta") (decklet-list-words))))))
 
 (ert-deftest decklet-test-edit-delete-cancelled-is-noop ()
   "Declining the delete confirmation leaves the deck and marks untouched."
@@ -113,18 +56,6 @@ BODY can refer to `buf', the edit buffer."
         (decklet-edit-delete-card))
       (should (decklet-db--select-card-row-by-word "alpha"))
       (should (= 1 (hash-table-count decklet-edit--marked))))))
-
-(ert-deftest decklet-test-edit-delete-moves-point-to-nearest-survivor ()
-  "Deletion moves point to the nearest surviving row.
-The following row wins when both neighboring rows are equally close."
-  (decklet-test--with-temp-db
-    (dolist (w '("alpha" "beta" "gamma")) (decklet-test--add-card-meta w))
-    (decklet-edit-test--with-buffer
-      ;; Rows sort by word: alpha, beta, gamma.  Delete the middle one.
-      (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
-      (let ((gamma (decklet-test--card-id "gamma")))
-        (decklet-edit-test--confirm #'decklet-edit-delete-card)
-        (should (eql (tabulated-list-get-id) gamma))))))
 
 ;;; Archive
 

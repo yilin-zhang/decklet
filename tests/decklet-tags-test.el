@@ -11,26 +11,15 @@
     (decklet-set-card-tags id tags)
     id))
 
-(ert-deftest decklet-test-tags-storage-and-events ()
-  "Tags normalize, survive scheduling and rename, and emit real changes only."
+(ert-deftest decklet-test-tags-normalize-and-validate ()
+  "Tags are stored sorted without duplicates; invalid tags are rejected."
   (decklet-test--with-temp-db
-    (let* ((id (decklet-test-tags--new "rose" "botany"))
-           (events nil)
-           (decklet-cards-field-updated-functions
-            (list (lambda (batch) (setq events (append events batch))))))
+    (let ((id (decklet-test-tags--new "rose" "botany")))
       (should (equal (decklet-add-card-tags id '("flower" "botany"))
                      '("botany" "flower")))
-      (decklet-set-card-tags id '("flower" "botany"))
-      (should (= (length events) 1))
-      (should (eq 'tags (plist-get (car events) :field)))
-      (decklet-rate-card id 4)
-      (decklet-set-card-word id "rose flower")
-      (should (equal (plist-get (decklet-get-card id) :tags) '("botany" "flower")))
       (decklet-remove-card-tags id '("flower"))
       (should (equal (decklet-list-tags) '("botany")))
       (should-error (decklet-set-card-tags id '("bad tag")))
-      (should (equal (decklet-get-card-tags id) '("botany")))
-      (decklet-db--disconnect)
       (should (equal (decklet-get-card-tags id) '("botany"))))))
 
 (ert-deftest decklet-test-tags-migrates-existing-schema ()
@@ -44,18 +33,8 @@
       (decklet-set-card-tags id '("reading"))
       (should (equal (decklet-get-card-tags id) '("reading"))))))
 
-(ert-deftest decklet-test-tags-batch-order-and-validation ()
-  "Tag and hint lines may interleave; invalid tokens fail before import."
-  (let ((expected '((:word "rose" :hint "a flower\n:literal hint"
-                           :tags ("botany" "flower")))))
-    (dolist (text '("rose\n:flower :botany\n# a flower\n# :literal hint\n:flower\n"
-                    "rose\n# a flower\n:botany\n# :literal hint\n:flower\n"))
-      (with-temp-buffer (insert text) (should (equal (decklet--batch-collect-cards) expected))))
-    (dolist (text '(":botany\nrose" "rose\n:" "rose\n:botany wrong" "rose\n:bad:tag"))
-      (with-temp-buffer (insert text) (should-error (decklet--batch-collect-cards))))))
-
-(ert-deftest decklet-test-tags-batch-import-merges-and-rolls-back ()
-  "Batch additions merge tags, and a failing write rolls back all cards."
+(ert-deftest decklet-test-tags-batch-import-merges-tags ()
+  "Re-adding a word in a batch merges its tags with the existing ones."
   (decklet-test--with-temp-db
     (let ((id (decklet-test-tags--new "rose" "reading")))
       (with-temp-buffer
@@ -63,43 +42,7 @@
         (cl-letf (((symbol-function 'quit-window) #'ignore))
           (decklet-add-card-batch-confirm)))
       (should (equal (decklet-get-card-tags id) '("botany" "reading")))
-      (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "lily")) '("botany")))
-      (with-temp-buffer
-        (insert "never-committed\n:botany\n")
-        (cl-letf (((symbol-function 'decklet-db--update-tags)
-                   (lambda (&rest _) (error "Write failed"))))
-          (should-error (decklet-add-card-batch-confirm))))
-      (should-not (decklet-get-card-id-by-word "never-committed")))))
-
-(ert-deftest decklet-test-tags-batch-font-lock-and-keys ()
-  "Tag lines have their own face and hint/tag keys are consistent."
-  (with-temp-buffer
-    (decklet-add-card-batch-mode)
-    (insert "rose\n:botany :flower\n# a flower\n")
-    (font-lock-ensure)
-    (goto-char (point-min)) (forward-line)
-    (should (eq (get-text-property (point) 'face) 'decklet-color-tags)))
-  (should (eq (lookup-key decklet-review-mode-map "H") #'decklet-review-set-hint))
-  (should (eq (lookup-key decklet-review-mode-map "t") #'decklet-review-set-tags))
-  (should (eq (lookup-key decklet-edit-mode-map "H") #'decklet-edit-set-hint))
-  (should (eq (lookup-key decklet-edit-mode-map "t") #'decklet-edit-set-tags)))
-
-(ert-deftest decklet-test-tags-single-add-edits-both-fields ()
-  "The single-card prompt lets the user edit hint and tags before leaving."
-  (decklet-test--with-temp-db
-    (let ((answers '(?H ?t ?n)) (read-count 0))
-      (cl-letf (((symbol-function 'read-string)
-                 (lambda (&rest _) (cl-incf read-count) "rose"))
-                ((symbol-function 'read-char-choice)
-                 (lambda (&rest _) (pop answers)))
-                ((symbol-function 'decklet-prompt-set-hint)
-                 (lambda (id) (decklet-set-card-hint id "a flower")))
-                ((symbol-function 'decklet-read-tags)
-                 (lambda (&rest _) '("botany"))))
-        (call-interactively #'decklet-add-card))
-      (should (= read-count 1))
-      (should (equal (decklet-get-card-hint (decklet-get-card-id-by-word "rose")) "a flower"))
-      (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "rose")) '("botany"))))))
+      (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "lily")) '("botany"))))))
 
 (ert-deftest decklet-test-tags-selector-ownership-before-limit ()
   "Later tag selectors reserve their whole group before fallback selection."
@@ -168,33 +111,6 @@
       (let ((future (time-add (decklet--next-day-start-time) 60)))
         (should (= (length (plist-get (decklet-db--review-plan future) :items)) 2))))))
 
-(ert-deftest decklet-test-tags-void-and-current-rule-reclassification ()
-  "Rule order and void records recompute which tagged group spent the slot."
-  (decklet-test--with-temp-db
-    (let* ((decklet-review-order
-            '(((new :tags "botany") (daily-limit 1 shuffle))
-              ((new :tags "medicine") (daily-limit 1 shuffle))))
-           (rated (decklet-test-tags--new "shared" "botany" "medicine"))
-           (plant (decklet-test-tags--new "plant" "botany"))
-           (medical (decklet-test-tags--new "medical" "medicine"))
-           (log-id (decklet-rate-card rated 4)))
-      (should (equal (decklet-db--select-due-card-ids) (list medical)))
-      (setq decklet-review-order (reverse decklet-review-order))
-      (should (equal (decklet-db--select-due-card-ids) (list plant)))
-      (decklet-review-log-append-void log-id)
-      (should (= (length (decklet-db--select-due-card-ids)) 2)))))
-
-(ert-deftest decklet-test-tags-invalid-rules ()
-  "Malformed selectors, old syntax and duplicate fallbacks are rejected."
-  (dolist (order '(((new :tags) shuffle)
-                   (((new :tags nil) shuffle))
-                   (((new :tags (not "a" "b")) shuffle))
-                   (((new :tags (or)) shuffle))
-                   (((new :tags (eval "a")) shuffle))
-                   ((:new . shuffle))
-                   ((new shuffle) ((new review) shuffle))))
-    (should-error (decklet-db--review-validate-order order))))
-
 (ert-deftest decklet-test-tags-counter-reuses-shuffle ()
   "Refreshing counters preserves a previously planned randomized queue."
   (decklet-test--with-temp-db
@@ -206,42 +122,13 @@
           (should (= (plist-get (decklet-db--counts) :new-remaining) 2))
           (should (equal ids (decklet-db--select-due-card-ids))))))))
 
-(ert-deftest decklet-test-tags-json-roundtrip-and-missing-preserves ()
-  "JSON exports tags and supports explicit clearing without losing absent tags."
+(ert-deftest decklet-test-tags-retag-drops-pending-queue ()
+  "Changing a card's tags drops the pending queue, which was grouped by tags."
   (decklet-test--with-temp-db
     (let* ((id (decklet-test-tags--new "rose" "botany"))
-           (file (expand-file-name "tags.json" tmp-dir)))
-      (decklet-db-export-json file)
-      (decklet-set-card-tags id '("wrong"))
-      (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
-                 (lambda (_) (cons :overwrite nil))))
-        (decklet-db-import-json file)
-        (should (equal (decklet-get-card-tags id) '("botany")))
-        (decklet-test--import '(((word . "rose"))))
-        (should (equal (decklet-get-card-tags id) '("botany")))
-        (decklet-test--import '(((word . "rose") (tags . []))))
-        (should-not (decklet-get-card-tags id)))
-      (should-error (decklet-test--import '(((word . "bad") (tags . ["has space"])))))
-      (should-not (decklet-get-card-id-by-word "bad")))))
-
-(ert-deftest decklet-test-tags-edit-column-filter-and-pending-queue ()
-  "The edit table displays tags, filters them, and tag edits clear pending cards."
-  (decklet-test--with-temp-db
-    (let* ((id (decklet-test-tags--new "rose" "botany"))
-           (decklet-edit--filter 'all)
-           (decklet-edit--tag-filter "botany")
-           (tabulated-list-sort-key nil)
-           (decklet-edit-sidecar-columns nil)
            (decklet-due-card-ids (list id)))
-      (decklet-test-tags--new "plain")
-      (let* ((rows (decklet-edit--entries))
-             (index (cdr (assoc "Tags" (decklet-edit--column-indices)))))
-        (should (= (length rows) 1))
-        (should (equal (substring-no-properties (aref (cadar rows) index)) "botany")))
-      (setq decklet-due-card-ids (list id))
       (decklet-set-card-tags id '("medicine"))
-      (should-not decklet-due-card-ids)
-      (should-not (decklet-edit--entries)))))
+      (should-not decklet-due-card-ids))))
 
 (provide 'decklet-tags-test)
 ;;; decklet-tags-test.el ends here

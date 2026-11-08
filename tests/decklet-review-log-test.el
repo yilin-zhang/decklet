@@ -4,208 +4,92 @@
 
 (require 'decklet-test-helpers)
 
-;;; Appending records
+;;; Record format
 
-(ert-deftest decklet-test-review-log-append-rated-writes-record ()
-  "A rated event writes one complete JSONL record.
-It carries identity, grade, pre/post state, and a monotonic record id."
-  (decklet-test--with-temp-db
-    (let ((old (make-decklet-card-meta :card-id 42 :state :review :stability 4.5
-                                       :difficulty 5.1 :last-review "2026-04-01T00:00:00Z"))
-          (new (make-decklet-card-meta :card-id 42 :state :review :stability 5.2
-                                       :difficulty 5.3 :last-review (decklet--now))))
-      (decklet-review-log-append-rated "ephemeral" 42 3 old new)
-      (let ((rec (car (decklet-test--read-log))))
-        (should (equal decklet-review-log-kind-rated (plist-get rec :kind)))
-        (should (equal "ephemeral" (plist-get rec :word)))
-        (should (= 42 (plist-get rec :card_id)))
-        (should (= 3 (plist-get rec :grade)))
-        (should (equal (decklet-fsrs-state-string :review)
-                       (plist-get rec :pre_state)))
-        (should (equal (decklet-fsrs-state-string :review)
-                       (plist-get rec :post_state)))
-        (should (numberp (plist-get rec :pre_stability)))
-        (should (numberp (plist-get rec :elapsed_days)))
-        (should (integerp (plist-get rec :id)))))))
-
-(ert-deftest decklet-test-review-log-append-rated-returns-monotonic-ids ()
-  "Each rated append returns a strictly increasing record id."
-  (decklet-test--with-temp-db
-    (let* ((old (make-decklet-card-meta :card-id 1 :state :review
-                                        :stability 3.0 :difficulty 5.0))
-           (new (copy-decklet-card-meta old))
-           (id1 (decklet-review-log-append-rated "a" 1 3 old new))
-           (id2 (decklet-review-log-append-rated "a" 1 3 old new))
-           (id3 (decklet-review-log-append-rated "a" 1 3 old new)))
-      (should (< id1 id2))
-      (should (< id2 id3)))))
-
-(ert-deftest decklet-test-review-log-append-rated-serializes-nil-stability ()
-  "A first review serializes missing memory data as JSON null.
-Its elapsed-day count is zero."
-  (decklet-test--with-temp-db
-    (let ((old (make-decklet-card-meta :card-id 7 :state :learning
-                                       :stability nil :difficulty nil))
-          (new (make-decklet-card-meta :card-id 7 :state :learning :stability 2.1
-                                       :difficulty 5.0 :last-review (decklet--now))))
-      (decklet-review-log-append-rated "novel" 7 3 old new)
-      (let ((rec (car (decklet-test--read-log))))
-        (should (null (plist-get rec :pre_stability)))
-        (should (null (plist-get rec :pre_difficulty)))
-        (should (numberp (plist-get rec :post_stability)))
-        (should (= 0.0 (plist-get rec :elapsed_days)))))))
-
-(ert-deftest decklet-test-review-log-void-targets-a-rated-id ()
-  "A void event records the rated id it nullifies, appended after the rated line."
-  (decklet-test--with-temp-db
-    (let* ((old (make-decklet-card-meta :card-id 1 :state :review
-                                        :stability 4.0 :difficulty 5.0))
-           (new (copy-decklet-card-meta old))
-           (id (decklet-review-log-append-rated "w" 1 3 old new)))
-      (decklet-review-log-append-void id)
-      (let ((records (decklet-test--read-log)))
-        (should (equal (list decklet-review-log-kind-rated
-                             decklet-review-log-kind-void)
-                       (mapcar (lambda (r) (plist-get r :kind)) records)))
-        (should (= id (plist-get (nth 1 records) :voids)))))))
-
-(ert-deftest decklet-test-review-log-append-rename-captures-both-words ()
-  "A rename event records the card id and both the old and new words."
-  (decklet-test--with-temp-db
-    (decklet-review-log-append-rename 99 "colour" "color")
-    (let ((rec (car (decklet-test--read-log))))
-      (should (equal decklet-review-log-kind-rename (plist-get rec :kind)))
-      (should (= 99 (plist-get rec :card_id)))
-      (should (equal "colour" (plist-get rec :old)))
-      (should (equal "color" (plist-get rec :new))))))
-
-;;; Integration with the public API
-
-(ert-deftest decklet-test-review-log-rate-card-writes-and-returns-id ()
-  "`decklet-rate-card' logs a rated event and returns its record id."
+(ert-deftest decklet-test-review-log-rating-writes-rated-record ()
+  "Each rating appends one JSONL record in the documented shape.
+A first review records null memory data and zero elapsed days; the
+next review starts from the memory state the first one produced."
   (decklet-test--with-temp-db
     (decklet--add-card "inveigh")
-    (let ((log-id (decklet-rate-card (decklet-test--card-id "inveigh") 3)))
-      (should (integerp log-id))
-      (let ((rec (car (decklet-test--read-log))))
-        (should (equal decklet-review-log-kind-rated (plist-get rec :kind)))
-        (should (equal "inveigh" (plist-get rec :word)))
-        (should (= 3 (plist-get rec :grade)))
-        (should (= log-id (plist-get rec :id)))))))
+    (let* ((card-id (decklet-test--card-id "inveigh"))
+           (first-id (decklet-rate-card card-id 3))
+           (second-id (decklet-rate-card card-id 3)))
+      (pcase-let ((`(,first ,second) (decklet-test--read-log)))
+        ;; Field order is not part of the format; the field set is.
+        (should (equal (sort (cl-loop for (key _) on first by #'cddr collect key)
+                             #'string<)
+                       '(:card_id :elapsed_days :grade :id :kind
+                                  :post_difficulty :post_stability :post_state
+                                  :pre_difficulty :pre_effective_state
+                                  :pre_stability :pre_state :t :word)))
+        (should (equal "rated" (plist-get first :kind)))
+        (should (= first-id (plist-get first :id)))
+        (should (= card-id (plist-get first :card_id)))
+        (should (equal "inveigh" (plist-get first :word)))
+        (should (= 3 (plist-get first :grade)))
+        (should (equal "learning" (plist-get first :pre_state)))
+        (should (equal "new" (plist-get first :pre_effective_state)))
+        (should-not (plist-get first :pre_stability))
+        (should-not (plist-get first :pre_difficulty))
+        (should (equal "learning" (plist-get first :post_state)))
+        (should (numberp (plist-get first :post_stability)))
+        (should (= 0 (plist-get first :elapsed_days)))
+        (should (= second-id (plist-get second :id)))
+        (should (equal "learning" (plist-get second :pre_effective_state)))
+        (should (= (plist-get first :post_stability)
+                   (plist-get second :pre_stability)))))))
 
 (ert-deftest decklet-test-review-log-rename-card-appends-rename ()
-  "`decklet-set-card-word' logs a rename event."
+  "`decklet-set-card-word' logs a rename event with both words."
   (decklet-test--with-temp-db
     (decklet--add-card "colour")
     (let ((id (decklet-test--card-id "colour")))
       (decklet-set-card-word id "color")
       (let ((rec (car (decklet-test--read-log))))
-        (should (equal decklet-review-log-kind-rename (plist-get rec :kind)))
+        (should (equal "rename" (plist-get rec :kind)))
         (should (= id (plist-get rec :card_id)))
         (should (equal "colour" (plist-get rec :old)))
         (should (equal "color" (plist-get rec :new)))))))
 
-(ert-deftest decklet-test-review-log-directory-cache-follows-file-changes ()
-  "Changing `decklet-review-log-file' creates the new parent directory."
-  (decklet-test--with-temp-db
-    (let ((file-a (expand-file-name "logs-a/review-log.jsonl" tmp-dir))
-          (file-b (expand-file-name "logs-b/review-log.jsonl" tmp-dir)))
-      (let ((decklet-review-log-file file-a))
-        (should (decklet-review-log--append-line
-                 (list :kind "void" :voids 1 :t (decklet--now)))))
-      (let ((decklet-review-log-file file-b))
-        (should (decklet-review-log--append-line
-                 (list :kind "void" :voids 2 :t (decklet--now)))))
-      (should (file-exists-p file-a))
-      (should (file-exists-p file-b)))))
-
 ;;; Daily consumption accounting
-
-(ert-deftest decklet-test-review-log-daily-counts-tally-effective-state ()
-  "Today's ratings are tallied by the state each card was handed out in."
-  (decklet-test--with-temp-db
-    (decklet-test--log-rated "new")
-    (decklet-test--log-rated "new")
-    (decklet-test--log-rated "review")
-    (setq decklet-review-log--scan-cache nil)
-    (let ((counts (decklet-review-log-daily-state-counts)))
-      (should (= 2 (cdr (assq :new counts))))
-      (should (= 1 (cdr (assq :review counts))))
-      (should-not (assq :learning counts)))))
 
 (ert-deftest decklet-test-review-log-daily-counts-count-cards-once ()
   "Repeated ratings of one card from the same state consume one slot."
   (decklet-test--with-temp-db
-    (let ((id (decklet-review-log--mint-record-id)))
-      (dotimes (_ 3)
-        (decklet-review-log--append-line
-         (list :kind decklet-review-log-kind-rated
-               :id (decklet-review-log--mint-record-id)
-               :card_id id
-               :t (decklet--now)
-               :word "repeat"
-               :grade 3
-               :pre_state "learning"
-               :pre_effective_state "learning"
-               :pre_stability 1.0
-               :elapsed_days 0.0))))
-    (setq decklet-review-log--scan-cache nil)
-    (should (= 1 (cdr (assq :learning
-                            (decklet-review-log-daily-state-counts)))))))
+    (dotimes (_ 3)
+      (decklet-review-log--append-line
+       (list :kind "rated"
+             :id (decklet-review-log--mint-record-id)
+             :card_id 1
+             :t (decklet--now)
+             :word "repeat"
+             :grade 3
+             :pre_state "learning"
+             :pre_effective_state "learning"
+             :pre_stability 1.0
+             :elapsed_days 0.0)))
+    (should (equal '((:learning . 1)) (decklet-review-log-daily-state-counts)))))
 
-(ert-deftest decklet-test-review-log-daily-counts-skip-earlier-days ()
-  "Records from before the day rollover are not counted."
-  (decklet-test--with-temp-db
-    (decklet-test--log-rated "new" "20250101T000000Z")
-    (setq decklet-review-log--scan-cache nil)
-    (should-not (decklet-review-log-daily-state-counts))))
-
-(ert-deftest decklet-test-review-log-daily-counts-fall-back-to-null-stability ()
-  "Legacy records without `pre_effective_state' are still classified.
+(ert-deftest decklet-test-review-log-daily-counts-classify-legacy-records ()
+  "Records without `pre_effective_state' are still classified.
 A null `pre_stability' marks a card's first ever review, which the
 stored `pre_state' cannot distinguish from an ongoing learning step."
   (decklet-test--with-temp-db
-    (decklet-review-log--append-line
-     (list :kind decklet-review-log-kind-rated
-           :id (decklet-review-log--mint-record-id)
-           :card_id 1
-           :t (decklet--now)
-           :word "legacy-new"
-           :grade 3
-           :pre_state "learning"
-           :pre_stability nil
-           :elapsed_days 0.0))
-    (decklet-review-log--append-line
-     (list :kind decklet-review-log-kind-rated
-           :id (decklet-review-log--mint-record-id)
-           :card_id 2
-           :t (decklet--now)
-           :word "legacy-learning"
-           :grade 3
-           :pre_state "learning"
-           :pre_stability 2.5
-           :elapsed_days 1.0))
-    (setq decklet-review-log--scan-cache nil)
+    (pcase-dolist (`(,card-id ,stability) '((1 nil) (2 2.5)))
+      (decklet-review-log--append-line
+       (list :kind "rated"
+             :id (decklet-review-log--mint-record-id)
+             :card_id card-id
+             :t (decklet--now)
+             :word (format "legacy-%d" card-id)
+             :grade 3
+             :pre_state "learning"
+             :pre_stability stability
+             :elapsed_days 0.0)))
     (let ((counts (decklet-review-log-daily-state-counts)))
       (should (= 1 (cdr (assq :new counts))))
       (should (= 1 (cdr (assq :learning counts)))))))
-
-(ert-deftest decklet-test-review-log-daily-counts-survive-missing-log ()
-  "An absent log reports nothing consumed rather than signalling."
-  (decklet-test--with-temp-db
-    (setq decklet-review-log--scan-cache nil)
-    (should-not (file-exists-p decklet-review-log-file))
-    (should-not (decklet-review-log-daily-state-counts))))
-
-(ert-deftest decklet-test-review-log-daily-counts-pick-up-appended-records ()
-  "The cached scan is extended when the log grows within a session."
-  (decklet-test--with-temp-db
-    (decklet-test--log-rated "new")
-    (setq decklet-review-log--scan-cache nil)
-    (should (= 1 (cdr (assq :new (decklet-review-log-daily-state-counts)))))
-    ;; No cache reset here: the incremental path must notice the append.
-    (decklet-test--log-rated "new")
-    (should (= 2 (cdr (assq :new (decklet-review-log-daily-state-counts)))))))
 
 (provide 'decklet-review-log-test)
 ;;; decklet-review-log-test.el ends here

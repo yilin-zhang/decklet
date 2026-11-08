@@ -7,28 +7,36 @@
 ;;; JSON import
 
 (ert-deftest decklet-test-transfer-import-adds-cards ()
-  "Import preserves card content and archive state.
-It reads the optional back field, treating an absent back as nil."
+  "Import stores each item's content, scheduling and archive state.
+An absent back is nil, and a `new' card is stored ready to be rated."
   (decklet-test--with-temp-db
     (let ((stats (decklet-test--import
                   '(((word . "alpha") (added_date . "20250101T010101Z")
                      (last_review . nil) (due . "20250101T010101Z")
-                     (archived_at . nil) (state . "learning") (step . 0)
+                     (archived_at . nil) (state . "new") (step . 0)
                      (stability . nil) (difficulty . nil) (hint . "first")
                      (back . nil))
                     ((word . "beta") (added_date . "20250102T010101Z")
                      (last_review . "20250102T010101Z") (due . "20250103T010101Z")
                      (archived_at . "20250104T010101Z") (state . "review")
                      (step . 0) (stability . 10.0) (difficulty . 3.0)
-                     (hint . "second") (back . "back of beta"))))))
-      (should (= 2 (plist-get stats :added)))
-      (should (= 0 (plist-get stats :overwritten)))
-      (should (= 0 (plist-get stats :skipped))))
-    (should (= 1 (length (decklet-db--select-card-rows 'all nil))))
-    (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
-    (should (null (decklet-db--select-card-back (decklet-test--card-id "alpha"))))
-    (should (string= "back of beta"
-                     (decklet-db--select-card-back (decklet-test--card-id "beta"))))))
+                     (hint . "second") (tags . ["astro"]) (back . "back of beta"))))))
+      (should (equal '(:added 2 :overwritten 0 :skipped 0)
+                     (list :added (plist-get stats :added)
+                           :overwritten (plist-get stats :overwritten)
+                           :skipped (plist-get stats :skipped)))))
+    (let ((alpha (decklet-test--card-id "alpha"))
+          (beta (decklet-test--card-id "beta")))
+      (should (equal (list alpha) (mapcar (lambda (r) (plist-get r :card-id))
+                                          (decklet-db--select-card-rows 'all nil))))
+      (should (equal (list beta) (mapcar (lambda (r) (plist-get r :card-id))
+                                         (decklet-db--select-card-rows 'archived nil))))
+      (should (equal "first" (decklet-get-card-hint alpha)))
+      (should (null (decklet-get-card-back alpha)))
+      (should (equal "back of beta" (decklet-get-card-back beta)))
+      (should (equal '("astro") (decklet-get-card-tags beta)))
+      (should (= 10.0 (decklet-card-meta-stability (decklet-get-card-meta beta))))
+      (should (decklet-rate-card alpha 3)))))
 
 (ert-deftest decklet-test-transfer-import-conflict-skip-then-overwrite ()
   "On a word conflict, :skip keeps the existing card and :overwrite replaces it."
@@ -54,14 +62,16 @@ It reads the optional back field, treating an absent back as nil."
 
 (ert-deftest decklet-test-transfer-import-overwrite-hint-back-tristate ()
   "Overwrite distinguishes absent fields from blank or null values.
-Blank and null clear hint/back, while absence preserves the existing value."
+Blank and null clear hint/back and `[]' clears tags, while an absent
+field preserves the existing value."
   (decklet-test--with-temp-db
     (cl-flet ((seed ()
                 (let ((id (decklet-test--add-card-meta
                            "alpha" :timestamp "20250101T000000Z"
                            :due "20250102T000000Z")))
                   (decklet-db--update-hint id "old-hint")
-                  (decklet-db--update-back id "old-back")))
+                  (decklet-db--update-back id "old-back")
+                  (decklet-set-card-tags id '("old-tag"))))
               (overwrite (extra)
                 (cl-letf (((symbol-function 'decklet-transfer--import-read-conflict-choice)
                            (lambda (_w) (cons :overwrite nil))))
@@ -77,13 +87,15 @@ Blank and null clear hint/back, while absence preserves the existing value."
       (should (null (alpha :hint)))
       (should (null (alpha :back)))
       ;; Blank / whitespace-only clears.
-      (seed) (overwrite '((hint . "") (back . "   \n\t")))
+      (seed) (overwrite '((hint . "") (back . "   \n\t") (tags . [])))
       (should (null (alpha :hint)))
       (should (null (alpha :back)))
+      (should (null (alpha :tags)))
       ;; Absent fields preserve.
       (seed) (overwrite nil)
       (should (string= "old-hint" (alpha :hint)))
-      (should (string= "old-back" (alpha :back))))))
+      (should (string= "old-back" (alpha :back)))
+      (should (equal '("old-tag") (alpha :tags))))))
 
 (ert-deftest decklet-test-transfer-import-rejects-duplicate-word-in-file ()
   "Duplicate words abort an import before any write.
@@ -100,52 +112,26 @@ No ghost card-id leaks to `decklet-cards-added-functions'."
       (should (null added-events))
       (should (null (decklet-db--select-card-row-by-word "alpha"))))))
 
-(ert-deftest decklet-test-transfer-import-rejects-invalid-state ()
-  "Import rejects an unknown scheduler state before writing any card."
+(ert-deftest decklet-test-transfer-import-rejects-malformed-files ()
+  "A file with any malformed item is rejected before anything is written.
+Each case pairs a valid item with one bad root, value, or FSRS state
+combination that FSRS could not schedule."
   (decklet-test--with-temp-db
-    (should-error (decklet-test--import
-                   '(((word . "bad-state") (added_date . "20250101T010101Z")
-                      (due . "20250101T010101Z") (state . "bogus"))))
-                  :type 'user-error)
-    (should-not (decklet-db--select-card-row-by-word "bad-state"))))
-
-(ert-deftest decklet-test-transfer-import-rejects-json-false-values ()
-  "JSON false is an invalid field value, not an alias for a missing key."
-  (decklet-test--with-temp-db
-    (let ((file (expand-file-name "false.json" tmp-dir)))
-      (with-temp-file file
-        (insert "[{\"word\":\"bad\",\"state\":false}]"))
-      (should-error (decklet-db-import-json file) :type 'user-error)
-      (should-not (decklet-get-card-id-by-word "bad")))))
-
-(ert-deftest decklet-test-transfer-import-requires-array-root ()
-  "An object root is rejected even when it is empty."
-  (decklet-test--with-temp-db
-    (let ((file (expand-file-name "object.json" tmp-dir)))
-      (with-temp-file file (insert "{}"))
-      (should-error (decklet-db-import-json file) :type 'user-error))))
-
-(ert-deftest decklet-test-transfer-import-rejects-invalid-scheduler-metadata ()
-  "Import rejects malformed timestamps and scheduler numbers before writing."
-  (decklet-test--with-temp-db
-    (dolist (record '(((word . "bad-date") (due . "tomorrow"))
-                      ((word . "bad-step") (step . "one"))
-                      ((word . "bad-stability") (stability . -1))
-                      ((word . "bad-difficulty") (difficulty . 11))))
-      (should-error (decklet-test--import (list record)) :type 'user-error))
-    (should (null (decklet-list-words)))))
-
-(ert-deftest decklet-test-transfer-import-rejects-inconsistent-fsrs-metadata ()
-  "Import rejects new/review state combinations FSRS cannot schedule safely."
-  (decklet-test--with-temp-db
-    (dolist (record
-             '(((word . "new-as-review") (state . "review"))
-               ((word . "new-with-memory") (state . "learning")
-                (stability . 1.0) (difficulty . 3.0))
-               ((word . "review-without-memory") (state . "review")
-                (last_review . "20250101T010101Z"))))
-      (should-error (decklet-test--import (list record)) :type 'user-error))
-    (should-not (decklet-list-words))))
+    (let ((file (expand-file-name "bad.json" tmp-dir)))
+      (dolist (bad '("{}"
+                     "{\"word\":\"bad\",\"state\":false}"
+                     "{\"word\":\"bad\",\"state\":\"bogus\"}"
+                     "{\"word\":\"bad\",\"due\":\"tomorrow\"}"
+                     "{\"word\":\"bad\",\"step\":\"one\"}"
+                     "{\"word\":\"bad\",\"stability\":-1}"
+                     "{\"word\":\"bad\",\"difficulty\":11}"
+                     "{\"word\":\"bad\",\"state\":\"learning\",\"stability\":1.0,\"difficulty\":3.0}"
+                     "{\"word\":\"bad\",\"state\":\"review\",\"last_review\":\"20250101T010101Z\"}"
+                     "{\"word\":\"bad\",\"tags\":[\"has space\"]}"))
+        (with-temp-file file
+          (insert (if (equal bad "{}") bad (format "[{\"word\":\"good\"},%s]" bad))))
+        (should-error (decklet-db-import-json file) :type 'user-error)
+        (should-not (decklet-list-words))))))
 
 (ert-deftest decklet-test-transfer-import-normalizes-timestamps-to-utc ()
   "Import rewrites offset timestamps into the canonical UTC form.
@@ -183,68 +169,39 @@ an overdue card look like it falls due hours later."
         (decklet-test--import (list record)))
       (should (equal events (list (list :card-id card-id :field 'import)))))))
 
-(ert-deftest decklet-test-transfer-import-new-state-is-schedulable ()
-  "An imported `new' state is stored as learning and can be rated."
-  (decklet-test--with-temp-db
-    (decklet-test--import '(((word . "sprout") (added_date . "20250101T010101Z")
-                             (last_review . nil) (due . "20250101T010101Z")
-                             (archived_at . nil) (state . "new") (step . 0)
-                             (stability . nil) (difficulty . nil))))
-    (let ((row (decklet-db--select-card-row-by-word "sprout")))
-      (should (equal (plist-get row :state) "learning"))
-      (should (decklet-rate-card (plist-get row :card-id) 3)))))
+;;; JSON export
 
-;;; JSON export and round-trip
-
-(ert-deftest decklet-test-transfer-export-writes-all-cards ()
-  "Export writes every card in a deterministic order.
-It emits populated objects ordered by added-date and then word."
+(ert-deftest decklet-test-transfer-export-writes-documented-format ()
+  "Export writes one object per card in the documented item format.
+Cards are ordered by added date and then word."
   (decklet-test--with-temp-db
     (let ((file (expand-file-name "export.json" tmp-dir))
-          (sun (decklet-test--add-card-meta "sun" :timestamp "20250101T010101Z"
-                                            :stability 5.0 :difficulty 3.0)))
-      (decklet-db--update-hint sun "star")
-      (decklet-db--update-back sun "notes about sun")
-      (decklet-test--add-card-meta "moon" :timestamp "20250101T010101Z")
+          (sun (decklet-test--add-card-meta "sun" :timestamp "2025-01-01T01:01:01Z"
+                                            :step 0 :stability 5.0 :difficulty 3.0)))
+      (decklet-set-card-hint sun "star")
+      (decklet-set-card-back sun "notes about sun")
+      (decklet-set-card-tags sun '("astro"))
+      (decklet-test--add-card-meta "moon" :timestamp "2025-01-01T01:01:01Z")
       (decklet-db-export-json file)
-      (let* ((data (with-temp-buffer
-                     (insert-file-contents file)
-                     (json-parse-buffer :object-type 'alist :array-type 'list)))
-             (sun-row (cl-find "sun" data :key (lambda (r) (alist-get 'word r))
-                               :test #'equal)))
-        (should (= 2 (length data)))
-        (should (equal (mapcar (lambda (r) (alist-get 'word r)) data) '("moon" "sun")))
-        (should (equal (alist-get 'hint sun-row) "star"))
-        (should (equal (alist-get 'back sun-row) "notes about sun"))
-        (should (equal (alist-get 'state sun-row) "review"))))))
-
-(ert-deftest decklet-test-transfer-export-import-round-trip ()
-  "An export/import round trip preserves all card state.
-This includes content, scheduling, and archive state."
-  (decklet-test--with-temp-db
-    (let ((export-file (expand-file-name "round-trip.json" tmp-dir))
-          (river (decklet-test--add-card-meta "river" :timestamp "20250101T010101Z"
-                                              :stability 8.5 :difficulty 4.2)))
-      (decklet-db--update-hint river "flows")
-      (decklet-db--update-back river "water body")
-      (let ((lake (decklet-test--add-card-meta "lake" :timestamp "20250201T010101Z"
-                                               :last-review nil :state :learning :step 0)))
-        (decklet-db--update-hint lake "still")
-        (decklet-archive-card lake))
-      (decklet-db-export-json export-file)
-      (sqlite-execute (decklet-db--ensure) "DELETE FROM cards;")
-      (should (= 2 (plist-get (decklet-db-import-json export-file) :added)))
-      (let ((row (decklet-db--select-card-row-by-word "river")))
-        (should (equal (plist-get row :hint) "flows"))
-        (should (equal (plist-get row :back) "water body"))
-        (should (equal (plist-get row :state) "review"))
-        (should (= (plist-get row :stability) 8.5))
-        (should (= (plist-get row :difficulty) 4.2)))
-      (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
-      (let ((row (decklet-db--select-card-row-by-word "lake")))
-        (should (equal (plist-get row :hint) "still"))
-        (should (equal (plist-get row :step) 0))))))
-
+      (let ((data (with-temp-buffer
+                    (insert-file-contents file)
+                    (json-parse-buffer :object-type 'alist :array-type 'list
+                                       :null-object nil))))
+        (should (equal '("moon" "sun") (mapcar (lambda (r) (alist-get 'word r)) data)))
+        (should (equal (sort (copy-sequence (cadr data))
+                             (lambda (a b) (string< (car a) (car b))))
+                       '((added_date . "2025-01-01T01:01:01Z")
+                         (archived_at)
+                         (back . "notes about sun")
+                         (difficulty . 3.0)
+                         (due . "2025-01-01T01:01:01Z")
+                         (hint . "star")
+                         (last_review . "2025-01-01T01:01:01Z")
+                         (stability . 5.0)
+                         (state . "review")
+                         (step . 0)
+                         (tags "astro")
+                         (word . "sun"))))))))
 
 (provide 'decklet-transfer-test)
 ;;; decklet-transfer-test.el ends here

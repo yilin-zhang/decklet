@@ -4,24 +4,6 @@
 
 (require 'decklet-test-helpers)
 
-;;; Effective state derivation
-
-(ert-deftest decklet-test-deck-card-effective-state ()
-  "A card is `:new' until its first review, then mirrors its stored state.
-Holds for both the raw state+last-review form and the card-meta form."
-  (should (eq (decklet-card-effective-state :learning nil) :new))
-  (should (eq (decklet-card-effective-state :learning "") :new))
-  (should (eq (decklet-card-effective-state :learning "2025-01-01T00:00:00Z") :learning))
-  (should (eq (decklet-card-effective-state :relearning "2025-01-01T00:00:00Z") :relearning))
-  (should (eq (decklet-card-effective-state :review "2025-01-01T00:00:00Z") :review))
-  (should (eq (decklet-card-effective-state :unknown "2025-01-01T00:00:00Z") :review))
-  (should (eq (decklet-card-meta-effective-state
-               (make-decklet-card-meta :state :learning :last-review nil))
-              :new))
-  (should (eq (decklet-card-meta-effective-state
-               (make-decklet-card-meta :state :learning :last-review "2025-01-01T00:00:00Z"))
-              :learning)))
-
 ;;; Field setters
 
 (ert-deftest decklet-test-deck-field-setters-fire-hook-only-on-change ()

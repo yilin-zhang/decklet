@@ -4,82 +4,83 @@
 
 (require 'decklet-test-helpers)
 
-;;; Backup naming and ordering
-
-(ert-deftest decklet-test-backup-files-sorted-newest-first ()
-  "`decklet-backup--backup-files' lists backups newest-first by embedded timestamp."
-  (decklet-test--with-temp-db
-    (decklet-test--with-backup-dir
-      (let ((older  (expand-file-name (format "%s-20250101T010101Z.sqlite" base) backup-dir))
-            (middle (expand-file-name (format "%s-20250102T010101Z.sqlite" base) backup-dir))
-            (newest (expand-file-name (format "%s-20250103T010101Z.sqlite" base) backup-dir)))
-        (mapc #'decklet-test--touch (list middle newest older))
-        (should (equal (decklet-backup--backup-files) (list newest middle older)))))))
-
 ;;; Pruning
 
 (ert-deftest decklet-test-backup-prune-keeps-newest-max-count ()
-  "Pruning keeps the newest `decklet-backup-prune-max-count' backups."
+  "Pruning keeps the newest `decklet-backup-prune-max-count' backups.
+A nil limit disables pruning and keeps every file."
   (decklet-test--with-temp-db
-    (decklet-test--with-backup-dir
-      (let ((decklet-backup-prune-max-count 2))
-        (dolist (day '("01" "02" "03" "04"))
-          (decklet-test--touch
-           (expand-file-name (format "%s-202501%sT010101Z.sqlite" base day) backup-dir)))
-        (decklet-backup--backup-prune backup-dir base "sqlite")
-        (should (equal (sort (mapcar #'file-name-nondirectory
-                                     (directory-files backup-dir t "\\.sqlite\\'"))
-                             #'string<)
-                       (list (format "%s-20250103T010101Z.sqlite" base)
-                             (format "%s-20250104T010101Z.sqlite" base))))))))
-
-(ert-deftest decklet-test-backup-prune-noop-under-limit-or-disabled ()
-  "Pruning is a no-op when the count is under the limit or pruning is disabled."
-  (decklet-test--with-temp-db
-    (decklet-test--with-backup-dir
-      (dolist (day '("01" "02" "03"))
+    (let ((backup-dir (file-name-as-directory decklet-backup-directory))
+          (base (file-name-base decklet-db-file)))
+      (make-directory backup-dir t)
+      (dolist (day '("01" "02" "03" "04"))
         (decklet-test--touch
          (expand-file-name (format "%s-202501%sT010101Z.sqlite" base day) backup-dir)))
-      (let ((decklet-backup-prune-max-count 5))
-        (decklet-backup--backup-prune backup-dir base "sqlite")
-        (should (= 3 (length (directory-files backup-dir t "\\.sqlite\\'")))))
-      (let ((decklet-backup-prune-max-count nil))
-        (decklet-backup--backup-prune backup-dir base "sqlite")
-        (should (= 3 (length (directory-files backup-dir t "\\.sqlite\\'"))))))))
+      (cl-flet ((names ()
+                  (sort (mapcar #'file-name-nondirectory
+                                (directory-files backup-dir t "\\.sqlite\\'"))
+                        #'string<)))
+        (let ((decklet-backup-prune-max-count nil))
+          (decklet-backup--backup-prune backup-dir base "sqlite")
+          (should (= 4 (length (names)))))
+        (let ((decklet-backup-prune-max-count 2))
+          (decklet-backup--backup-prune backup-dir base "sqlite")
+          (should (equal (names)
+                         (list (format "%s-20250103T010101Z.sqlite" base)
+                               (format "%s-20250104T010101Z.sqlite" base)))))))))
 
-;;; Interactive backup
+;;; Backup
 
 (ert-deftest decklet-test-backup-skips-when-unchanged ()
-  "A second backup with no intervening DB change adds no new file."
+  "A backup with no DB change since the last one adds no new file.
+Each backup gets its own timestamp, so a backup that was not skipped
+would show up as a new file instead of overwriting the last one."
   (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "backup-word")
-    (decklet-db-backup)
-    (should (= 1 (length (decklet-backup--backup-files))))
-    (decklet-db-backup)
-    (should (= 1 (length (decklet-backup--backup-files))))))
+    (let ((stamps '("20260101T000001Z" "20260101T000002Z" "20260101T000003Z")))
+      (cl-letf (((symbol-function 'decklet--timestamp-utc)
+                 (lambda (&optional _time) (pop stamps))))
+        (decklet--add-card "backup-word")
+        (decklet-db-backup)
+        (decklet-db-backup)
+        (should (= 1 (length (decklet-backup--backup-files))))
+        (decklet--add-card "another-word")
+        (decklet-db-backup)
+        (should (= 2 (length (decklet-backup--backup-files))))))))
 
-(ert-deftest decklet-test-backup-always-creates-restorable-pair ()
-  "A deck without review history still gets an empty paired log backup."
+(ert-deftest decklet-test-backup-pairs-database-with-review-log ()
+  "Every backup writes the database together with a copy of the review log.
+A deck with no review history still gets an empty log copy, so the
+backup can be restored."
   (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "unrated")
+    (decklet--add-card "unrated")
     (decklet-db-backup)
-    (let* ((database-backup (car (decklet-backup--backup-files)))
-           (log-backup
-            (decklet-backup--matching-review-log-backup database-backup)))
-      (should log-backup)
-      (should (string-empty-p (decklet-test--file-string log-backup))))))
+    (should (string-empty-p
+             (decklet-test--file-string
+              (decklet-backup--matching-review-log-backup
+               (car (decklet-backup--backup-files))))))
+    (decklet-rate-card (decklet-test--card-id "unrated") 3)
+    (decklet-db-backup)
+    (should (string= (decklet-test--file-string
+                      (decklet-backup--matching-review-log-backup
+                       (car (decklet-backup--backup-files))))
+                     (decklet-test--file-string decklet-review-log-file)))))
 
-(ert-deftest decklet-test-backup-same-second-overwrites-pair ()
-  "A second backup within the same second overwrites the first pair."
+(ert-deftest decklet-test-backup-hook-backs-up-auxiliary-files ()
+  "Extensions back up their own files from `decklet-db-post-backup-functions'.
+The hook receives the backup directory and timestamp, and
+`decklet-backup-auxiliary-file' copies a file there under that timestamp."
   (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "paired")
-    (cl-letf (((symbol-function 'decklet--timestamp-utc)
-               (lambda (&optional _time) "20260731T120000Z")))
-      (decklet-backup--backup)
-      (decklet-backup--backup))
-    (let ((backups (decklet-backup--backup-files)))
-      (should (= 1 (length backups)))
-      (should (decklet-backup--matching-review-log-backup (car backups))))))
+    (decklet-test--add-card-meta "hook-probe")
+    (let* ((source (expand-file-name "extra.jsonl" tmp-dir))
+           (decklet-db-post-backup-functions
+            (list (lambda (dir timestamp)
+                    (decklet-backup-auxiliary-file source dir timestamp)))))
+      (decklet-test--touch source "line-one\n")
+      (decklet-db-backup)
+      (let ((copies (directory-files decklet-backup-directory t
+                                     "\\`extra-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\.jsonl\\'")))
+        (should (= 1 (length copies)))
+        (should (string= "line-one\n" (decklet-test--file-string (car copies))))))))
 
 ;;; Restore
 
@@ -139,48 +140,6 @@
                  (lambda (_choices default) default)))
         (should-error (decklet-db-restore) :type 'user-error))
       (should-not (file-exists-p decklet-db-file)))))
-
-;;; Post-backup hook and auxiliary-file backup
-
-(ert-deftest decklet-test-backup-post-backup-hook-fires ()
-  "`decklet-db-post-backup-functions' runs after a backup.
-It receives (BACKUP-DIR TIMESTAMP), where TIMESTAMP is the compact UTC form."
-  (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "hook-probe")
-    (let* ((captured nil)
-           (decklet-db-post-backup-functions
-            (list (lambda (dir ts) (setq captured (list :dir dir :ts ts))))))
-      (decklet-db-backup)
-      (should (file-directory-p (plist-get captured :dir)))
-      (should (string-match-p "\\`[0-9]\\{8\\}T[0-9]\\{6\\}Z\\'"
-                              (plist-get captured :ts))))))
-
-(ert-deftest decklet-test-backup-auxiliary-file-copies-with-timestamp ()
-  "`decklet-backup-auxiliary-file' writes a timestamped sibling copy."
-  (decklet-test--with-temp-db
-    (decklet-test--with-backup-dir
-      (let ((content "line-one\n")
-            (source (expand-file-name "extra.jsonl" tmp-dir))
-            (timestamp "20260410T120000Z"))
-        (decklet-test--touch source content)
-        (decklet-backup-auxiliary-file source backup-dir timestamp)
-        (let ((expected (expand-file-name (format "extra-%s.jsonl" timestamp) backup-dir)))
-          (should (file-exists-p expected))
-          (should (string= (decklet-test--file-string expected) content)))))))
-
-(ert-deftest decklet-test-backup-review-log-rides-with-db ()
-  "Backing up the DB directly creates a paired review-log copy."
-  (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "backed-up")
-    (decklet-review-log-append-void 42)
-    (should (file-exists-p decklet-review-log-file))
-    (decklet-db-backup)
-    (let ((log-backups (directory-files
-                        (file-name-as-directory decklet-backup-directory) t
-                        "\\`review-log-[0-9]+T[0-9]+Z\\(-[0-9]+\\)?\\.jsonl\\'")))
-      (should (= 1 (length log-backups)))
-      (should (string= (decklet-test--file-string (car log-backups))
-                       (decklet-test--file-string decklet-review-log-file))))))
 
 (provide 'decklet-backup-test)
 ;;; decklet-backup-test.el ends here

@@ -22,22 +22,28 @@
       (decklet--add-card "after"))
     (should (equal '("after") (decklet-list-words)))))
 
-;;; Batch collection parsing
+;;; Batch parsing
 
-(ert-deftest decklet-test-batch-collect-cards-with-hints ()
-  "Batch parsing attaches hint lines to the preceding word.
-It recognizes the `#' prefix and joins multi-line hints."
-  (with-temp-buffer
-    (insert "\n  lucid  \n# adj.\n\n\t\n# lucid rain\n  dirt\n# ...\n")
-    (should (equal (decklet--batch-collect-cards)
-                   '((:word "lucid" :hint "adj.\nlucid rain")
-                     (:word "dirt" :hint "..."))))))
+(ert-deftest decklet-test-batch-collect-cards-attaches-hints-and-tags ()
+  "Hint and tag lines attach to the preceding word, in any order.
+Blank lines and surrounding whitespace are ignored, multi-line hints
+are joined, and repeated tags collapse."
+  (dolist (text '("\n  rose  \n:flower :botany\n# a flower\n\n\t\n# :literal hint\n:flower\n  dirt\n# ...\n"
+                  "rose\n# a flower\n:botany\n# :literal hint\n:flower\ndirt\n# ...\n"))
+    (with-temp-buffer
+      (insert text)
+      (should (equal (decklet--batch-collect-cards)
+                     '((:word "rose" :hint "a flower\n:literal hint"
+                              :tags ("botany" "flower"))
+                       (:word "dirt" :hint "...")))))))
 
-(ert-deftest decklet-test-batch-collect-cards-rejects-orphan-hint ()
-  "A hint line with no preceding word is an error."
-  (with-temp-buffer
-    (insert "# lonely hint\nlucid\n")
-    (should-error (decklet--batch-collect-cards))))
+(ert-deftest decklet-test-batch-collect-cards-rejects-malformed-lines ()
+  "Orphan hint or tag lines and invalid tag tokens are errors."
+  (dolist (text '("# lonely hint\nlucid\n" ":botany\nrose" "rose\n:"
+                  "rose\n:botany wrong" "rose\n:bad:tag"))
+    (with-temp-buffer
+      (insert text)
+      (should-error (decklet--batch-collect-cards)))))
 
 (provide 'decklet-batch-test)
 ;;; decklet-batch-test.el ends here

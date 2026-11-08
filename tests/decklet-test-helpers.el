@@ -94,14 +94,6 @@ KEYS are forwarded to `decklet-test--make-card-meta'."
   (decklet-db--upsert-card word (apply #'decklet-test--make-card-meta keys))
   (decklet-test--card-id word))
 
-(cl-defun decklet-test--trail-entry (card-id &key (grade 3) pre-meta)
-  "Return a trail entry plist for CARD-ID.
-GRADE defaults to 3; pass `:grade nil' for a skip entry.  PRE-META
-defaults to a fresh `decklet-card-meta'."
-  (list :card-id card-id
-	:grade grade
-	:pre-meta (or pre-meta (make-decklet-card-meta))))
-
 ;;; JSON import / review-log readback
 
 (defun decklet-test--import (rows)
@@ -147,7 +139,7 @@ Reads `decklet-review-log-file', one JSON object per line."
           (forward-line 1))
         (nreverse records)))))
 
-;;; Buffers, faces, backups
+;;; Buffers and files
 
 (defmacro decklet-test--with-temp-buffers (names &rest body)
   "Bind each symbol in NAMES to a fresh buffer, run BODY, kill them on exit.
@@ -164,20 +156,6 @@ buffer that installed a blocking query (e.g. a dirty card back) still dies."
                       (kill-buffer ,n)))
                  names))))
 
-(defun decklet-test--string-has-face-p (string face)
-  "Return non-nil when FACE is the `face' text property anywhere in STRING."
-  (cl-loop for i below (length string)
-           thereis (eq (get-text-property i 'face string) face)))
-
-(defmacro decklet-test--with-backup-dir (&rest body)
-  "Run BODY with the backup directory created and bound.
-Binds `backup-dir' (a directory name) and `base' (the DB file base name)."
-  (declare (indent 0) (debug t))
-  `(let* ((backup-dir (file-name-as-directory decklet-backup-directory))
-          (base (file-name-base decklet-db-file)))
-     (make-directory backup-dir t)
-     ,@body))
-
 (defun decklet-test--touch (file &optional content)
   "Create FILE with CONTENT (default \"dummy\")."
   (with-temp-file file (insert (or content "dummy"))))
@@ -185,19 +163,6 @@ Binds `backup-dir' (a directory name) and `base' (the DB file base name)."
 (defun decklet-test--file-string (file)
   "Return the contents of FILE as a string."
   (with-temp-buffer (insert-file-contents file) (buffer-string)))
-
-;;; Review UI stubs
-
-(defmacro decklet-test--with-silent-review-ui (&rest body)
-  "Run BODY with review-mode UI side effects stubbed to no-ops.
-Stubs `decklet-review--reset-ui-state', `decklet-review--render-buffer',
-and `run-hooks' so unit tests can exercise review logic without
-touching a real buffer or firing user hooks."
-  (declare (indent 0) (debug t))
-  `(cl-letf (((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-             ((symbol-function 'decklet-review--render-buffer) #'ignore)
-             ((symbol-function 'run-hooks) #'ignore))
-     ,@body))
 
 (provide 'decklet-test-helpers)
 ;;; decklet-test-helpers.el ends here

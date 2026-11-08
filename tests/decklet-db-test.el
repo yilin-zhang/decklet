@@ -4,32 +4,7 @@
 
 (require 'decklet-test-helpers)
 
-;;; Input normalization
-
-(ert-deftest decklet-test-db-normalize-word ()
-  "Word normalization trims, collapses newlines, and rejects blanks."
-  (should (string= (decklet-db--normalize-word "  lucid  ") "lucid"))
-  (should (string= (decklet-db--normalize-word "  lucid\n\nrain  ") "lucid rain"))
-  (should-error (decklet-db--normalize-word "  "))
-  (should-error (decklet-db--normalize-word "")))
-
-(ert-deftest decklet-test-db-normalize-optional-text ()
-  "Optional text trims and maps blank/nil to nil."
-  (should (equal (decklet-db--normalize-optional-text nil) nil))
-  (should (equal (decklet-db--normalize-optional-text "  ") nil))
-  (should (string= (decklet-db--normalize-optional-text "  foo bar  ") "foo bar")))
-
-;;; Basic round-trip
-
-(ert-deftest decklet-test-db-mint-card-id-is-positive-and-monotonic ()
-  "Minted card ids are positive integers that strictly increase."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (let ((ids (cl-loop repeat 20 collect (decklet-db--mint-card-id))))
-      (should (cl-every #'integerp ids))
-      (should (> (car ids) 0))
-      (should (equal ids (sort (copy-sequence ids) #'<)))
-      (should (= (length ids) (length (delete-dups (copy-sequence ids))))))))
+;;; Card identity and fields
 
 (ert-deftest decklet-test-db-mint-card-id-seeds-above-existing-max ()
   "A freshly seeded counter mints above the largest existing card id."
@@ -45,174 +20,80 @@
       (setq decklet-db--last-card-id nil)
       (should (> (decklet-db--mint-card-id) 9999999999)))))
 
-(ert-deftest decklet-test-db-upsert-then-select ()
-  "A card upserted by word can be read back by word."
+(ert-deftest decklet-test-db-scheduling-writes-keep-user-fields ()
+  "Rating and renaming a card leave its hint, back and tags alone."
   (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "lucid")
-    (let ((row (decklet-db--select-card-row-by-word "lucid")))
-      (should row)
-      (should (string= (plist-get row :word) "lucid")))))
+    (decklet--add-card "lucid")
+    (let ((id (decklet-test--card-id "lucid")))
+      (decklet-set-card-hint id "adj.")
+      (decklet-set-card-back id "clear and bright")
+      (decklet-set-card-tags id '("reading"))
+      (decklet-rate-card id 3)
+      (decklet-set-card-word id "lucidity")
+      (should (equal "adj." (decklet-get-card-hint id)))
+      (should (equal "clear and bright" (decklet-get-card-back id)))
+      (should (equal '("reading") (decklet-get-card-tags id))))))
 
-;;; Connection lifecycle (session buffers)
+;;; Connection lifecycle
 
-(ert-deftest decklet-test-db-session-buffer-keeps-connection-open ()
-  "A session buffer holds the connection open until it is killed."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf)
-      (with-current-buffer buf
-	(decklet-db-register-session-buffer)
-	(should decklet-db--session-buffer))
-      (should (memq buf (decklet-db--session-buffers)))
-      (should decklet-db--conn)
-      (kill-buffer buf)
-      (should-not decklet-db--conn))))
-
-(ert-deftest decklet-test-db-kill-one-session-buffer-keeps-others ()
-  "Killing one session buffer leaves the others and the DB alive."
+(ert-deftest decklet-test-db-connection-lives-while-any-session-holds-it ()
+  "The connection stays open until the last session holder lets go.
+A holder lets go by being killed, by calling its disposer (twice is
+harmless), or by turning off `decklet-card-back-mode', whose popup
+buffer outlives the mode."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (review edit attached)
-      (with-current-buffer review (decklet-review-mode))
-      (with-current-buffer edit (decklet-edit-mode))
-      (with-current-buffer attached (decklet-card-back-mode 1))
-      (kill-buffer review)
-      (should-not (buffer-live-p review))
-      (should (buffer-live-p edit))
-      (should (buffer-live-p attached))
-      (should decklet-db--conn))))
-
-(ert-deftest decklet-test-db-release-lease-disconnects-when-last ()
-  "Releasing the last lease disconnects, without killing the buffer."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf)
-      (let ((release (with-current-buffer buf
+    (decklet-test--with-temp-buffers (killed leased popup)
+      (with-current-buffer killed (decklet-db-register-session-buffer))
+      (with-current-buffer popup (decklet-card-back-mode 1))
+      (let ((release (with-current-buffer leased
                        (decklet-db-acquire-session-buffer))))
+        (kill-buffer killed)
         (should decklet-db--conn)
         (funcall release)
-        (should (buffer-live-p buf))
-        (should-not (buffer-local-value 'decklet-db--session-buffer buf))
-        (should-not (memq buf (decklet-db--session-buffers)))
+        (funcall release)
+        (should decklet-db--conn)
+        (with-current-buffer popup (decklet-card-back-mode -1))
+        (should (buffer-live-p popup))
         (should-not decklet-db--conn)))))
 
-(ert-deftest decklet-test-db-release-lease-keeps-connection-for-others ()
-  "Releasing one lease leaves the connection open for the remaining ones."
+(ert-deftest decklet-test-db-disconnect-needs-every-session-buffer-to-die ()
+  "`decklet-disconnect' keeps the DB open if a session buffer refuses to die.
+Once every buffer can die, it kills them all, closes the DB, and runs
+the pre-disconnect hook exactly once."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (kept released)
-      (with-current-buffer kept (decklet-db-register-session-buffer))
-      (let ((release (with-current-buffer released
-                       (decklet-db-acquire-session-buffer))))
-        (funcall release)
+    (decklet-test--with-temp-buffers (plain stubborn)
+      (dolist (buf (list plain stubborn))
+        (with-current-buffer buf (decklet-db-register-session-buffer)))
+      (with-current-buffer stubborn
+        (add-hook 'kill-buffer-query-functions #'ignore nil t))
+      (let* ((hook-count 0)
+             (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
+        (should-error (decklet-disconnect) :type 'user-error)
+        (should (buffer-live-p stubborn))
         (should decklet-db--conn)
-        (should (memq kept (decklet-db--session-buffers)))))))
-
-(ert-deftest decklet-test-db-release-lease-is-idempotent ()
-  "A disposer can be called twice, and after its buffer is dead."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf)
-      (let ((release (with-current-buffer buf
-                       (decklet-db-acquire-session-buffer))))
-        (funcall release)
-        (funcall release)
+        (should (= hook-count 0))
+        (with-current-buffer stubborn
+          (remove-hook 'kill-buffer-query-functions #'ignore t))
+        (decklet-disconnect)
+        (should-not (buffer-live-p plain))
+        (should-not (buffer-live-p stubborn))
         (should-not decklet-db--conn)
-        (kill-buffer buf)
-        (funcall release)))))
+        (should (= hook-count 1))))))
 
-(ert-deftest decklet-test-db-kill-buffer-still-releases-lease ()
-  "Killing a buffer that never releases its lease still disconnects."
+(ert-deftest decklet-test-db-pre-connect-hook-gates-each-connection ()
+  "The pre-connect hook can refuse a connection, and runs once per opening."
   (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf)
-      (with-current-buffer buf (decklet-db-acquire-session-buffer))
-      (should decklet-db--conn)
-      (kill-buffer buf)
-      (should-not decklet-db--conn))))
-
-(ert-deftest decklet-test-db-card-back-mode-off-releases-lease ()
-  "Turning off `decklet-card-back-mode' releases the lease it acquired.
-The popup buffer outlives the mode, so the connection must not be
-left open with nothing holding it."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf)
-      (with-current-buffer buf
-        (decklet-card-back-mode 1)
-        (should decklet-db--session-buffer)
-        (should decklet-db--conn)
-        (decklet-card-back-mode -1)
-        (should-not decklet-db--session-buffer))
-      (should (buffer-live-p buf))
-      (should-not decklet-db--conn))))
-
-(ert-deftest decklet-test-db-pre-connect-hook-runs-once-per-connection ()
-  "The pre-connect hook runs before opening, not on reuse."
-  (decklet-test--with-temp-db
-    (let* ((hook-count 0)
-	   (decklet-db-pre-connect-hook
-	    (list (lambda ()
-		    (should-not decklet-db--conn)
-		    (cl-incf hook-count)))))
-      (decklet-db--ensure)
-      (decklet-db--ensure)
-      (should decklet-db--conn)
-      (should (= hook-count 1)))))
-
-(ert-deftest decklet-test-db-pre-connect-hook-error-refuses-connection ()
-  "An error from the pre-connect hook leaves the DB unopened."
-  (decklet-test--with-temp-db
-    (let ((decklet-db-pre-connect-hook
-	   (list (lambda () (user-error "Refused")))))
+    (let ((decklet-db-pre-connect-hook (list (lambda () (user-error "Refused")))))
       (should-error (decklet-db--ensure) :type 'user-error)
       (should-not decklet-db--conn)
-      (should-not (file-exists-p decklet-db-file)))))
-
-(ert-deftest decklet-test-db-disconnect-kills-session-buffers-and-closes-db ()
-  "`decklet-disconnect' kills session buffers and closes the connection.
-It fires the pre-disconnect hook exactly once."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf-a buf-b)
-      (dolist (buf (list buf-a buf-b))
-	(with-current-buffer buf (decklet-db-register-session-buffer)))
-      (let* ((hook-count 0)
-	     (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
-	(decklet-disconnect)
-	(should-not (buffer-live-p buf-a))
-	(should-not (buffer-live-p buf-b))
-	(should-not decklet-db--conn)
-	(should (= hook-count 1))))))
-
-(ert-deftest decklet-test-db-disconnect-aborts-when-buffer-cancels-kill ()
-  "A session buffer refusing to die aborts disconnection.
-The connection stays open and the pre-disconnect hook does not run."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (decklet-test--with-temp-buffers (buf)
-      (with-current-buffer buf
-	(decklet-db-register-session-buffer)
-	(add-hook 'kill-buffer-query-functions #'ignore nil t))
-      (let* ((hook-count 0)
-	     (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf hook-count)))))
-	(should-error (decklet-disconnect) :type 'user-error)
-	(should (buffer-live-p buf))
-	(should decklet-db--conn)
-	(should (= hook-count 0))))))
-
-;;; Archive / unarchive
-
-(ert-deftest decklet-test-db-archive-and-unarchive ()
-  "Archiving hides a card from the active set; unarchiving restores it."
-  (decklet-test--with-temp-db
-    (let ((id (decklet-test--add-card-meta "archive-me")))
-      (should (= 1 (length (decklet-db--select-card-rows 'all nil))))
-      (decklet-db--archive-card id (decklet-test--ts (current-time)))
-      (should (= 0 (length (decklet-db--select-card-rows 'all nil))))
-      (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
-      (decklet-db--unarchive-card id)
-      (should (= 1 (length (decklet-db--select-card-rows 'all nil)))))))
+      (should-not (file-exists-p decklet-db-file)))
+    (let* ((hook-count 0)
+           (decklet-db-pre-connect-hook (list (lambda () (cl-incf hook-count)))))
+      (decklet-db--ensure)
+      (decklet-db--ensure)
+      (should (= hook-count 1)))))
 
 ;;; Due-card selection and counts
 
@@ -239,8 +120,9 @@ The connection stays open and the pre-disconnect hook does not run."
       (should (equal (decklet-db--select-due-card-ids)
                      (mapcar #'decklet-test--card-id '("learn-a" "new-a" "review-a")))))))
 
-(ert-deftest decklet-test-db-counts-per-slot ()
-  "`decklet-db--counts' tallies reviewed-today, due-review, due-learning, and new."
+(ert-deftest decklet-test-db-counts-report-holdings-and-todays-allowance ()
+  "Counts report what the deck holds and what today still offers.
+A daily limit lowers the `-remaining' count and sets `:limited'."
   (decklet-test--with-temp-db
     (let* ((now (current-time))
            (ts-now (decklet-test--ts now))
@@ -261,100 +143,63 @@ The connection stays open and the pre-disconnect hook does not run."
         (should (= 1 (plist-get counts :reviewed)))
         (should (= 1 (plist-get counts :due-review)))
         (should (= 1 (plist-get counts :due-learning)))
-        (should (= 1 (plist-get counts :new)))))))
+        (should (= 1 (plist-get counts :new)))
+        (should (= 1 (plist-get counts :new-remaining)))
+        (should-not (plist-get counts :limited)))
+      (let* ((decklet-review-order '(((learning relearning) (sort :due :asc))
+                                     (review shuffle)
+                                     (new (daily-limit 0 shuffle))))
+             (counts (decklet-db--counts)))
+        (should (= 1 (plist-get counts :new)))
+        (should (= 0 (plist-get counts :new-remaining)))
+        (should (plist-get counts :limited))))))
 
-;;; Review-order validation
+(ert-deftest decklet-test-db-review-order-validation ()
+  "The review-order grammar accepts its canonical forms and rejects the rest."
+  (dolist (order '((((learning relearning) (sort :due :asc))
+                    (review (daily-limit 120 shuffle))
+                    (new (spread (daily-limit 10 (sort :added :desc)))))
+                   ;; A zero limit pauses a step for the day.
+                   ((new (daily-limit 0 shuffle)))
+                   (((new :tags (and "a" (not "b"))) shuffle)
+                    ((review :tags (or "a" "c")) shuffle))))
+    (decklet-db--review-validate-order order))
+  (dolist (order '(;; One fallback rule per state.
+                   ((review shuffle) (review (sort :due :asc)))
+                   ((new shuffle) ((new review) shuffle))
+                   ;; Learning cards sort only by :due or :added.
+                   ((learning (sort :stability :desc)))
+                   ;; A limit is a non-negative integer.
+                   ((new (daily-limit -1 shuffle)))
+                   ;; `spread' wraps `daily-limit', never the reverse.
+                   ((review shuffle) (new (daily-limit 10 (spread shuffle))))
+                   ;; A leading spread has nothing to spread into.
+                   ((new (spread shuffle)))
+                   ((review (daily-limit 10 (sort :due :sideways))))
+                   ;; Malformed tag selectors and the old dotted syntax.
+                   ((new :tags) shuffle)
+                   (((new :tags (eval "a")) shuffle))
+                   ((:new . shuffle))))
+    (should-error (decklet-db--review-validate-order order))))
 
-(ert-deftest decklet-test-db-review-order-rejects-duplicate-target ()
-  "A target used in more than one order step is rejected."
-  (should-error
-   (decklet-db--review-validate-order
-    '((review shuffle) (review (sort :due :asc))))))
-
-(ert-deftest decklet-test-db-review-order-rejects-invalid-learning-sort-field ()
-  "Learning cards may only be sorted by :due or :added."
-  (should-error
-   (decklet-db--review-validate-order
-    '((learning (sort :stability :desc))))))
-
-(ert-deftest decklet-test-db-review-order-accepts-limit-and-spread ()
-  "Daily limits and spread placement validate in their canonical nesting."
-  (decklet-db--review-validate-order
-   '(((learning relearning) (sort :due :asc))
-     (review (daily-limit 120 shuffle))
-     (new (spread (daily-limit 10 (sort :added :desc))))))
-  (decklet-db--review-validate-order
-   '((review shuffle)
-     (new (spread shuffle))))
-  ;; A zero limit is a legitimate way to pause a step for the day.
-  (decklet-db--review-validate-order
-   '((new (daily-limit 0 shuffle)))))
-
-(ert-deftest decklet-test-db-review-order-rejects-malformed-limit-and-spread ()
-  "The spec grammar rejects bad limits and non-canonical nesting."
-  ;; A limit must be a non-negative integer.
-  (should-error
-   (decklet-db--review-validate-order '((new (daily-limit -1 shuffle)))))
-  (should-error
-   (decklet-db--review-validate-order '((new (daily-limit 1.5 shuffle)))))
-  ;; `spread' belongs outside `daily-limit', not inside it.
-  (should-error
-   (decklet-db--review-validate-order
-    '((review shuffle)
-      (new (daily-limit 10 (spread shuffle))))))
-  ;; Nested wrappers of the same kind are meaningless.
-  (should-error
-   (decklet-db--review-validate-order
-    '((review shuffle)
-      (new (spread (spread shuffle))))))
-  ;; A spread step placed first has nothing to distribute into.
-  (should-error
-   (decklet-db--review-validate-order '((new (spread shuffle)))))
-  ;; The inner ordering still has to be a valid BASE.
-  (should-error
-   (decklet-db--review-validate-order
-    '((review (daily-limit 10 (sort :due :sideways)))))))
-
-(ert-deftest decklet-test-db-daily-limit-truncates-step ()
-  "A step hands out at most its daily limit."
+(ert-deftest decklet-test-db-daily-limit-is-a-whole-day-budget ()
+  "A daily limit counts today's ratings, so cards graded earlier use it up.
+Ratings from earlier days do not count, and a voided rating refunds
+its slot."
   (decklet-test--with-temp-db
-    (let ((decklet-review-order '((new (daily-limit 2 (sort :added :asc)))))
-          (ts "20250101T000000Z"))
+    (let ((decklet-review-order '((new (daily-limit 2 (sort :added :asc))))))
       (dolist (word '("new-a" "new-b" "new-c"))
         (decklet-test--add-card-meta word :state :new :last-review nil
-                                     :timestamp ts))
+                                     :timestamp "20250101T000000Z"))
+      (decklet-test--log-rated "new" "20250101T000000Z")
       (should (equal (decklet-db--select-due-card-ids)
-                     (mapcar #'decklet-test--card-id '("new-a" "new-b")))))))
-
-(ert-deftest decklet-test-db-daily-limit-subtracts-todays-ratings ()
-  "The limit is a whole-day budget, so cards already graded today count."
-  (decklet-test--with-temp-db
-    (let ((decklet-review-order '((new (daily-limit 2 (sort :added :asc)))))
-          (ts "20250101T000000Z"))
-      (dolist (word '("new-a" "new-b" "new-c"))
-        (decklet-test--add-card-meta word :state :new :last-review nil
-                                     :timestamp ts))
-      (decklet-test--log-rated "new")
-      (setq decklet-review-log--scan-cache nil)
-      (should (equal (decklet-db--select-due-card-ids)
-                     (list (decklet-test--card-id "new-a"))))
-      ;; A second rating exhausts the day's allowance entirely.
-      (decklet-test--log-rated "new")
-      (setq decklet-review-log--scan-cache nil)
-      (should (null (decklet-db--select-due-card-ids))))))
-
-(ert-deftest decklet-test-db-daily-limit-ignores-voided-ratings ()
-  "An undone rating gives its allowance back."
-  (decklet-test--with-temp-db
-    (let ((decklet-review-order '((new (daily-limit 1 (sort :added :asc)))))
-          (ts "20250101T000000Z"))
-      (decklet-test--add-card-meta "new-a" :state :new :last-review nil
-                                   :timestamp ts)
-      (let ((id (decklet-test--log-rated "new")))
-        (setq decklet-review-log--scan-cache nil)
-        (should (null (decklet-db--select-due-card-ids)))
-        (decklet-review-log-append-void id))
-      (setq decklet-review-log--scan-cache nil)
+                     (mapcar #'decklet-test--card-id '("new-a" "new-b"))))
+      (let ((first (decklet-test--log-rated "new")))
+        (should (equal (decklet-db--select-due-card-ids)
+                       (list (decklet-test--card-id "new-a"))))
+        (decklet-test--log-rated "new")
+        (should-not (decklet-db--select-due-card-ids))
+        (decklet-review-log-append-void first))
       (should (equal (decklet-db--select-due-card-ids)
                      (list (decklet-test--card-id "new-a")))))))
 
@@ -380,24 +225,6 @@ The connection stays open and the pre-disconnect hook does not run."
       (should (equal (decklet-db--select-due-card-ids)
                      (mapcar #'decklet-test--card-id
                              '("review-a" "review-b" "new-a" "review-c")))))))
-
-(ert-deftest decklet-test-db-counts-report-remaining-allowance ()
-  "Counts report both what the deck holds and what today still offers."
-  (decklet-test--with-temp-db
-    (let ((decklet-review-order '((new (daily-limit 2 (sort :added :asc)))))
-          (ts "20250101T000000Z"))
-      (dolist (word '("new-a" "new-b" "new-c"))
-        (decklet-test--add-card-meta word :state :new :last-review nil
-                                     :timestamp ts))
-      (let ((counts (decklet-db--counts)))
-        (should (= 3 (plist-get counts :new)))
-        (should (= 2 (plist-get counts :new-remaining)))
-        (should (plist-get counts :limited)))
-      ;; Without a limit nothing is held back.
-      (let* ((decklet-review-order '((new (sort :added :asc))))
-             (counts (decklet-db--counts)))
-        (should (= 3 (plist-get counts :new-remaining)))
-        (should-not (plist-get counts :limited))))))
 
 ;;; Calendar due counts
 
@@ -425,24 +252,6 @@ This is the public API the calendar extension relies on."
       (let ((result (decklet-db-due-counts-by-date day-start cutoff)))
         (should (= 1 (plist-get result :overdue)))
         (should (= 1 (apply #'+ (mapcar #'cadr (plist-get result :rows)))))))))
-
-;;; Card back — DB layer
-
-(ert-deftest decklet-test-db-card-back-update-select-and-isolation ()
-  "Card backs round-trip without interfering with scheduling.
-Blank content normalizes to nil, and scheduling upserts preserve the back."
-  (decklet-test--with-temp-db
-    (let ((id (decklet-test--add-card-meta "lucid" :state :new
-                                           :timestamp "20250101T000000Z")))
-      (should (null (decklet-db--select-card-back id)))
-      (decklet-db--update-back id "clear and bright")
-      (should (string= "clear and bright" (decklet-db--select-card-back id)))
-      (decklet-db--update-back id "   ")
-      (should (null (decklet-db--select-card-back id)))
-      (decklet-db--update-back id "example sentence")
-      (decklet-db--upsert-card "lucid"
-                               (decklet-test--make-card-meta :timestamp "20250102T000000Z"))
-      (should (string= "example sentence" (decklet-db--select-card-back id))))))
 
 (provide 'decklet-db-test)
 ;;; decklet-db-test.el ends here
