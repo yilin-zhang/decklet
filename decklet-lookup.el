@@ -9,7 +9,7 @@
 ;; user-configurable; there is no network, parsing, or popup logic
 ;; in Decklet itself.  Extensions can build definition popups or
 ;; audio playback on top of the public API and hooks documented in
-;; the Decklet README.
+;; docs/writing-extensions.md.
 
 ;;; Code:
 
