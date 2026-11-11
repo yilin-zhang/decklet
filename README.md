@@ -1,18 +1,17 @@
-# Decklet 🃏
+# Decklet
 
 Decklet is for language learners who want to quickly capture and review words
 without heavy card setup.
 
 It is built differently from many SRS tools:
-- The primary workflow does not require designing a card back. Instead, Decklet
-  provides a flexible lookup approach by opening external apps or services.
-  You can jump out to web resources for pronunciation, usage, etymology, images,
-  etc., or connect to a third-party API for live definitions. For cases
-  where a personal note is more useful than an external lookup, cards also
-  support an optional card back.
+- The main workflow needs no card back design. Decklet looks words up by
+  opening external apps or services. You can jump out to web resources for
+  pronunciation, usage, etymology, images, etc., or connect to a third-party
+  API for live definitions. When a personal note helps more than a lookup,
+  cards also support an optional card back.
 - Decklet is built on Emacs, so it is easy to shape to your own workflow. For
-  example, you can customize lookup providers and the lookup behavior, and fully
-  utilize the built-in hooks for further tweaks.
+  example, you can customize lookup providers and the lookup behavior, and use
+  the built-in hooks for further tweaks.
 
 
 ## Table of Contents
@@ -87,8 +86,7 @@ It is built differently from many SRS tools:
 
 The counter line reads: cards rated so far today, then how many review,
 learning and new cards the queue will still hand out today. Those last three
-are what remains under any [daily limits](#daily-limits) you configured, not
-the deck's totals.
+are what remains today under any [daily limits](#daily-limits) you configured.
 
 ### Edit Mode
 
@@ -271,8 +269,8 @@ behavior. You may need an additional setup to make it work.
 
 If you use [Evil](https://github.com/emacs-evil/evil), you may need to turn off
 `evil-local-mode` inside `decklet-review-mode`, otherwise Evil keeps refreshing
-the cursor and the hidden-cursor effect will not hold. This is a practical
-workaround rather than an officially tested configuration.
+the cursor and the hidden-cursor effect will not hold. This workaround has not
+been tested officially.
 
 If you use [Meow](https://github.com/meow-edit/meow), the cursor may blink the
 first time the review buffer is shown, until the next buffer refresh. It is
@@ -314,9 +312,9 @@ images, and related results from whichever sources you prefer.
 - `L` lets you pick a provider, then opens it.
 - `M-x decklet-switch-default-provider` changes the default used by `l`.
 
-In-Emacs definition popups and audio playback are intentionally out of
-scope for the core package — they are trivially built on top of the public
-API and hooks (see [Writing Extensions](#writing-extensions)).
+The core package leaves out in-Emacs definition popups and audio playback.
+Extensions can build them on the public API and hooks (see
+[Writing Extensions](#writing-extensions)).
 
 #### Lookup Providers
 
@@ -343,14 +341,13 @@ Example:
 ### Hints
 
 Hints allow you to add useful context around a word (example sentence, IPA,
-translation, mnemonic, synonyms, collocations, etc.), so you can remember the
-word in real usage instead of memorizing it in isolation.
+translation, mnemonic, synonyms, collocations, etc.), so you remember the word
+in real usage.
 
 In review mode, if a card has a hint, Decklet first shows a `[HINT]`
 placeholder, then reveals the hint after `decklet-review-hint-delay`. The
-delay is intentional: it reduces the chance of identifying the word from
-surrounding context too early, so your first recall attempt still focuses on the
-word itself.
+delay lowers the chance of guessing the word from its context too early, so
+your first recall attempt focuses on the word itself.
 
 If this behavior is not what you want, you can set `decklet-review-hint-delay`
 to nil to disable it.
@@ -360,12 +357,11 @@ to nil to disable it.
 - During add flow, after adding a new word, you can press `H` at the follow-up
   prompt.
 
-Hint display keeps its existing automatic timing; `H` edits the text and is
-not a reveal or popup command. The images extension keeps `i` for viewing an
-image, while the stats extension uses `C-c H` for the deck-wide heatmap.
+`H` only edits the hint text. The hint still appears on its own timer. The
+images extension keeps `i` for viewing an image, while the stats extension
+uses `C-c H` for the deck-wide heatmap.
 
-Note: In minibuffer hint input, you can use `M-j` to insert a newline for
-multi-line hints.
+In the minibuffer hint prompt, `M-j` inserts a newline for multi-line hints.
 
 ### Tags
 
@@ -384,7 +380,7 @@ contain whitespace or colons. Tags have no scheduling effect until a
 - `. t` filters the edit list by one tag, in addition to the current state or
   archive filter. Empty input clears the tag filter.
 - Batch add accepts `:tag` lines as described below. Re-adding an existing word
-  merges explicitly supplied tags instead of replacing them. Omitting tags
+  merges the supplied tags into the existing ones. Omitting tags
   preserves existing tags and does not reset learning progress.
 
 Tags live in the core SQLite database, follow the card's stable id across
@@ -393,8 +389,8 @@ an empty tags field automatically. JSON `"tags": ["botany", "flower"]` replaces
 that field when overwriting a card; an omitted field preserves existing tags,
 and `"tags": []` explicitly clears them.
 
-Tag edits do **not** append review-log events. Daily quotas combine today's
-valid ratings with the cards' **current** tags and the **current** review rules.
+Tag edits append no review-log events. Daily quotas combine today's valid
+ratings with the cards' current tags and the current review rules.
 Correcting a tag therefore reallocates today's consumption immediately. If a
 corrected group is already over its limit, it offers no more cards today;
 completed ratings remain intact. Deleted cards have no current tags and are
@@ -402,26 +398,24 @@ classified as untagged when counting their historical ratings.
 
 ### Card Back
 
-Card back is an optional free-form note attached to a card. Unlike hints, which
-are shown inline during review after a short delay, the card back is kept out of
-the review flow and accessed on demand with `b`. This makes it a good place for
-longer or richer notes — etymology, example sentences, mnemonics, grammar
-patterns, or anything you want to record but do not want shown automatically
-during every review.
+Card back is an optional free-form note attached to a card. Hints appear
+inline during review after a short delay. The card back stays out of the review
+flow until you press `b`, so it suits longer notes such as etymology, example
+sentences, mnemonics, grammar patterns, or anything you want to keep without
+seeing it on every review.
 
 In review mode, if a card has a back, a `♦` indicator appears below the
 hint area as a reminder that extra content is available. You can change the
 symbol with `decklet-review-card-back-indicator` (the hint placeholder has a
 matching `decklet-review-hint-indicator`, default `[HINT]`).
 
-In edit mode, the `Back` column shows `♦` for cards that have a back. (The
-`*` you may see in the leftmost padding column is the mark indicator, not the
-card back indicator.)
+In edit mode, the `Back` column shows `♦` for cards that have a back. A `*`
+in the leftmost padding column marks the row.
 
 Key bindings (available in both review and edit modes):
 
 - `b`: open the card back popup. If the card already has a back, the buffer
-  opens read-only. If the card has no back yet, the buffer is editable — type
+  opens read-only. If the card has no back yet, the buffer is editable. Type
   the content and save with `C-x C-s`.
 
   To modify an existing card back, open it with `b` and toggle the buffer
@@ -448,26 +442,24 @@ keep the original rating and move on.
 Re-rating rewrites history from that point for the card. If the same card was
 reviewed again later in the session (a learning card coming back after its
 step, say), those later reviews were based on the rating you just replaced, so
-they are discarded and voided in the review log rather than revisited.
+they are discarded and voided in the review log.
 
 Edit-mode rating is disabled while a review session is active.
 
 ### Daily Goal
 
 When `decklet-review-daily-goal` is set to an integer number, review mode
-shows a progress bar with current progress percentage. This is useful if you
-want a stable daily target instead of reviewing indefinitely or being
-under-motivated.
+shows a progress bar with current progress percentage. This helps if you want
+a steady daily target.
 
-Note that it is only a pacing indicator. Decklet does not enforce a hard
+The goal is only a pacing indicator. Decklet does not enforce a hard
 cap. You can continue reviewing and learning new cards after the goal is
 reached.
 
 The daily goal is independent of the `daily-limit` in
-[Review Order](#review-order): the goal is a number you aim for, the limit is
-a number the queue will not exceed. Decklet never derives one from the other,
-so if you set limits that add up to less than your goal, the goal simply stays
-out of reach.
+[Review Order](#review-order). The goal is a number you aim for, and the limit
+is a number the queue will not exceed. Decklet keeps the two separate, so limits
+that add up to less than your goal leave the goal out of reach.
 
 You can also do some automation around this signal through hooks. For example,
 `decklet-review-daily-goal-reached-hook` can trigger a check-in message,
@@ -481,15 +473,16 @@ Edit mode is useful when you want to work outside the normal due queue.
 Decklet does not dictate how you should use edit mode, but here are a few
 workflow ideas:
 
-1. Re-check "well-known" words: Use filters/sorting to find cards that look
-   mature, then quickly verify whether you still recognize them. If not, rate
-   with `R` and choose `1` (Again) to push the card back into relearning queue.
-2. Learn selectively from newer cards: Use `. l` (learning filter), then sort by
-   `Added` to focus on recently added words. Now you can use `R` to selectively
-   rate cards that interest you.
-3. Archive long-interval cards: Sort by `Due` and inspect cards scheduled far in
-   the future. If a word feels fully internalized, archive it with `A` to keep
-   the active deck cleaner.
+1. **Re-check "well-known" words.** Use filters/sorting to find cards that
+   look mature, then quickly verify whether you still recognize them. If not,
+   rate with `R` and choose `1` (Again) to push the card back into relearning
+   queue.
+2. **Learn selectively from newer cards.** Use `. l` (learning filter), then
+   sort by `Added` to focus on recently added words. Now you can use `R` to
+   selectively rate cards that interest you.
+3. **Archive long-interval cards.** Sort by `Due` and inspect cards scheduled
+   far in the future. If a word feels fully internalized, archive it with `A`
+   to keep the active deck cleaner.
 
 For batch archive/unarchive, mark multiple cards with `m`, then press `A` once
 to apply the action to all marked rows.
@@ -511,7 +504,7 @@ point or mark multiple cards with `m` then press `D` to delete all marked cards.
 - Empty lines are ignored. Orphan hint/tag lines and malformed tag tokens are
   errors. A `#` line always remains hint text, even when it contains `:tags`.
 - Tag lines use `decklet-color-tags`, distinct from words and hints. The colon
-  marks batch syntax; the stored tag is `botany`, not `:botany`.
+  is batch syntax only, so `:botany` is stored as `botany`.
 
 These two entries use equivalent metadata ordering:
 
@@ -603,8 +596,8 @@ After ownership is assigned, each step sorts or shuffles its cards, takes its
 remaining daily allowance, and places the result in **configuration order**.
 `spread` inserts evenly through everything preceding steps have gathered;
 otherwise the step appends. It cannot be the first step. If preceding steps
-produce no cards, its own cards are still offered. It is not a global shuffle
-or a promise of a fixed ratio when other groups are empty.
+produce no cards, its own cards are still offered. It does not shuffle
+globally, and it keeps no fixed ratio once the other groups run out.
 
 Sources and selectors:
 
@@ -652,25 +645,25 @@ replaces the previous record via the existing log-void mechanism.
 
 To allocate consumption to steps, Decklet uses each rated card's current tags
 and the current selector priority. Changing tags or reordering selectors
-recalculates today's quotas, rather than preserving outdated classifications.
-The rating's pre-state still comes from the log: a word first learned today
-counts as `new` consumption even after it graduates to `review`.
+recalculates today's quotas. The rating's pre-state still comes from the log,
+so a word first learned today counts as `new` consumption even after it
+graduates to `review`.
 
 Use limits mainly for `new` and, if desired, `review`. Limits on `learning`
-or `relearning` are allowed, but an exhausted step stops offering **all** its
+or `relearning` are allowed, but an exhausted step stops offering all its
 cards, including short-interval repeats. No special repeat exemption is added.
 
-Review-mode counters show what is still offered today, not the entire stock.
-A deck containing 500 new cards with a limit of 10 can show `10 new`. Queue
-selection and counters share the same plan; refreshing counters does not
-reshuffle unchanged candidates. Deleting a card removes only that card from
-the pending queue, preserving the order of the remaining cards. Tag changes invalidate the pending queue;
-the currently displayed card and undo history remain available. Day and
+Review-mode counters show what is still offered today. A deck containing 500
+new cards with a limit of 10 can show `10 new`. Queue selection and counters
+share the same plan; refreshing counters does not reshuffle unchanged
+candidates. Deleting a card removes only that card from the pending queue and
+keeps the order of the remaining cards. Tag changes invalidate the pending
+queue; the currently displayed card and undo history remain available. Day and
 review-order changes are checked when advancing to the next card.
 
-When a limit holds cards back, an empty queue reports the daily limit instead
-of claiming that nothing remains. Missing or unreadable logs grant the full
-allowance, as before. An unwritable log prevents a rating from being committed.
+When a limit holds cards back, an empty queue says the daily limit is reached.
+Missing or unreadable logs grant the full allowance. An unwritable log
+prevents a rating from being committed.
 
 ### Interval Labels
 
@@ -698,8 +691,8 @@ already exists but is still new (unreviewed).
 ```
 
 This feature is mainly for bringing stale new cards forward. It is most useful
-when new cards are sorted by added time in descending order (e.g.
-`(new (sort :added :desc))`).
+when new cards are sorted by added time in descending order, as in
+`(new (sort :added :desc))`.
 
 For example, you might import a large chunk of words, then revisit one of them a
 few months later. Refreshing that card helps surface it sooner so you can review
@@ -707,8 +700,8 @@ it while the context is still fresh.
 
 ### Scheduling
 
-Decklet schedules cards with FSRS. The scheduler knobs below are the ones that
-actually change how often you see a card; all of them rebuild the cached
+Decklet schedules cards with FSRS. The scheduler knobs below change how often
+you see a card, and all of them rebuild the cached
 scheduler when set through Customize or `setopt`.
 
 | Variable | Default | Meaning |
@@ -733,11 +726,10 @@ Because these are `defcustom`s with a `:set` function that invalidates the
 cached scheduler, prefer `setopt` (or `:custom` in `use-package`) over plain
 `setq` when changing them after load.
 
-`decklet-fsrs-parameters` is meant to be filled in by an external FSRS tuner
-rather than by hand — see [Review Log](#review-log) for the data source it
-trains on. Tuner code should call `(decklet-set-fsrs-parameters PARAMS)`,
-which routes through the option's `:set` handler and invalidates the
-cached scheduler.
+`decklet-fsrs-parameters` is meant to be filled in by an external FSRS tuner.
+See [Review Log](#review-log) for the data it trains on. Tuner code should
+call `(decklet-set-fsrs-parameters PARAMS)`, which routes through the option's
+`:set` handler and invalidates the cached scheduler.
 
 ### Rollover Time
 
@@ -768,8 +760,8 @@ Quitting the last review/edit buffer closes attached popups first,
 prompting for unsaved edits. `decklet-disconnect` does the same
 teardown explicitly, and `decklet-db-restore` disconnects before
 replacing the database file. A connection opened outside any session
-(a calendar view, a lookup) just stays open until one of those
-happens — an idle handle on a local file costs nothing.
+(a calendar view, a lookup) stays open until one of those happens.
+An idle handle on a local file costs nothing.
 
 #### Backup
 
@@ -780,13 +772,13 @@ Backup behavior:
   by hand.
 - A backup is only created when the DB file has changed since the latest
   snapshot.
-- Each snapshot is a **pair**: the SQLite database and the review log JSONL
+- Each snapshot is a pair. The SQLite database and the review log JSONL
   are copied together under one shared timestamp, so a restore always brings
   back a database and a log that agree with each other. Expect two files per
   snapshot in `decklet-backup-directory`. If the review log does not exist
   yet, an empty log file is written so the pair stays complete.
 - Retention is capped at `decklet-backup-prune-max-count` (default 20)
-  and counts *pairs*: once the count exceeds this, the oldest are deleted
+  and counts pairs. Once the count exceeds it, the oldest pairs are deleted
   silently. Set to nil to disable pruning.
 
 You can also manually back up or restore to a previous snapshot:
@@ -794,8 +786,8 @@ You can also manually back up or restore to a previous snapshot:
 - `decklet-db-backup`: create a backup snapshot.
 - `decklet-db-restore`: restore from a selected backup snapshot.
 
-`decklet-db-restore` lists snapshots newest-first; the completion table
-carries `display-sort-function' metadata, so completion UIs keep that
+`decklet-db-restore` lists snapshots newest first. The completion table
+carries `display-sort-function` metadata, so completion UIs keep that
 order without any configuration.
 
 #### JSON Export and Import
@@ -834,16 +826,15 @@ UTC (`2025-04-12T16:18:00Z`), the form Decklet itself writes.
 
 Separately from the card database, Decklet keeps an append-only log of every
 review event at `decklet-review-log-file` (`review-log.jsonl` under
-`decklet-directory`). The database stores where each card *is now*; the log
-stores how it *got there*. That history is what an FSRS optimizer needs in
-order to fit parameters to your actual memory, which you then feed back in
-through `decklet-fsrs-parameters`.
+`decklet-directory`). The database stores each card's current state, and the
+log stores how it got there. An FSRS optimizer fits parameters to your memory
+from that history, and you feed them back through `decklet-fsrs-parameters`.
 
-The file is JSONL — one JSON object per line. Decklet writes a rating record
+The file is JSONL, with one JSON object per line. Decklet writes a rating record
 before updating the card in SQLite; if the database update fails, it appends a
-`void` record to retire that rating. This ordering prevents a rating from
-landing in the database without a corresponding log record, although the JSONL
-file and SQLite database are separate files rather than one atomic transaction.
+`void` record to retire that rating. This ordering keeps a rating from
+landing in the database without a log record. The JSONL file and the SQLite
+database are still two files, so the pair is not written atomically.
 Three event kinds are written:
 
 | `kind` | Fields | Meaning |
@@ -857,16 +848,16 @@ Consumer notes:
 - Skip any `rated` record whose `id` appears as the `voids` target of a `void`
   event. Voids are written when you undo a rating and re-grade it differently
   within one session.
-- Group by `card_id`, not by `word`. `card_id` is stable across renames, which
-  is why optimizers can ignore `rename` events entirely — they exist only for
-  tools that want to reconstruct the word as it was at rating time.
-- Deletions are **not** logged. Historical ratings for deleted cards stay in
-  the log on purpose, since they are still valid training data.
-- Treat the file as append-only. Decklet core provides no reader API; read the
-  file directly.
+- Group by `card_id`. It is stable across renames, so optimizers can ignore
+  `rename` events. Those exist for tools that want to reconstruct the word as
+  it was at rating time.
+- Deletions are not logged. Ratings of deleted cards stay in the log, since
+  they are still valid training data.
+- Treat the file as append-only. Decklet core has no API for reading single
+  records, so read the file directly.
 
-The log is snapshotted alongside the database on every backup — see
-[Backup](#backup).
+The log is snapshotted with the database on every backup (see
+[Backup](#backup)).
 
 ### Hooks
 
@@ -883,12 +874,12 @@ Decklet provides several session hooks for customization:
 For card-level lifecycle events (added/deleted/renamed/rated/etc.), see
 [Writing Extensions](#writing-extensions).
 
-Decklet itself uses the session hooks: the review and edit start/quit hooks
+Decklet itself uses the session hooks. The review and edit start/quit hooks
 run the automatic backup (see `decklet-backup-automatic`), and the review
 hooks install and remove the resize/text-scale refresh. Your own functions
 run alongside these.
 
-Gamification with sound effects is a good example of hook usage. Here's an example:
+For example, hooks can add sound effects to review:
 
 ```emacs-lisp
 (defun my/decklet-play-sound (path)
@@ -925,7 +916,7 @@ Each component is a function that takes no arguments and returns a string. You
 can write your own and add it to either list. Use `decklet-center-text` or
 `decklet-fill-and-center-text` to center the output.
 
-Example: remove the counter component from the fixed layout.
+To remove the counter component from the fixed layout:
 
 ```emacs-lisp
 (setq decklet-review-fixed-components
@@ -943,7 +934,7 @@ Example: remove the counter component from the fixed layout.
         decklet-review-component-separator))
 ```
 
-Example: customize text width.
+To change the text width:
 
 ```emacs-lisp
 (setq decklet-review-fill-column 56)
@@ -962,8 +953,8 @@ the core. They live in the separate
 [`decklet-extensions`](https://github.com/yilin-zhang/decklet-extensions) repo
 as standalone packages:
 
-- `decklet-calendar` — heat-map the upcoming review load on the built-in calendar.
-- `decklet-import` — import saved words from Kindle `vocab.db` or Kobo
+- `decklet-calendar`: heat-map the upcoming review load on the built-in calendar.
+- `decklet-import`: import saved words from Kindle `vocab.db` or Kobo
   `KoboReader.sqlite` into a batch-add buffer.
 
 Both are built entirely on the public extension API documented below (hooks +
@@ -979,7 +970,7 @@ before writing your own.
 |---|---|
 | `(decklet-card-exists-p CARD-ID)` | non-nil if `CARD-ID` is in the deck |
 | `(decklet-get-card CARD-ID)` | plist `(:card-id :word :hint :back :tags :meta)` or nil |
-| `(decklet-require-card CARD-ID)` | same as above, but signals a `user-error` instead of returning nil |
+| `(decklet-require-card CARD-ID)` | same as above, but signals a `user-error` when the card is missing |
 | `(decklet-get-card-hint CARD-ID)` | hint string or nil |
 | `(decklet-get-card-back CARD-ID)` | card back content or nil |
 | `(decklet-get-card-tags CARD-ID)` | sorted tag strings or nil |
@@ -997,7 +988,7 @@ before writing your own.
 | `(decklet-set-card-hint CARD-ID HINT)` | update hint; fires field-updated hook |
 | `(decklet-set-card-back CARD-ID CONTENT)` | update card back; fires field-updated hook |
 | `(decklet-set-card-tags CARD-ID TAGS)` | replace tags; fires field-updated event with `:field tags` when changed |
-| `(decklet-add-card-tags CARD-ID TAGS)` | merge tags without replacing existing ones |
+| `(decklet-add-card-tags CARD-ID TAGS)` | add tags, keeping existing ones |
 | `(decklet-remove-card-tags CARD-ID TAGS)` | remove only the specified tags |
 | `(decklet-set-card-word CARD-ID NEW-WORD)` | rename a card's word; fires renamed hook |
 | `(decklet-delete-card CARD-ID)` | delete a card; fires deleted hook |
@@ -1019,22 +1010,22 @@ before writing your own.
 
 #### Context helpers
 
-- `decklet-current-card-id` — the card id currently displayed in review
+- `decklet-current-card-id`: the card id currently displayed in review
   (nil outside review).
-- `(decklet-prompt-word &optional PROMPT)` — resolve the word from an
+- `(decklet-prompt-word &optional PROMPT)`: resolve the word from an
   active region, the current review word, the word on the current edit
   line, or the minibuffer.
 
 #### Per-card files
 
 Extensions that keep a file per card (images, audio) should name it by card
-id, not by word:
+id:
 
-- `(decklet-card-sidecar-file DIRECTORY CARD-ID EXTENSION)` — the path
+- `(decklet-card-sidecar-file DIRECTORY CARD-ID EXTENSION)`: the path
   `DIRECTORY/CARD-ID.EXTENSION`, whether or not it exists.
 
 The id survives renames, so files need no migration when a word changes. Words
-are also unsafe as file names: `Polish` and `polish` are two cards, but a
+are unsafe as file names. `Polish` and `polish` are two cards, but a
 case-insensitive file system (macOS's default) folds them into one file.
 
 #### Session buffers
@@ -1048,12 +1039,13 @@ prompt to save), `decklet-disconnect` closes them explicitly, and a
 backup restore refuses to run while any is open. Querying the deck
 from one-shot commands outside a session needs no special handling.
 
-`decklet-db-acquire-session-buffer` returns a disposer — call it to
-release the lease. If the buffer lives exactly as long as its use of
-the DB, you can ignore the disposer: killing the buffer releases the
-lease. If the buffer can outlive it — a minor mode the user can switch
-off, say — keep the disposer and call it when you let go, or the
-connection stays open with nothing holding it:
+`decklet-db-acquire-session-buffer` returns a disposer that releases
+the lease. If the buffer lives exactly as long as its use of the DB,
+you can ignore the disposer, because killing the buffer releases the
+lease. If the buffer can outlive it, say with a minor mode the user
+can switch off, keep the disposer and call it when you let go.
+Otherwise the connection stays open with nothing holding it. For
+example:
 
 ```elisp
 (defvar-local my-ext--release-session nil)
@@ -1079,23 +1071,22 @@ sidecar resources that should go away when Decklet fully disconnects.
 
 `decklet-db-pre-connect-hook` runs right before Decklet opens the
 SQLite connection, once per connection.  A function on it may signal an
-error (usually a `user-error`) to refuse the connection: the error
+error (usually a `user-error`) to refuse the connection. The error
 reaches whichever command needed the database, and nothing is opened.
 This guards every entry point at once (review, edit, adding cards,
 import/export), so prefer it over advising individual commands.
 
 #### Faces
 
-Define faces with plain `defface` and get colors through `:inherit`,
-never by embedding a `face-attribute` lookup in a backquoted spec.
+Define faces with plain `defface` and get colors through `:inherit`.
 `:inherit` is resolved when the face is realized, so it follows the
-active theme; a backquoted `face-attribute` call is evaluated once at
-load time and freezes whatever palette happened to be active then.
+active theme. A `face-attribute` call in a backquoted spec is evaluated
+once at load time and freezes whatever palette was active then.
 
-Decklet's shared `decklet-color-*` carriers exist for exactly this:
-they name a color role and carry a single foreground inherited from
-the `ansi-color` palette. Inherit from those rather than reaching into
-`ansi-color` yourself, and layer on your own weight or height:
+Decklet's shared `decklet-color-*` faces are made for this. Each names a
+color role and carries a single foreground inherited from the
+`ansi-color` palette. Inherit from those and layer on your own weight or
+height:
 
 ```emacs-lisp
 (defface my/decklet-indicator-face
@@ -1104,18 +1095,18 @@ the `ansi-color` palette. Inherit from those rather than reaching into
   :group 'my-decklet-extension)
 ```
 
-If you must inherit straight from an `ansi-color` face, add
-`:background reset` — those faces set `:background` to the same color
-as `:foreground`, which otherwise renders as a solid block.
+If you inherit straight from an `ansi-color` face, add
+`:background reset`. Those faces set `:background` to the same color as
+`:foreground`, which renders as a solid block.
 
 #### Edit-mode columns
 
 `decklet-edit-sidecar-columns` lets an extension add its own columns to the
 edit table, inserted after the built-in `Back` column. Each entry is a plist:
 
-- `:name` — column header string
-- `:width` — `tabulated-list` column width
-- `:value` — function of one ROW plist, returning a display cell or nil
+- `:name`: column header string
+- `:width`: `tabulated-list` column width
+- `:value`: function of one ROW plist, returning a display cell or nil
 
 ```emacs-lisp
 (add-to-list 'decklet-edit-sidecar-columns
@@ -1130,12 +1121,12 @@ edit table, inserted after the built-in `Back` column. Each entry is a plist:
 
 #### Backing up auxiliary files
 
-If your extension keeps files next to the database, you can make them ride
-along in Decklet's backup rotation instead of inventing your own. Register on
-`decklet-db-post-backup-functions` — an abnormal hook called with `BACKUP-DIR`
-and `TIMESTAMP` after a successful backup — and call
-`decklet-backup-auxiliary-file`, which copies a file into the snapshot using
-the same naming scheme and retention policy as the core:
+If your extension keeps files next to the database, they can ride along in
+Decklet's backup rotation. Add a function to
+`decklet-db-post-backup-functions`, an abnormal hook called with `BACKUP-DIR`
+and `TIMESTAMP` after a successful backup, and have it call
+`decklet-backup-auxiliary-file`. That copies a file into the snapshot with the
+same naming scheme and retention policy as the core:
 
 ```emacs-lisp
 (defvar my/decklet-notes-file "~/decklet-notes.json")
@@ -1191,7 +1182,7 @@ grading action, in both review and edit modes.
   per-grade totals should rebuild them from the review log, which voids them.
 - Undo alone does not fire this hook (no DB change).
 - Confirming an undone rating (`n` on an undone card) does not fire
-  the hook either — the original event already reflects the final state.
+  the hook either, because the original event already reflects the final state.
 
 ### Example: per-card image sidecar
 
@@ -1222,13 +1213,13 @@ review UI:
 (add-to-list 'decklet-review-floating-components #'my/decklet-image-indicator)
 ```
 
-Because files are keyed by card id, a rename needs no handling at all. A
+Because files are keyed by card id, a rename needs no handling. A
 sidecar whose content depends on the word itself (pronunciation audio, say)
 would also subscribe to `decklet-cards-renamed-functions` and discard or
 regenerate the file there.
 
-No drift patrol needed: the sidecar is kept in sync automatically
-because the core broadcasts the events. Calls to `decklet-set-card-*`
+The core broadcasts the events, so the sidecar stays in sync on its
+own. Calls to `decklet-set-card-*`
 from extensions also trigger review/edit UI refreshes via the
 field-updated hook, so you don't need to manage refresh yourself.
 
