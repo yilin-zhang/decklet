@@ -14,7 +14,7 @@
               (buffer-list))))
 
 (defun decklet-card-back-test--kill (buf)
-  "Kill BUF even if it holds unsaved edits."
+  "Kill BUF, discarding any unsaved edits."
   (when (buffer-live-p buf)
     (with-current-buffer buf (set-buffer-modified-p nil))
     (kill-buffer buf)))
