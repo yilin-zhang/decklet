@@ -24,11 +24,11 @@
 
 ;; Shared colors
 ;;
-;; These are pure color definitions: they carry a foreground color and
-;; nothing else.  The color is inherited from the `ansi-color' palette
-;; (or `shadow'), which themes redefine, and `:inherit' is resolved at
-;; face-realization time -- so these follow the active theme without
-;; any refresh machinery.  The `ansi-color' faces set `:background' to
+;; These faces carry a foreground color and nothing else.  The color
+;; is inherited from the `ansi-color' palette (or `shadow'), which
+;; themes redefine, and `:inherit' is resolved at face-realization
+;; time, so these follow the active theme without any refresh
+;; machinery.  The `ansi-color' faces set `:background' to
 ;; the same color as `:foreground', which would render as a solid
 ;; block, so `:background reset' pins it back to the `default' face.
 ;; Derived faces inherit from these and layer on whatever weight or
@@ -184,8 +184,8 @@ This hook does NOT fire on:
 
 (defun decklet-run-hook-isolated (hook &rest args)
   "Run abnormal HOOK with ARGS, isolating subscriber failures.
-Every subscriber is attempted.  An error from an extension is reported as a
-warning instead of escaping into an already-committed core operation."
+Every subscriber runs.  An error from one is reported as a warning,
+since the core operation has already committed."
   (apply
    #'run-hook-wrapped
    hook
@@ -203,19 +203,17 @@ warning instead of escaping into an already-committed core operation."
 
 (defun decklet-fire-one-card-event (hook &rest plist)
   "Fire HOOK with a one-element event list built from PLIST.
-Convenience wrapper around `decklet-run-hook-isolated' for the common
-case of a single-card lifecycle event — avoids hand-writing the
-`(list (list ...))' shape at every fire site."
+Shorthand for `decklet-run-hook-isolated' with a single-card event."
   (decklet-run-hook-isolated hook (list plist)))
 
 ;; Per-card files
 ;;
 ;; Extensions that keep files beside the deck (images, audio) key them
-;; by card id.  The id is the card's identity: it survives renames, so
-;; files need no migration when a word changes, and it never collides.
-;; Words do collide on disk -- "Polish" and "polish" are two cards, but
-;; a case-insensitive file system such as macOS's default APFS folds
-;; their names into one file.
+;; by card id.  The id survives renames, so files need no migration
+;; when a word changes, and it never collides.  Words can collide on
+;; disk.  "Polish" and "polish" are two cards, but a case-insensitive
+;; file system such as macOS's default APFS folds their names into one
+;; file.
 
 (defun decklet-card-sidecar-file (directory card-id extension)
   "Return CARD-ID's file with EXTENSION under DIRECTORY.

@@ -31,9 +31,8 @@
 
 (defun decklet-transfer--json-alist-get-raw (record key)
   "Return KEY value from RECORD alist.
-Preserves the `:json-null' sentinel used by the import parser — callers
-that need to distinguish \"key missing\" from \"key explicitly null\"
-should use this; everyone else should prefer `decklet-transfer--json-alist-get'."
+Keep the `:json-null' sentinel, so callers can tell a missing key from
+an explicit null.  Otherwise use `decklet-transfer--json-alist-get'."
   (alist-get key record decklet-transfer--missing))
 
 (defun decklet-transfer--json-alist-get (record key)
@@ -132,9 +131,9 @@ import flow and is not present on cards produced by
 `decklet-db--row->card'.
 
 :hint and :back use the tri-state encoding from
-`decklet-transfer--import-text-value': nil (missing — preserve existing
-value on overwrite), `:clear' (present as JSON null or blank —
-clear existing value on overwrite), or a normalized non-empty
+`decklet-transfer--import-text-value': nil (missing; keep the existing
+value on overwrite), `:clear' (JSON null or blank; clear the
+existing value on overwrite), or a normalized non-empty
 string.  The :tags value is nil when absent, otherwise
   (:present . TAGS), including an empty list for an explicit empty array."
   (unless (listp record)
@@ -250,10 +249,7 @@ unarchived."
 (defun decklet-transfer--import-json-file (file)
   "Import cards from JSON FILE.
 Return a plist with :added, :overwritten, and :skipped."
-  ;; Parse with `:json-null' as the null sentinel so hint/back can
-  ;; distinguish "key missing" (nil) from "key explicitly null"
-  ;; (`:json-null').  `decklet-transfer--import-text-value' collapses both
-  ;; null and blank strings into the `:clear' marker downstream.
+  ;; `:json-null' lets hint/back tell an explicit null from a missing key.
   (let ((records (with-temp-buffer
                    (insert-file-contents file)
                    (json-parse-buffer :object-type 'alist
@@ -263,13 +259,9 @@ Return a plist with :added, :overwritten, and :skipped."
     (unless (vectorp records)
       (user-error "Import JSON must be an array of card objects"))
     (setq records (append records nil))
-    ;; Resolve all conflict decisions before opening a transaction so
-    ;; interactive prompts don't block inside a write transaction.
-    ;; Reject intra-file duplicates early: two records with the same word
-    ;; would both get a minted id during planning and both be marked
-    ;; `:add', but the second upsert hits `ON CONFLICT(word)' and keeps
-    ;; the first row's id — so the second minted id is a ghost that
-    ;; would leak into `added' counts and `decklet-cards-added-functions'.
+    ;; Ask all conflict prompts before the write transaction opens.
+    ;; Reject duplicate words.  The second would upsert into the first's
+    ;; row yet still be counted and announced as a separate add.
     (let* ((global-conflict-action nil)
            (seen-words (make-hash-table :test 'equal))
            (planned (mapcar
@@ -290,8 +282,7 @@ Return a plist with :added, :overwritten, and :skipped."
            (added 0) (overwritten 0) (skipped 0)
            (added-card-ids nil)
            (overwritten-card-ids nil))
-      ;; Write all cards in a single transaction.  It rolls back on
-      ;; any non-local exit, including a `quit'.
+      ;; A quit rolls the transaction back too.
       (with-sqlite-transaction (decklet-db--ensure)
         (dolist (entry planned)
           (let ((card (car entry))
@@ -309,9 +300,7 @@ Return a plist with :added, :overwritten, and :skipped."
                (cl-incf overwritten))
               (_
                (error "Unknown import action: %S" action))))))
-      ;; Fire lifecycle events after the transaction commits so
-      ;; sidecar extensions only see successful imports.  One batched
-      ;; event per successful import.
+      ;; Fire events only after the commit, one batch per hook.
       (when added-card-ids
         (decklet-run-hook-isolated
          'decklet-cards-added-functions

@@ -37,13 +37,13 @@
   (setq decklet--counter (decklet-db--counts)))
 
 (defun decklet--refresh-due-card-ids ()
-  "Refresh the due card-id list if a review session is active."
+  "Refresh the due card-id list from the database."
   (setq decklet-due-card-ids (decklet-db--select-due-card-ids)))
 
 (defun decklet--require-current-card-id (action)
-  "Return the current card id, or report ACTION and return nil.
-ACTION should be a verb phrase used in the fallback message."
-  (when (not decklet-current-card-id)
+  "Return the current card id, or signal a `user-error' naming ACTION.
+ACTION is a verb phrase, as in \"No word to ACTION\"."
+  (unless decklet-current-card-id
     (user-error "No word to %s" action))
   decklet-current-card-id)
 
@@ -53,42 +53,35 @@ If region is active, use its trimmed text.  Otherwise, use the current
 review word in review mode, the word at the current edit line in edit
 mode, or prompt with a default from word at point.  PROMPT is used when
 a minibuffer prompt is needed."
-  (if word
-      word
-    (let ((region-text (when (use-region-p)
-                         (string-trim
-                          (buffer-substring-no-properties
-                           (region-beginning)
-                           (region-end))))))
+  (or word
       (cond
        ((use-region-p)
-        (if (string-empty-p region-text)
-            (user-error "Selected text is empty")
-          region-text))
+        (let ((text (string-trim (buffer-substring-no-properties
+                                  (region-beginning) (region-end)))))
+          (if (string-empty-p text)
+              (user-error "Selected text is empty")
+            text)))
        ((derived-mode-p 'decklet-review-mode)
         (or (and decklet-current-card-id
                  (decklet-get-card-word decklet-current-card-id))
             (user-error "No word to use")))
        ((derived-mode-p 'decklet-edit-mode)
-        (let ((card-id (tabulated-list-get-id)))
-          (if card-id
-              (or (decklet-get-card-word card-id)
-                  (user-error "No word on this line"))
-            (user-error "No word on this line"))))
+        (or (when-let* ((card-id (tabulated-list-get-id)))
+              (decklet-get-card-word card-id))
+            (user-error "No word on this line")))
        (t
-        (let* ((default (thing-at-point 'word t))
-               (input (read-string (or prompt "Word: ") default))
-               (trimmed (string-trim input)))
-          (if (string-empty-p trimmed)
+        (let ((input (string-trim
+                      (read-string (or prompt "Word: ")
+                                   (thing-at-point 'word t)))))
+          (if (string-empty-p input)
               (user-error "Word cannot be empty")
-            trimmed)))))))
+            input))))))
 
-;; Public API — card accessors
+;; Public API: card accessors
 ;;
-;; These are the stable entry points extensions should use instead of
-;; reaching into `decklet-db--' internals.  Internal identity is always
-;; `card_id'; callers that start from a word should resolve the card row
-;; first, then operate by id.
+;; These are the stable entry points for extensions.  Internal identity
+;; is always `card_id'; callers that start from a word should resolve the
+;; card row first, then operate by id.
 
 (defun decklet-get-card (card-id)
   "Return card data for CARD-ID as a plist, or nil if not found."
@@ -142,7 +135,7 @@ current line is used.  Otherwise the minibuffer is read with an
 optional PROMPT, defaulting to the word at point."
   (decklet--resolve-word nil prompt))
 
-;; Public API — tags
+;; Public API: tags
 
 (defun decklet-get-card-tags (card-id)
   "Return the current tag strings for CARD-ID, or nil."
@@ -189,7 +182,7 @@ Names are separated by whitespace; an empty response clears the list."
   "Prompt to replace CARD-ID's tags, returning the new list."
   (decklet-set-card-tags card-id (decklet-read-tags (decklet-get-card-tags card-id))))
 
-;; Public API — card mutations
+;; Public API: card mutations
 ;;
 ;; Each mutation broadcasts a lifecycle event so extensions can stay
 ;; in sync without scanning state.  Rating and rename also append a
@@ -213,13 +206,13 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
                   word card-id grade old-meta new-meta)))
     (unless log-id
       (user-error "Could not write rating to the review log"))
-    ;; Only the DB write is rolled back against the log: once it has
-    ;; landed the rating stands, so a later failure must not void it.
+    ;; Only a failed DB write voids the log record.  Once the write has
+    ;; landed the rating stands, even if a later step fails.
     (condition-case err
         (decklet-db--upsert-card word new-meta)
       (error
-       ;; Best-effort: retire the orphaned log record before re-signaling.
-       ;; A failed void already reports itself from the log writer.
+       ;; Retire the orphaned log record, then re-signal.  If the void
+       ;; fails, the log writer reports it.
        (decklet-review-log-append-void log-id)
        (signal (car err) (cdr err))))
     (decklet--refresh-counter)
@@ -348,7 +341,7 @@ preserves its existing `card-id'."
          (meta (and row (decklet-db--row->card-meta row))))
     (setq decklet-last-added-word word)
     (cond
-     ;; Brand-new word: create a row and emit the added hook once.
+     ;; A brand-new word gets a row and one added event.
      ((null meta)
       (let ((now (decklet--now)))
         (setq meta (make-decklet-card-meta :card-id (decklet-db--mint-card-id)))
@@ -361,13 +354,12 @@ preserves its existing `card-id'."
           (list :card-id card-id
                 :status 'added
                 :message (format "Added \"%s\" to the deck. " word)))))
-     ;; Existing reviewed card: do not treat it as addable again.
+     ;; A reviewed card already exists, so leave it alone.
      ((not (decklet-card-meta-effective-state-new-p meta))
       (list :card-id (decklet-card-meta-card-id meta)
             :status 'exists
             :message (format "Word \"%s\" already exists in the deck. " word)))
-     ;; Existing new card: optionally refresh its added date instead of
-     ;; creating a second add event for the same card.
+     ;; A still-new card is refreshed only when `decklet-add-and-refresh' is on.
      ((not decklet-add-and-refresh)
       (list :card-id (decklet-card-meta-card-id meta)
             :status 'exists

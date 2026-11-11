@@ -4,9 +4,9 @@
 
 ;;; Commentary:
 
-;; Popup buffer for viewing and editing a card's back.  The buffer is
-;; backed by the database rather than a file: saving writes the card
-;; back, and killing a modified buffer prompts first.
+;; Popup buffer for viewing and editing a card's back.  Saving the
+;; buffer writes the card back to the database, and killing a modified
+;; buffer prompts first.
 
 ;;; Code:
 
@@ -36,8 +36,8 @@
 
 (defun decklet-card-back--write-contents ()
   "`write-contents-functions' handler for `decklet-card-back-mode'.
-Saves the card back to the DB and returns non-nil so Emacs skips its
-normal file-writing path — the buffer is backed by the DB, not a file."
+Save the card back to the DB and return non-nil, which tells Emacs
+the buffer has been written."
   (decklet-save-card-back)
   t)
 
@@ -58,9 +58,8 @@ declines both save and discard."
 
 (defvar-local decklet-card-back--release-session nil
   "Disposer for this buffer's DB session lease, or nil when not held.
-Held while `decklet-card-back-mode' is on: the popup buffer can
-outlive the mode, so the lease has to be released when the mode is
-switched off rather than only when the buffer is killed.")
+Held while `decklet-card-back-mode' is on.  The popup buffer can
+outlive the mode, so turning the mode off releases the lease.")
 
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
@@ -90,8 +89,7 @@ switched off rather than only when the buffer is killed.")
          (back (plist-get card :back))
          (buf-name (format "*Decklet Card Back: %s*" word))
          (buffer (get-buffer-create buf-name)))
-    ;; A popup with unsaved edits is the user's work in progress, not a
-    ;; stale view: show it as is instead of reloading over it.
+    ;; Keep unsaved edits in the popup and show them as is.
     (if (and (buffer-modified-p buffer)
              (eql (buffer-local-value 'decklet-card-back--card-id buffer)
                   card-id))

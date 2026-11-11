@@ -5,9 +5,9 @@
 ;;; Commentary:
 
 ;; SQLite connection management and card queries.  Also plans the
-;; review queue from `decklet-review-order': selecting due cards, assigning
-;; them to order steps, applying daily limits from the review log, and
-;; computing the review counters.
+;; review queue from `decklet-review-order'.  It selects due cards, assigns
+;; them to order steps, applies daily limits from the review log, and
+;; computes the review counters.
 
 ;;; Code:
 
@@ -45,9 +45,10 @@ Emacs session so the seed is recomputed from the DB on startup.")
 (defvar decklet-db-pre-connect-hook nil
   "Hook run immediately before the SQLite connection is opened.
 A function may signal an error, typically a `user-error', to refuse
-the connection: the error reaches the command that needed the
-database and no connection is opened.  Use this to guard the
-database file, e.g. against opening it while it is out of sync.")
+the connection.  The error reaches the command that needed the
+database, and no connection is opened.  Use this to guard the
+database file, for example against opening it while it is out of
+sync.")
 
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
@@ -62,7 +63,7 @@ the connection open while they live, are closed by
 
 (defvar-local decklet-db--session-primary nil
   "Non-nil when the current buffer owns the session lifetime.
-Set for review/edit buffers: when the last primary buffer is
+Set for review and edit buffers.  When the last primary buffer is
 killed, attached session buffers are closed first and the DB
 disconnects.")
 
@@ -74,8 +75,8 @@ disconnects.")
     "stability" "difficulty")
   "DB columns that card SELECTs may be sorted by.
 `decklet-db--edit-order-sql' rejects anything outside this set;
-column names are interpolated into SQL, so the whitelist lives
-next to the interpolation rather than in each caller.
+column names are interpolated into SQL, so the check sits next to
+the interpolation.
 Keep `decklet-edit--db-sort-columns' values within this set.")
 
 (defconst decklet-db--card-columns
@@ -154,10 +155,7 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
                       (sqlite-select decklet-db--conn "PRAGMA table_info(cards);"))
       (sqlite-execute decklet-db--conn
                       "ALTER TABLE cards ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';"))
-    ;; `card_id INTEGER PRIMARY KEY' aliases to rowid, so no separate
-    ;; unique index is needed on it — the rowid B-tree IS the primary
-    ;; key index.  The implicit index on `word' is created
-    ;; automatically from `UNIQUE NOT NULL'.
+    ;; `card_id' is the rowid and `word' is UNIQUE, so both are indexed.
     (sqlite-execute decklet-db--conn
                     "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
   decklet-db--conn)
@@ -182,24 +180,19 @@ Leaves the connection alone; callers decide when to check for idleness."
 
 (defun decklet-db-acquire-session-buffer (&optional primary)
   "Mark the current buffer as part of the Decklet session.
-Extension-owned popups that read or write the DB should call this
-once during setup: session buffers keep the connection open while
-they live, are closed by `decklet-disconnect', and block
-`decklet-db-restore'.
+Session buffers keep the DB connection open, are closed by
+`decklet-disconnect', and block `decklet-db-restore'.  Extension
+popups that use the DB should call this during setup.
 
-PRIMARY is for Decklet's own review/edit buffers: when the last
-primary buffer is killed, the remaining session buffers are closed
-first (each may prompt to save) and the DB disconnects.
+PRIMARY is for Decklet's review and edit buffers.  Killing the last
+primary buffer closes the other session buffers first, then
+disconnects.
 
-Return a disposer: a function of no arguments that releases the
-lease, dropping the buffer's session markers and disconnecting the
-DB when no session buffer is left.  Buffers that live exactly as
-long as their lease need not keep it — killing them releases the
-lease through `kill-buffer-hook'.  A buffer that outlives its lease
-\(a minor mode the user can switch off) must call the disposer, or
-the connection stays open with nothing holding it.
-
-The disposer is idempotent and stays safe once the buffer is dead."
+Return a disposer that releases the lease and disconnects when no
+session buffer is left.  Killing the buffer releases the lease too,
+so only a buffer that outlives its use of the DB, such as one with a
+minor mode the user can turn off, needs to call it.  The disposer is
+idempotent and safe to call after the buffer is dead."
   (let ((buffer (current-buffer))
         (released nil))
     (setq-local decklet-db--session-buffer t)
@@ -220,15 +213,12 @@ The disposer is idempotent and stays safe once the buffer is dead."
   "Mark the current buffer as part of the Decklet session.
 PRIMARY is passed through to `decklet-db-acquire-session-buffer'.
 
-This is the lease-for-the-buffer's-lifetime form: it discards the
-disposer, so the lease is only released when the buffer is killed.
+This form discards the disposer, so the lease lasts until the
+buffer is killed.
 Prefer `decklet-db-acquire-session-buffer' whenever the buffer can
 outlive its use of the DB."
   (decklet-db-acquire-session-buffer primary)
   nil)
-
-(define-obsolete-function-alias 'decklet-db-register-dependent-buffer
-  #'decklet-db-register-session-buffer "0.1.0")
 
 (defun decklet-db--session-buffers (&optional exclude)
   "Return live Decklet session buffers, ignoring EXCLUDE.
@@ -274,9 +264,9 @@ any buffer refuses to die, abort and leave the DB connected."
   (interactive)
   (let* ((buffers (decklet-db--session-buffers))
          (primaries (decklet-db--primary-session-buffers))
-         ;; Primaries first: the last one cascade-kills the attached
+         ;; Kill primaries first.  The last one cascade-kills the attached
          ;; buffers via its kill query, so an abort names the
-         ;; review/edit buffer rather than an attached popup.
+         ;; review or edit buffer.
          (ordered (append primaries (seq-difference buffers primaries)))
          (had-conn decklet-db--conn))
     (dolist (buffer ordered)

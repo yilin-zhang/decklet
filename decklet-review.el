@@ -329,7 +329,7 @@ The lines in the block are left-aligned within the centered block."
 
 (defun decklet-center-text (text)
   "Center TEXT in the current window width.
-Multi-line text is centered as a block, not per-line."
+Multi-line text is centered as one block, so its lines stay left-aligned."
   (let* ((lines (split-string text "\n"))
          (padding (decklet--center-padding lines)))
     (mapconcat (lambda (line)
@@ -716,7 +716,7 @@ Callers must be in forward-flow state (future empty)."
   "Return ENTRIES without leading entries whose card no longer exists.
 The delete hook removes a deleted card's entries from the trail,
 so dead entries only appear when a card vanished behind Decklet's
-back; discard them rather than presenting a nonexistent card."
+back.  Discard them."
   (seq-drop-while
    (lambda (entry)
      (not (decklet-card-exists-p (plist-get entry :card-id))))
@@ -764,12 +764,12 @@ Void their log records and drop them, as if they never happened."
 
 (defun decklet-review--nothing-due-message ()
   "Return the message explaining why no card is on offer.
-An empty queue has three quite different causes: a `daily-limit'
-in `decklet-review-order' is spent, cards are still in a learning
-step and come due later today, or there is genuinely nothing left.
-The first two can hold at once -- a spent limit on `:review' or
-`:new' says nothing about the learning cards that come due in a
-few minutes -- so mention the wait whenever there is one."
+The queue can be empty because a `daily-limit' in
+`decklet-review-order' is spent, because cards are still in a
+learning step and come due later today, or because nothing is left.
+The first two can hold at once, since a spent limit on `:review'
+or `:new' says nothing about learning cards due in a few minutes.
+So mention the wait whenever there is one."
   (decklet--refresh-counter)
   (let* ((next-due (decklet-db--next-due-time))
          (wait (and next-due
@@ -830,7 +830,7 @@ When current list is empty, re-check for due cards and continue if any exist."
   (interactive)
   (cond
    ((decklet-review--undo-in-progress-p)
-    ;; Confirm the undone card: move its entry back onto the past side.
+    ;; Confirm the undone card by moving its entry back to the past side.
     (push (pop decklet-review--trail-future) decklet-review--trail-past)
     (decklet-review--advance))
    (t
@@ -872,12 +872,12 @@ always leave the same amount of state behind."
           (let ((new-log-id (decklet--rate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
-          ;; Best-effort: a failed void already reports itself.
+          ;; If the void fails, the log writer reports it.
           (when prior-log-id
             (decklet-review-log-append-void prior-log-id))
           (decklet-review--trail-drop-later-entries card-id)
           (decklet-review--trail-update-and-advance grade))
-      ;; Normal forward rating: snapshot pre-meta, rate, append.
+      ;; Normal rating.  Snapshot pre-meta, rate, then append to the trail.
       (let* ((old-meta (decklet-db--row->card-meta row))
              (pre-meta (copy-decklet-card-meta old-meta))
              (new-log-id (decklet--rate-card-state card-id word old-meta grade)))
@@ -894,9 +894,8 @@ always leave the same amount of state behind."
 
 (defun decklet-review-undo ()
   "Go back to the previous card and redisplay it.
-Does not revert DB state — the original rating remains in the
-database until the user re-rates.  Trail entries whose card no
-longer exists are discarded."
+The original rating stays in the DB until the card is re-rated.
+Trail entries whose card no longer exists are discarded."
   (interactive)
   (let ((before (length decklet-review--trail-past)))
     (setq decklet-review--trail-past
@@ -907,11 +906,8 @@ longer exists are discarded."
                  dropped (if (= dropped 1) "" "s")))))
   (if (null decklet-review--trail-past)
       (message "Nothing to undo")
-    ;; When undoing from normal flow, the current card hasn't been
-    ;; recorded on the trail — push it back onto the due queue so
-    ;; advancing past the undo revisits it.  When already in undo
-    ;; state, the current card is on the future side and reappears
-    ;; on its own.
+    ;; Outside undo the current card is not on the trail yet, so put
+    ;; it back on the due queue to see it again after the undo.
     (when (and (not (decklet-review--undo-in-progress-p))
                decklet-current-card-id)
       (push decklet-current-card-id decklet-due-card-ids))
@@ -1016,10 +1012,7 @@ is needed here."
 (add-hook 'decklet-review-start-hook #'decklet-review--enable-resize-refresh)
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
 
-;; Refresh the visible review buffer whenever the current card changes.
-;; Used for both field updates (hint / back / extension-owned fields)
-;; and word renames — in both cases the review UI needs to re-render if
-;; the affected card is on screen.
+;; Handles both field updates and renames.
 (defun decklet-review--on-current-card-changed (events)
   "Refresh the visible review buffer when the current card is in EVENTS."
   (when (cl-some (lambda (ev) (eql (plist-get ev :card-id)

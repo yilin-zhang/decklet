@@ -273,10 +273,9 @@ nearest surviving card otherwise."
 
 (defun decklet-edit--column-sorter (column)
   "Return a sorter closure for COLUMN.
-Column index and numeric-ness are captured once when the closure is
-constructed, not per comparison — a fresh closure is built on each
-`decklet-edit--tabulated-list-format' refresh, so sidecar column
-changes propagate through the next format rebuild."
+Column index and numeric-ness are looked up once, when the closure is
+built.  `decklet-edit--tabulated-list-format' rebuilds the closures on
+each refresh, so sidecar column changes take effect then."
   (let ((index (alist-get column (decklet-edit--column-indices) nil nil #'string=))
         (numeric-p (member column decklet-edit--numeric-columns)))
     (lambda (a b)
@@ -438,7 +437,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
   "Add mark overlays on the current line."
   (let ((bol (line-beginning-position))
         (eol (line-end-position)))
-    ;; Dedupe: drop any existing mark overlays on this line.
+    ;; Drop any mark overlays already on this line.
     (remove-overlays bol eol 'decklet-mark t)
     (let ((row-ov (make-overlay bol eol))
           (ind-ov (make-overlay bol (1+ bol))))
@@ -552,9 +551,9 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-set-word ()
   "Rename the card at point.
-Field updates are allowed on the current review card:
-`decklet-cards-renamed-functions' carries the change to the
-review buffer, which refreshes if the renamed card is on screen."
+The current review card can be renamed too.
+`decklet-cards-renamed-functions' carries the change to the review
+buffer, which refreshes if the card is on screen."
   (interactive)
   (message "Updated \"%s\""
            (decklet-prompt-set-word (decklet-edit--card-id-at-point))))
@@ -697,10 +696,9 @@ always leave the same amount of state behind."
 (add-hook 'decklet-edit-start-hook #'decklet-backup-session)
 (add-hook 'decklet-edit-quit-hook #'decklet-backup-session)
 
-;; When the edit buffer isn't the selected window, refresh is deferred
-;; and flushed on next focus: `tabulated-list-print t' falls back to
-;; `point-min' when called in a non-focused buffer, which would yank
-;; point off the user's row.
+;; When the edit buffer isn't the selected window, refresh waits until
+;; it gets focus again.  `tabulated-list-print t' in an unfocused buffer
+;; falls back to `point-min', which would move point off the user's row.
 (defvar-local decklet-edit--refresh-pending nil
   "Non-nil when the edit buffer needs a refresh on next focus.
 Set by `decklet-edit--on-card-change' when the buffer is not selected;

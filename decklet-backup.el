@@ -84,8 +84,8 @@ lexicographic order matches chronological order."
 
 (defun decklet-backup--backup ()
   "Create a paired database/review-log backup and prune old backup pairs.
-A second backup within the same second overwrites the first — both
-are valid snapshots of the same state."
+A second backup within the same second overwrites the first; both
+are snapshots of the same state."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
          (timestamp (decklet--timestamp-utc))

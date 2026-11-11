@@ -7,7 +7,7 @@
 ;; Browser-based word lookup.  A selected word is substituted into a
 ;; URL template and opened in the user's browser.  Providers are
 ;; user-configurable; there is no network, parsing, or popup logic
-;; in Decklet itself — extensions can build definition popups or
+;; in Decklet itself.  Extensions can build definition popups or
 ;; audio playback on top of the public API and hooks documented in
 ;; the Decklet README.
 

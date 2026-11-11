@@ -31,8 +31,8 @@
 ;;     preserved by card_id, so consumers grouping by card_id (e.g.
 ;;     FSRS optimizers) can safely ignore rename events.
 ;;
-;; Delete is silent to the log — historical ratings for deleted
-;; cards remain for FSRS tuning.
+;; Deletes are not logged; ratings of deleted cards stay in the log
+;; for FSRS tuning.
 ;;
 ;; The log writer is owned by Decklet core so every rating is
 ;; captured transactionally with the card update.  External
@@ -158,16 +158,14 @@ Consumers skip any rated record whose `id' appears as a void's
 
 ;; Daily consumption accounting
 ;;
-;; Decklet core reads its own log back to answer one question: how many
-;; cards has each `decklet-review-order' step already handed out during
-;; the current review day?  That fact is history, not card state, so it
-;; lives here rather than in the `cards' table.  Only the tail covering
-;; today is parsed, and the result is cached against the file size so
-;; repeated queue rebuilds within a session stay cheap.
+;; Decklet core reads its own log back to count how many cards each
+;; `decklet-review-order' step has handed out during the current review
+;; day.  Only the tail covering today is parsed, and the result is
+;; cached against the file size so repeated queue rebuilds within a
+;; session stay cheap.
 ;;
-;; The log is advisory for this purpose: when it is missing or
-;; unreadable the accounting reports nothing consumed, which lets
-;; reviewing continue with full daily allowances rather than blocking.
+;; When the log is missing or unreadable, the count is zero and
+;; reviewing continues with full daily allowances.
 
 (defconst decklet-review-log--scan-chunk 65536
   "Byte size of each backward read when locating today's records.")
@@ -191,9 +189,9 @@ void events.")
   (or (plist-get record :pre_effective_state)
       ;; Compatibility path for records written before
       ;; `pre_effective_state' existed.  FSRS assigns stability on a
-      ;; card's very first review, so a null `pre_stability' identifies
-      ;; that first review -- i.e. the card was new -- while any other
-      ;; record's stored `pre_state' is already the effective one.
+      ;; card's very first review, so a null `pre_stability' marks a
+      ;; card that was new.  Any other record's stored `pre_state' is
+      ;; already the effective one.
       ;; Deprecated: drop this branch once such records no longer
       ;; matter for daily accounting.
       (if (plist-get record :pre_stability)
@@ -284,8 +282,8 @@ nil when the log file cannot be read."
 (defun decklet-review-log-daily-card-states (&optional time)
   "Return distinct (CARD-ID . STATE) pairs rated on the review day at TIME.
 STATE is the pre-rating effective FSRS keyword.  Voided ratings are
-excluded.  Missing or unreadable logs return nil.  Tags are deliberately
-not stored here: callers can group these records using current card tags."
+excluded.  Missing or unreadable logs return nil.  Callers that
+need tags group these records by the cards' current tags."
   (let* ((day-start (decklet--time->fsrs-timestamp (decklet-day-start-time time)))
          (cache (decklet-review-log--refresh-scan day-start))
          (voided (make-hash-table :test 'eql))

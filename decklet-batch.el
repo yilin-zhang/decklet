@@ -4,8 +4,8 @@
 
 ;;; Commentary:
 
-;; A text buffer for adding many cards at once: one word per line, with
-;; optional `#' hint lines and `:tag' lines attached to the word above.
+;; A text buffer for adding many cards at once.  Each line holds one
+;; word, optionally followed by `#' hint lines and `:tag' lines.
 ;; Confirming writes every card in one transaction and fires each
 ;; lifecycle hook once with the whole batch.
 
@@ -58,9 +58,9 @@ Receives a list of added words.")
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
   "Major mode for editing batch word entries.
 Word lines are emphasized; only the hint prefix is subdued."
-  ;; Hint lines are data, not comments, and only a leading `#' is special.
-  ;; Configure comment commands without teaching the syntax table that every
-  ;; `#' starts a comment (which would misclassify words such as "C#").
+  ;; A `#' is special only at the start of a line, where it marks a hint.
+  ;; The comment variables are set by hand, because `#' comment syntax
+  ;; in the syntax table would also catch words such as "C#".
   (setq-local comment-start "# ")
   (setq-local comment-end "")
   (setq-local comment-start-skip "#+[ \t]*")
