@@ -55,7 +55,7 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
   :type 'string
   :group 'decklet-review)
 
-(defcustom decklet-review-card-back-indicator "♦"
+(defcustom decklet-review-card-back-indicator "[BACK]"
   "Indicator string used by `decklet-review-component-card-back-indicator'."
   :type 'string
   :group 'decklet-review)

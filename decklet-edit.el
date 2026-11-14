@@ -63,6 +63,11 @@
   "Face for the back indicator in edit lists."
   :group 'decklet-edit)
 
+(defcustom decklet-edit-card-back-indicator "♦"
+  "Indicator string shown in the Back column for cards with a back."
+  :type 'string
+  :group 'decklet-edit)
+
 (defface decklet-edit-mark-face
   '((((background dark)) (:background "DarkGoldenrod4"))
     (t (:background "LightYellow1")))
@@ -387,7 +392,10 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                hint
                (propertize (string-join tags " ") 'face 'decklet-color-tags
                            'help-echo (string-join tags " "))
-               (if back (propertize "♦" 'face 'decklet-edit-card-back-indicator-face) ""))
+               (if back
+                   (propertize decklet-edit-card-back-indicator
+                               'face 'decklet-edit-card-back-indicator-face)
+                 ""))
               (apply #'vector (decklet-edit--sidecar-column-cells row))
               (vector
                (propertize state-text 'face state-face)

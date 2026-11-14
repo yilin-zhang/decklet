@@ -74,7 +74,7 @@ It is built differently from many SRS tools:
 
                           /ˈluːsɪd/
 
-                             ♦
+                           [BACK]
 ```
 
 The counter line shows the cards rated so far today, then how many review,
@@ -296,9 +296,6 @@ The card back is an optional free-form note on a card. It stays out of the
 review flow until you press `b`, so it suits longer notes such as etymology,
 example sentences, mnemonics or grammar patterns.
 
-In review mode, a `♦` below the hint area marks cards that have a back. In
-edit mode, the `Back` column shows the same mark.
-
 Press `b` in review or edit mode to open the card back. A new back opens
 ready to type, and an existing one opens read-only; press `C-x C-q` to edit
 it. Save with `C-x C-s`. If you close the popup with unsaved edits, Decklet
@@ -309,6 +306,10 @@ The card back buffer uses `org-mode`. To use another mode:
 ```emacs-lisp
 (setq decklet-card-back-buffer-major-mode 'markdown-mode)
 ```
+
+In review mode, `[BACK]` below the hint area marks cards that have a back. In
+edit mode, the `Back` column shows `♦`. The two strings are set by
+`decklet-review-card-back-indicator` and `decklet-edit-card-back-indicator`.
 
 ### Undo
 
