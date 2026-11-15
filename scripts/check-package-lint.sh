@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PACKAGE_LINT_GIT_URL="https://github.com/purcell/package-lint.git"
-PACKAGE_LINT_COMMIT="1c37329703a507fa357302cf6fc29d4f2fe631a8"
+PACKAGE_LINT_COMMIT="1865be780a16098f972fef50a52b21ca6ee04df9"
 CACHE_DIR="$REPO_ROOT/scripts/.cache"
 PACKAGE_LINT_DIR="$CACHE_DIR/package-lint/$PACKAGE_LINT_COMMIT"
 PACKAGE_USER_DIR="$CACHE_DIR/package-lint-elpa"
