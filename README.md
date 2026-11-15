@@ -101,8 +101,7 @@ candor       /ˈkændər/             ♦     review     2025-04-05 11:07 2025-0
   :ensure t)
 
 (use-package decklet
-  :ensure nil
-  :load-path "path/to/the/repo"
+  :vc (:url "https://github.com/yilin-zhang/decklet" :rev :newest)
   :commands (;; Main workflow
              decklet-add-card
              decklet-add-card-batch
