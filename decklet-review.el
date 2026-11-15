@@ -993,7 +993,10 @@ is needed here."
   (decklet--refresh-due-card-ids)
   (setq decklet-review--queue-context (decklet-review--queue-context))
   (if (null decklet-due-card-ids)
-      (message "%s" (decklet-review--nothing-due-message))
+      (let ((reason (decklet-review--nothing-due-message)))
+        ;; No session buffer will hold the connection opened above.
+        (decklet-db--disconnect-if-idle)
+        (message "%s" reason))
     ;; Only fire start-hook once we know a real session will open.
     ;; Otherwise `decklet-review-quit-hook' (fired from the review buffer's
     ;; `kill-buffer-hook') would never run, leaving start-hook setup like
