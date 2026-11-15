@@ -75,8 +75,10 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
     decklet-review-component-word
     decklet-review-component-linebreak
     decklet-review-component-separator)
-  "Components used for vertical centering and rendered before floating components."
-  :type '(repeat function)
+  "Components used for vertical centering and rendered before floating components.
+Each entry is a component function, or a list of component functions
+whose outputs are joined on one line."
+  :type '(repeat (choice function (repeat function)))
   :group 'decklet-review)
 
 (defcustom decklet-review-floating-components
@@ -84,8 +86,9 @@ Again/Hard/Good/Easy based on the current card state and FSRS prediction."
     decklet-review-component-hint
     decklet-review-component-linebreak
     decklet-review-component-card-back-indicator)
-  "Components rendered after the fixed block and excluded from centering."
-  :type '(repeat function)
+  "Components rendered after the fixed block and excluded from centering.
+Entries take the same forms as in `decklet-review-fixed-components'."
+  :type '(repeat (choice function (repeat function)))
   :group 'decklet-review)
 
 (defcustom decklet-review-daily-goal-progress-steps 50
@@ -337,14 +340,11 @@ Multi-line text is centered as one block, so its lines stay left-aligned."
                lines
                "\n")))
 
-(defun decklet-fill-and-center-text (text width)
-  "Wrap TEXT to WIDTH and center each wrapped line as a block."
-  (let ((lines (string-split text "\n")))
-    (string-join (mapcar (lambda (line)
-                           (decklet-center-text
-                            (string-fill (string-trim line) width)))
-                         lines)
-                 "\n")))
+(defun decklet-fill-text (text width)
+  "Wrap each line of TEXT to WIDTH and return the wrapped lines as a list.
+Each element is centered as its own block when rendered."
+  (mapcar (lambda (line) (string-fill (string-trim line) width))
+          (string-split text "\n")))
 
 (defun decklet--format-interval (seconds)
   "Return a human readable string for SECONDS."
@@ -358,30 +358,63 @@ Multi-line text is centered as one block, so its lines stay left-aligned."
 
 ;; Buffer rendering
 
-(defun decklet-review--collect-component-items (components &optional last-was-sep)
-  "Return (ITEMS . LAST-WAS-SEP) for COMPONENTS.
-ITEMS contains (TEXT . SEPARATOR) pairs.  Separator functions are not called;
-a placeholder is stored in TEXT for later replacement.  Leading or consecutive
-separators are skipped so rendering won't stack separator lines."
-  (let (items)
-    (dolist (fn components)
-      (if (eq fn 'decklet-review-component-separator)
-          (unless (or last-was-sep (null items))
-            (push (cons "" t) items)
-            (setq last-was-sep t))
-        (when-let* ((text (funcall fn)))
-          (push (cons text nil) items)
-          (setq last-was-sep nil))))
-    (cons (nreverse items) last-was-sep)))
+(defun decklet-review--render-component (component)
+  "Return the strings to display for COMPONENT, or nil.
+COMPONENT is a component function or a list of them.  A list is joined on
+one line.  The separator gives :separator."
+  (cond
+   ((eq component 'decklet-review-component-separator) :separator)
+   ((functionp component) (ensure-list (funcall component)))
+   (t
+    (let* ((outputs (delq nil (mapcar (lambda (fn)
+                                        (if (eq fn 'decklet-review-component-space)
+                                            :space
+                                          (ensure-list (funcall fn))))
+                                      component)))
+           (outputs (cl-loop for (before output after) on (cons nil outputs)
+                             while output
+                             if (not (eq output :space)) collect output
+                             else if (and (consp before) (consp after))
+                             collect (list " "))))
+      ;; The last string of one output and the first of the next become one.
+      (seq-reduce (lambda (joined output)
+                    (append (butlast joined)
+                            (list (concat (car (last joined)) (car output)))
+                            (cdr output)))
+                  (cdr outputs)
+                  (car outputs))))))
 
-(defun decklet-review--render-component-items (items)
-  "Render ITEMS into a single string with trailing newlines."
-  (concat (string-join (mapcar #'car items) "\n") "\n"))
+(defun decklet-review--render-component-list (components)
+  "Return the outputs of the component list COMPONENTS.
+Components that return nil are dropped, and so are separators at the
+start or right after another separator."
+  (let ((outputs (delq nil (mapcar #'decklet-review--render-component components))))
+    (cl-loop for (before output) on (cons nil outputs)
+             while output
+             unless (and (eq output :separator) (not (consp before)))
+             collect output)))
 
-(defun decklet-review--render-with-vertical-center (fixed-items floating-items)
-  "Render FIXED-ITEMS and FLOATING-ITEMS with vertical centering."
-  (let* ((fixed-text (decklet-review--render-component-items fixed-items))
-         (floating-text (decklet-review--render-component-items floating-items)))
+(defun decklet-review--center-outputs (outputs)
+  "Return OUTPUTS as text, each string centered on its own lines.
+An empty string stays empty so it is a blank line."
+  (let* ((separator (decklet-review--separator decklet-review--separator-width))
+         (strings (mapcan (lambda (output)
+                            (if (eq output :separator)
+                                (list separator)
+                              (copy-sequence output)))
+                          outputs)))
+    (concat (mapconcat (lambda (string)
+                         (if (string-empty-p string)
+                             string
+                           (decklet-center-text string)))
+                       strings "\n")
+            "\n")))
+
+(defun decklet-review--center-vertically (fixed-outputs floating-outputs)
+  "Return FIXED-OUTPUTS and FLOATING-OUTPUTS as text.
+FIXED-OUTPUTS is centered vertically in the window."
+  (let* ((fixed-text (decklet-review--center-outputs fixed-outputs))
+         (floating-text (decklet-review--center-outputs floating-outputs)))
     (if (display-graphic-p)
         ;; In GUI, center using pixel measurements for more accurate alignment.
         (let* ((measure-text (string-trim-right fixed-text "\n+"))
@@ -401,29 +434,15 @@ separators are skipped so rendering won't stack separator lines."
 
 (defun decklet-review--render-components ()
   "Render fixed and floating components with vertical centering for fixed ones."
-  ;; Collect items in a single pass; separators are recorded as placeholders.
-  (let* ((fixed-result (decklet-review--collect-component-items decklet-review-fixed-components))
-         (fixed-items (car fixed-result))
-         (last-was-sep (cdr fixed-result))
-         (floating-result (decklet-review--collect-component-items decklet-review-floating-components last-was-sep))
-         (floating-items (car floating-result))
-         (all-items (append fixed-items floating-items))
-         ;; Compute separator width from non-separator content.
-         (content-texts (mapcar #'car (seq-remove #'cdr all-items))))
-    (if (null content-texts)
+  (let* ((fixed (decklet-review--render-component-list decklet-review-fixed-components))
+         (floating (decklet-review--render-component-list decklet-review-floating-components))
+         (content (apply #'append (seq-remove #'keywordp (append fixed floating)))))
+    (if (null content)
         ""
+      ;; The separator is as wide as the widest content.
       (setq decklet-review--separator-width
-            (seq-reduce
-             #'max
-             (mapcar #'decklet--string-max-line-width content-texts)
-             0))
-      ;; Replace separator placeholders with actual separator strings.
-      (let ((sep-text (decklet-center-text
-                       (decklet-review--separator decklet-review--separator-width))))
-        (dolist (item all-items)
-          (when (cdr item)
-            (setcar item sep-text))))
-      (decklet-review--render-with-vertical-center fixed-items floating-items))))
+            (apply #'max (mapcar #'decklet--string-max-line-width content)))
+      (decklet-review--center-vertically fixed floating))))
 
 (defun decklet-review--setup-buffer ()
   "Set up the review buffer."
@@ -527,15 +546,14 @@ When LENGTH is non-nil, use it as the separator width."
               'face 'decklet-review-separator-face))
 
 (defun decklet-review-component-title ()
-  "Return the centered title line for the review header."
-  (decklet-center-text
-   (pcase (decklet-card-meta-effective-state decklet-review--render-meta)
-     (:new
-      (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
-     ((or :learning :relearning)
-      (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
-     (_
-      (propertize "REVIEWING" 'face 'decklet-review-state-review-face)))))
+  "Return the title line for the review header."
+  (pcase (decklet-card-meta-effective-state decklet-review--render-meta)
+    (:new
+     (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
+    ((or :learning :relearning)
+     (propertize "LEARNING" 'face 'decklet-review-state-learning-face))
+    (_
+     (propertize "REVIEWING" 'face 'decklet-review-state-review-face))))
 
 (defun decklet-review-component-counters ()
   "Return the counter block for the instructions.
@@ -546,19 +564,18 @@ number than the deck actually holds."
          (n-due-review (plist-get decklet--counter :due-review-remaining))
          (n-due-learning (plist-get decklet--counter :due-learning-remaining))
          (n-new (plist-get decklet--counter :new-remaining)))
-    (decklet-center-text
-     (format "%s reviewed / %s review due / %s learning due / %s new"
-             (propertize (number-to-string n-reviewed)
-                         'face 'decklet-review-counter-reviewed-face)
-             (propertize (number-to-string n-due-review) 'face 'decklet-review-counter-review-face)
-             (propertize (number-to-string n-due-learning) 'face 'decklet-review-counter-due-face)
-             (propertize (number-to-string n-new) 'face 'decklet-review-counter-new-face)))))
+    (format "%s reviewed / %s review due / %s learning due / %s new"
+            (propertize (number-to-string n-reviewed)
+                        'face 'decklet-review-counter-reviewed-face)
+            (propertize (number-to-string n-due-review) 'face 'decklet-review-counter-review-face)
+            (propertize (number-to-string n-due-learning) 'face 'decklet-review-counter-due-face)
+            (propertize (number-to-string n-new) 'face 'decklet-review-counter-new-face))))
 
 (defun decklet-review-component-daily-goal ()
   "Insert the daily goal banner in the review buffer."
   (when (and decklet-review-daily-goal (> decklet-review-daily-goal 0))
     (if (decklet-review--daily-goal-reached-p)
-        (decklet-center-text (propertize "DAILY GOAL REACHED" 'face 'decklet-review-state-goal-face))
+        (propertize "DAILY GOAL REACHED" 'face 'decklet-review-state-goal-face)
       (let* ((n-reviewed (plist-get decklet--counter :reviewed))
              (goal-progress (/ (float n-reviewed) decklet-review-daily-goal))
              (steps (max 0 decklet-review-daily-goal-progress-steps))
@@ -567,10 +584,8 @@ number than the deck actually holds."
              (progress-bar (concat
                             (make-string n-clicks-completed ?█)
                             (make-string (- steps n-clicks-completed) ?░))))
-        (concat
-         (decklet-center-text (propertize percentage 'face 'decklet-review-state-progress-face))
-         "\n"
-         (decklet-center-text (propertize progress-bar 'face 'decklet-review-state-progress-face)))))))
+        (list (propertize percentage 'face 'decklet-review-state-progress-face)
+              (propertize progress-bar 'face 'decklet-review-state-progress-face))))))
 
 (defun decklet-review--make-rating-option (command label meta grade undo-grade)
   "Build a single rating option string for COMMAND with LABEL.
@@ -602,36 +617,39 @@ When reviewing an undone card, the previous rating is highlighted."
             'decklet-review-rate-good "Good" meta 3 undo-grade)
            (decklet-review--make-rating-option
             'decklet-review-rate-easy "Easy" meta 4 undo-grade))))
-    (decklet-center-text (string-join option-lines "   "))))
+    (string-join option-lines "   ")))
 
 (defun decklet-review-component-separator ()
   "Return the separator line for the review components."
   (when (> decklet-review--separator-width 0)
-    (decklet-center-text
-     (decklet-review--separator decklet-review--separator-width))))
+    (decklet-review--separator decklet-review--separator-width)))
 
 (defun decklet-review-component-linebreak ()
   "Return an empty component that is kept to force a blank line."
   "")
 
+(defun decklet-review-component-space ()
+  "Return a space.
+Inside a component list it is kept only between two components that
+returned something."
+  " ")
+
 (defun decklet-review-component-word ()
   "Insert the current word in the review buffer."
   (let ((word (propertize decklet-review--render-word 'face 'decklet-review-word-face)))
-    (decklet-center-text word)))
+    word))
 
 (defun decklet-review-component-hint ()
   "Insert the current word's hint in the review buffer."
   (when decklet-review--render-hint
     (if decklet-review--state-display-hint
-        (decklet-fill-and-center-text decklet-review--render-hint decklet-review-fill-column)
-      (decklet-center-text
-       (propertize decklet-review-hint-indicator 'face 'decklet-review-hint-indicator-face)))))
+        (decklet-fill-text decklet-review--render-hint decklet-review-fill-column)
+      (propertize decklet-review-hint-indicator 'face 'decklet-review-hint-indicator-face))))
 
 (defun decklet-review-component-card-back-indicator ()
-  "Return a centered card back indicator when the current card has a back."
+  "Return a card back indicator when the current card has a back."
   (when decklet-review--render-has-back
-    (decklet-center-text
-     (propertize decklet-review-card-back-indicator 'face 'decklet-review-card-back-indicator-face))))
+    (propertize decklet-review-card-back-indicator 'face 'decklet-review-card-back-indicator-face)))
 
 (defun decklet-review--hide-cursor ()
   "Hide the cursor and hl-line in the review buffer window."

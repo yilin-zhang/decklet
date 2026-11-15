@@ -162,8 +162,20 @@ If you inherit straight from an `ansi-color` face, add
 
 Each entry in `decklet-review-fixed-components` and
 `decklet-review-floating-components` is a function that takes no arguments
-and returns a string. You can write your own and add it to either list. Use
-`decklet-center-text` or `decklet-fill-and-center-text` to center the output.
+and returns a string, a list of strings, or nil. You can write your own and
+add it to either list. Return plain text, and the review screen centers it. A
+string is centered as one block, and each string in a list is centered on
+its own. `decklet-fill-text` wraps text into such a list.
+
+An entry can also be a list of functions. Their outputs are joined on one
+line, and `decklet-review-component-space` inside it adds a space only when
+both sides have something to show:
+
+```emacs-lisp
+(decklet-review-component-card-back-indicator
+ decklet-review-component-space
+ my/decket-custom-indicator)
+```
 
 ### Edit-mode columns
 
@@ -272,8 +284,7 @@ review UI:
   "Review UI component showing [IMG] when the current card has an image."
   (when (and decklet-current-card-id
              (file-exists-p (my/decklet-image-path decklet-current-card-id)))
-    (decklet-center-text
-     (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face))))
+    (propertize "[IMG]" 'face 'decklet-review-card-back-indicator-face)))
 
 (add-hook 'decklet-cards-deleted-functions #'my/decklet-image-delete)
 (add-to-list 'decklet-review-floating-components #'my/decklet-image-indicator)
