@@ -197,25 +197,6 @@ edit table, inserted after the built-in `Back` column. Each entry is a plist:
                               ""))))
 ```
 
-### Backing up auxiliary files
-
-If your extension keeps files next to the database, they can ride along in
-Decklet's backup rotation. Add a function to
-`decklet-db-post-backup-functions`, an abnormal hook called with `BACKUP-DIR`
-and `TIMESTAMP` after a successful backup, and have it call
-`decklet-backup-auxiliary-file`. That copies a file into the snapshot with the
-same naming scheme and retention policy as the core:
-
-```emacs-lisp
-(defvar my/decklet-notes-file "~/decklet-notes.json")
-
-(defun my/decklet-backup-notes (backup-dir timestamp)
-  (when (file-exists-p my/decklet-notes-file)
-    (decklet-backup-auxiliary-file my/decklet-notes-file backup-dir timestamp)))
-
-(add-hook 'decklet-db-post-backup-functions #'my/decklet-backup-notes)
-```
-
 ## Lifecycle hooks
 
 All card lifecycle hooks are abnormal hooks that take a single

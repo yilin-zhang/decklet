@@ -7,27 +7,27 @@
 ;;; Pruning
 
 (ert-deftest decklet-test-backup-prune-keeps-newest-max-count ()
-  "Pruning keeps the newest `decklet-backup-prune-max-count' backups.
-A nil limit disables pruning and keeps every file."
+  "Pruning keeps the newest `decklet-backup-prune-max-count' backup pairs.
+Each pruned database backup takes its review-log backup with it.  A nil
+limit disables pruning and keeps every file."
   (decklet-test--with-temp-db
-    (let ((backup-dir (file-name-as-directory decklet-backup-directory))
-          (base (file-name-base decklet-db-file)))
-      (make-directory backup-dir t)
-      (dolist (day '("01" "02" "03" "04"))
+    (make-directory decklet-backup-directory t)
+    (dolist (day '("01" "02" "03"))
+      (dolist (name '("decklet-202501%sT010101Z.sqlite"
+                      "review-log-202501%sT010101Z.jsonl"))
         (decklet-test--touch
-         (expand-file-name (format "%s-202501%sT010101Z.sqlite" base day) backup-dir)))
-      (cl-flet ((names ()
-                  (sort (mapcar #'file-name-nondirectory
-                                (directory-files backup-dir t "\\.sqlite\\'"))
-                        #'string<)))
-        (let ((decklet-backup-prune-max-count nil))
-          (decklet-backup--backup-prune backup-dir base "sqlite")
-          (should (= 4 (length (names)))))
-        (let ((decklet-backup-prune-max-count 2))
-          (decklet-backup--backup-prune backup-dir base "sqlite")
-          (should (equal (names)
-                         (list (format "%s-20250103T010101Z.sqlite" base)
-                               (format "%s-20250104T010101Z.sqlite" base)))))))))
+         (expand-file-name (format name day) decklet-backup-directory))))
+    (let ((decklet-backup-prune-max-count nil))
+      (decklet-backup--prune-pairs)
+      (should (= 6 (length (directory-files decklet-backup-directory nil
+                                            "\\`[^.]")))))
+    (let ((decklet-backup-prune-max-count 2))
+      (decklet-backup--prune-pairs)
+      (should (equal (directory-files decklet-backup-directory nil "\\`[^.]")
+                     '("decklet-20250102T010101Z.sqlite"
+                       "decklet-20250103T010101Z.sqlite"
+                       "review-log-20250102T010101Z.jsonl"
+                       "review-log-20250103T010101Z.jsonl"))))))
 
 ;;; Backup
 
@@ -64,23 +64,6 @@ backup can be restored."
                       (decklet-backup--matching-review-log-backup
                        (car (decklet-backup--backup-files))))
                      (decklet-test--file-string decklet-review-log-file)))))
-
-(ert-deftest decklet-test-backup-hook-backs-up-auxiliary-files ()
-  "Extensions back up their own files from `decklet-db-post-backup-functions'.
-The hook receives the backup directory and timestamp, and
-`decklet-backup-auxiliary-file' copies a file there under that timestamp."
-  (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "hook-probe")
-    (let* ((source (expand-file-name "extra.jsonl" tmp-dir))
-           (decklet-db-post-backup-functions
-            (list (lambda (dir timestamp)
-                    (decklet-backup-auxiliary-file source dir timestamp)))))
-      (decklet-test--touch source "line-one\n")
-      (decklet-db-backup)
-      (let ((copies (directory-files decklet-backup-directory t
-                                     "\\`extra-[0-9]\\{8\\}T[0-9]\\{6\\}Z\\.jsonl\\'")))
-        (should (= 1 (length copies)))
-        (should (string= "line-one\n" (decklet-test--file-string (car copies))))))))
 
 ;;; Restore
 

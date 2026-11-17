@@ -16,12 +16,6 @@
 
 ;; Backups
 
-(defvar decklet-db-post-backup-functions nil
-  "Abnormal hook called after a successful database backup.
-Each function is called with two arguments: BACKUP-DIR and TIMESTAMP.
-Intended for modules that want to back up auxiliary files such as the
-review log JSONL alongside the DB snapshot.")
-
 (defcustom decklet-backup-directory
   (expand-file-name "backups" decklet-directory)
   "Directory for Decklet database backups."
@@ -64,24 +58,6 @@ Set to nil to disable pruning."
     (when (string-match pattern name)
       (match-string 1 name))))
 
-(defun decklet-backup--backup-prune (backup-dir base ext)
-  "Prune old backup files in BACKUP-DIR matching BASE.EXT.
-Keeps the newest `decklet-backup-prune-max-count' files and
-deletes the rest.  Filenames carry a UTC timestamp, so
-lexicographic order matches chronological order."
-  (when (and (integerp decklet-backup-prune-max-count)
-             (> decklet-backup-prune-max-count 0))
-    (let* ((pattern (decklet-backup--backup-file-pattern base ext))
-           (files (sort (directory-files backup-dir t pattern) #'string<))
-           (to-delete (butlast files decklet-backup-prune-max-count)))
-      (dolist (file to-delete)
-        (condition-case err
-            (delete-file file)
-          (error
-           (message "Decklet: backup prune failed for %s: %s"
-                    (abbreviate-file-name file)
-                    (error-message-string err))))))))
-
 (defun decklet-backup--backup ()
   "Create a paired database/review-log backup and prune old backup pairs.
 A second backup within the same second overwrites the first; both
@@ -119,25 +95,7 @@ are snapshots of the same state."
          (when (file-exists-p file)
            (delete-file file)))
        (signal (car err) (cdr err))))
-    (decklet-backup--prune-pairs)
-    (decklet-run-hook-isolated
-     'decklet-db-post-backup-functions backup-dir timestamp)))
-
-(defun decklet-backup-auxiliary-file (source-file backup-dir timestamp)
-  "Copy SOURCE-FILE to BACKUP-DIR as a timestamped backup and prune old copies.
-Uses the same retention policy as the main DB backup.  The backup
-name is derived from SOURCE-FILE's base name and extension plus
-TIMESTAMP.
-
-Intended for modules that maintain files alongside the DB and want
-their backups to ride in the same rotation; register a handler on
-`decklet-db-post-backup-functions' and call this from it."
-  (let* ((base (file-name-base source-file))
-         (ext (file-name-extension source-file))
-         (target (expand-file-name (decklet-backup--backup-name base ext timestamp)
-                                   backup-dir)))
-    (copy-file source-file target t t t)
-    (decklet-backup--backup-prune backup-dir base ext)))
+    (decklet-backup--prune-pairs)))
 
 (defun decklet-backup--matching-review-log-backup (database-backup)
   "Return the review-log backup paired with DATABASE-BACKUP, or nil."
