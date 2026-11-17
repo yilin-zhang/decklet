@@ -660,10 +660,10 @@ Search the parsed review rules in STEPS."
               AND due <= ?" (list review-cutoff)))
       (_ (error "Unknown review target: %S" target)))))
 
-(defun decklet-db--due-items (targets now base &optional no-shuffle)
+(defun decklet-db--due-items (targets now base)
   "Return due items for TARGETS at NOW, ordered the way BASE asks.
 BASE is (sort FIELD ORDER), which becomes an SQL ORDER BY, or
-`shuffle', which is applied after SQL filtering unless NO-SHUFFLE is set."
+`shuffle', which leaves the order to the caller."
   (pcase-let* ((`(,field ,sort-order) (pcase base
                                         (`(sort ,field ,order) (list field order))
                                         (_ '(nil nil))))
@@ -692,7 +692,7 @@ BASE is (sort FIELD ORDER), which becomes an SQL ORDER BY, or
                                   for val in row
                                   append (list key val)))
                        rows)))
-    (if (or field no-shuffle) items (decklet--shuffle-list items))))
+    items))
 
 (defvar decklet-db--review-plan-cache nil
   "Cached input and result of the most recent queue plan.")
@@ -719,7 +719,7 @@ reuse the plan so counter refreshes do not reshuffle cards."
                         (plist-put item :state state)
                         (eql index (decklet-db--review-owner
                                     state (gethash (plist-get item :card-id) tags) steps))))
-                    (decklet-db--due-items (car step) now (nth 4 step) t)))))
+                    (decklet-db--due-items (car step) now (nth 4 step))))))
     (dolist (record records)
       ;; Deleted cards have no current tags and follow the untagged rules.
       (when-let* ((owner (decklet-db--review-owner
@@ -778,19 +778,11 @@ when such a limit is what is holding cards back."
                        SUM(CASE WHEN last_review IS NOT NULL
                                      AND state IN (?, ?)
                                      AND due <= ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NULL THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NOT NULL AND state = ?
-                                     AND due <= ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NOT NULL AND state = ?
-                                     AND due <= ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NULL AND due <= ? THEN 1 ELSE 0 END)
+                       SUM(CASE WHEN last_review IS NULL THEN 1 ELSE 0 END)
                      FROM cards WHERE archived_at IS NULL;"
                     (list day-start review-cutoff
                           s-review review-cutoff
-                          s-learning s-relearning learning-cutoff
-                          s-learning learning-cutoff
-                          s-relearning learning-cutoff
-                          review-cutoff))))
+                          s-learning s-relearning learning-cutoff))))
          (plan (decklet-db--review-plan now))
          (left (lambda (target)
                  (cl-count target (plist-get plan :items)
