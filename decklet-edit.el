@@ -273,21 +273,19 @@ numerically when it is a number."
 (defun decklet-edit--tabulated-list-format ()
   "Return the current tabulated-list format for the edit buffer."
   (vconcat
-   (list
-    (list "Word" 24 (decklet-edit--column-sorter "Word"))
-    (list "Hint" 28 nil)
-    (list "Tags" 16 nil)
-    (list "Back" 5 nil))
+   `(("Word" 24 ,(decklet-edit--column-sorter "Word"))
+     ("Hint" 28 nil)
+     ("Tags" 16 nil)
+     ("Back" 5 nil))
    (mapcar (pcase-lambda ((map :name :width))
              (list name (or width 5) nil))
            decklet-edit-sidecar-columns)
-   (list
-    (list "State" 10 t)
-    (list "Added" 20 (decklet-edit--column-sorter "Added"))
-    (list "Last Review" 20 (decklet-edit--column-sorter "Last Review"))
-    (list "Due" 20 (decklet-edit--column-sorter "Due"))
-    (list "Stability" 10 (decklet-edit--column-sorter "Stability"))
-    (list "Difficulty" 10 (decklet-edit--column-sorter "Difficulty")))))
+   `(("State" 10 t)
+     ("Added" 20 ,(decklet-edit--column-sorter "Added"))
+     ("Last Review" 20 ,(decklet-edit--column-sorter "Last Review"))
+     ("Due" 20 ,(decklet-edit--column-sorter "Due"))
+     ("Stability" 10 ,(decklet-edit--column-sorter "Stability"))
+     ("Difficulty" 10 ,(decklet-edit--column-sorter "Difficulty")))))
 
 (defun decklet-edit--card-id-at-point ()
   "Return the card id for the card on the current line.

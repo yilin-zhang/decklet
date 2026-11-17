@@ -249,8 +249,7 @@ Return the list (NEW-FSRS-CARD REVIEW-TIME)."
          (rating (decklet--fsrs-rating-from-grade grade))
          (review-time (decklet--now))
          (card (decklet--card-meta->fsrs-card meta)))
-    (list (cl-nth-value 0 (fsrs-scheduler-review-card
-                           scheduler card rating review-time))
+    (list (car (fsrs-scheduler-review-card scheduler card rating review-time))
           review-time)))
 
 (defun decklet--simulate-review-interval (meta grade)

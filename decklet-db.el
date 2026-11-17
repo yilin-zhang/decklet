@@ -435,13 +435,12 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
         (s-relearning (decklet-fsrs-state-string :relearning)))
     (pcase filter
       ('review
-       (cons " WHERE archived_at IS NULL AND state = ?"
-             (list s-review)))
+       (list " WHERE archived_at IS NULL AND state = ?" s-review))
       ('learning
-       (cons " WHERE archived_at IS NULL AND state IN (?, ?)"
-             (list s-learning s-relearning)))
-      ('archived (cons " WHERE archived_at IS NOT NULL" nil))
-      (_ (cons " WHERE archived_at IS NULL" nil)))))
+       (list " WHERE archived_at IS NULL AND state IN (?, ?)"
+             s-learning s-relearning))
+      ('archived (list " WHERE archived_at IS NOT NULL"))
+      (_ (list " WHERE archived_at IS NULL")))))
 
 (defun decklet-db--select-card-rows (&optional filter)
   "Return cards filtered by FILTER, ordered by word."
