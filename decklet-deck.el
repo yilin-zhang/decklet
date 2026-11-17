@@ -47,36 +47,6 @@ ACTION is a verb phrase, as in \"No word to ACTION\"."
     (user-error "No word to %s" action))
   decklet-current-card-id)
 
-(defun decklet--resolve-word (word &optional prompt)
-  "Return WORD if non-nil, otherwise resolve from context.
-If region is active, use its trimmed text.  Otherwise, use the current
-review word in review mode, the word at the current edit line in edit
-mode, or prompt with a default from word at point.  PROMPT is used when
-a minibuffer prompt is needed."
-  (or word
-      (cond
-       ((use-region-p)
-        (let ((text (string-trim (buffer-substring-no-properties
-                                  (region-beginning) (region-end)))))
-          (if (string-empty-p text)
-              (user-error "Selected text is empty")
-            text)))
-       ((derived-mode-p 'decklet-review-mode)
-        (or (and decklet-current-card-id
-                 (decklet-get-card-word decklet-current-card-id))
-            (user-error "No word to use")))
-       ((derived-mode-p 'decklet-edit-mode)
-        (or (when-let* ((card-id (tabulated-list-get-id)))
-              (decklet-get-card-word card-id))
-            (user-error "No word on this line")))
-       (t
-        (let ((input (string-trim
-                      (read-string (or prompt "Word: ")
-                                   (thing-at-point 'word t)))))
-          (if (string-empty-p input)
-              (user-error "Word cannot be empty")
-            input))))))
-
 ;; Public API: card accessors
 ;;
 ;; These are the stable entry points for extensions.  Internal identity
@@ -132,8 +102,30 @@ or `archived'."
 If a region is active, its trimmed text is returned.  In review mode,
 the current review word is used.  In edit mode, the word on the
 current line is used.  Otherwise the minibuffer is read with an
-optional PROMPT, defaulting to the word at point."
-  (decklet--resolve-word nil prompt))
+optional PROMPT, with the word at point as initial input.  Empty text
+or input signals a `user-error'."
+  (cond
+   ((use-region-p)
+    (let ((text (string-trim (buffer-substring-no-properties
+                              (region-beginning) (region-end)))))
+      (if (string-empty-p text)
+          (user-error "Selected text is empty")
+        text)))
+   ((derived-mode-p 'decklet-review-mode)
+    (or (and decklet-current-card-id
+             (decklet-get-card-word decklet-current-card-id))
+        (user-error "No word to use")))
+   ((derived-mode-p 'decklet-edit-mode)
+    (or (when-let* ((card-id (tabulated-list-get-id)))
+          (decklet-get-card-word card-id))
+        (user-error "No word on this line")))
+   (t
+    (let ((input (string-trim
+                  (read-string (or prompt "Word: ")
+                               (thing-at-point 'word t)))))
+      (if (string-empty-p input)
+          (user-error "Word cannot be empty")
+        input)))))
 
 ;; Public API: tags
 

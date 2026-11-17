@@ -83,7 +83,7 @@ outlive the mode, so turning the mode off releases the lease.")
 
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."
-  (interactive (list (decklet--resolve-word nil "Word: ")))
+  (interactive (list (decklet-prompt-word "Word: ")))
   (let* ((card (decklet-db--require-card-row-by-word word))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
