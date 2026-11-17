@@ -43,7 +43,6 @@
 
 ;;; Code:
 
-(require 'json)
 
 (require 'decklet-core)
 (require 'decklet-scheduler)

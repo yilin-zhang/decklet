@@ -9,7 +9,6 @@
 ;;; Code:
 
 (require 'ansi-color)
-(require 'cl-lib)
 (require 'subr-x)
 
 (defgroup decklet nil

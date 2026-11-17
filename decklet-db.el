@@ -13,7 +13,6 @@
 
 (require 'cl-lib)
 (require 'map)
-(require 'json)
 (require 'seq)
 (require 'sqlite)
 (require 'subr-x)

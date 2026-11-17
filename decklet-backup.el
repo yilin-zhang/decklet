@@ -8,7 +8,6 @@
 
 ;;; Code:
 
-(require 'cl-lib)
 
 (require 'decklet-core)
 (require 'decklet-db)
