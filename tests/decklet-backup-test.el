@@ -141,5 +141,19 @@ The hook receives the backup directory and timestamp, and
         (should-error (decklet-db-restore) :type 'user-error))
       (should-not (file-exists-p decklet-db-file)))))
 
+(ert-deftest decklet-test-backup-restore-failure-keeps-current-files ()
+  "If the review log cannot be restored, the database is not restored either."
+  (decklet-test--with-temp-db
+    (let ((db-backup (expand-file-name "db-backup" tmp-dir)))
+      (decklet-test--touch decklet-db-file "current-db")
+      (decklet-test--touch decklet-review-log-file "current-log")
+      (decklet-test--touch db-backup "backup-db")
+      (should-error (decklet-backup--replace-db-and-log
+                     db-backup (expand-file-name "no-such-log" tmp-dir))
+                    :type 'file-missing)
+      (should (string= "current-db" (decklet-test--file-string decklet-db-file)))
+      (should (string= "current-log"
+                       (decklet-test--file-string decklet-review-log-file))))))
+
 (provide 'decklet-backup-test)
 ;;; decklet-backup-test.el ends here

@@ -170,36 +170,27 @@ their backups to ride in the same rotation; register a handler on
                     (abbreviate-file-name database-backup)
                     (error-message-string err))))))))
 
-(defun decklet-backup--restore-file-pairs (pairs)
-  "Restore source/target PAIRS, rolling back all targets on failure."
-  (let ((saved nil))
+(defun decklet-backup--temp-file-beside (file)
+  "Create an empty temporary file in FILE's directory and return its name."
+  (let ((dir (file-name-directory (expand-file-name file))))
+    (make-directory dir t)
+    (make-temp-file (expand-file-name ".decklet-restore-" dir))))
+
+(defun decklet-backup--replace-db-and-log (db-backup log-backup)
+  "Replace the database and review log with DB-BACKUP and LOG-BACKUP.
+If either copy fails, neither file is changed."
+  (let ((db-tmp (decklet-backup--temp-file-beside decklet-db-file))
+        (log-tmp (decklet-backup--temp-file-beside decklet-review-log-file)))
     (unwind-protect
-        (condition-case err
-            (progn
-              (dolist (pair pairs)
-                (pcase-let* ((`(,_source ,target) pair)
-                             (target-dir (file-name-directory target)))
-                  (when target-dir
-                    (make-directory target-dir t))
-                  (if (file-exists-p target)
-                      (let ((copy (make-temp-file
-                                   (expand-file-name ".decklet-restore-"
-                                                     target-dir))))
-                        (copy-file target copy t t t)
-                        (push (cons target copy) saved))
-                    (push (cons target nil) saved))))
-              (dolist (pair pairs)
-                (copy-file (car pair) (cadr pair) t t t)))
-          (error
-           (dolist (entry saved)
-             (if (cdr entry)
-                 (copy-file (cdr entry) (car entry) t t t)
-               (when (file-exists-p (car entry))
-                 (delete-file (car entry)))))
-           (signal (car err) (cdr err))))
-      (dolist (entry saved)
-        (when (and (cdr entry) (file-exists-p (cdr entry)))
-          (delete-file (cdr entry)))))))
+        (progn
+          ;; Keeping the mtime lets `decklet-db-backup' skip backing up
+          ;; a database that was just restored.
+          (copy-file db-backup db-tmp 'overwrite 'keep-time)
+          (copy-file log-backup log-tmp 'overwrite 'keep-time)
+          (rename-file db-tmp decklet-db-file 'overwrite)
+          (rename-file log-tmp decklet-review-log-file 'overwrite))
+      (delete-file db-tmp)
+      (delete-file log-tmp))))
 
 (defun decklet-backup--backup-files ()
   "Return backup files sorted by newest first.
@@ -284,9 +275,7 @@ Registered by the review and edit modules on their session hooks."
         ;; can drop the handle internally and proceed.
         (when decklet-db--conn
           (decklet-db--disconnect))
-        (decklet-backup--restore-file-pairs
-         (list (list backup-file decklet-db-file)
-               (list review-log-backup decklet-review-log-file)))
+        (decklet-backup--replace-db-and-log backup-file review-log-backup)
         (message "Restored database and review log from %s"
                  (file-name-nondirectory backup-file))))))
 
