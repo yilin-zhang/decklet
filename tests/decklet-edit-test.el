@@ -67,11 +67,11 @@ Under the archived filter, the same command unarchives it."
     (decklet-edit-test--with-buffer
       (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
       (decklet-edit-test--confirm #'decklet-edit-archive-card)
-      (should (= 1 (length (decklet-db--select-card-rows 'archived nil))))
+      (should (= 1 (length (decklet-db--select-card-rows 'archived))))
       (decklet-edit-filter-toggle-archive)
       (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
       (decklet-edit-test--confirm #'decklet-edit-archive-card)
-      (should (= 0 (length (decklet-db--select-card-rows 'archived nil)))))))
+      (should (= 0 (length (decklet-db--select-card-rows 'archived)))))))
 
 (ert-deftest decklet-test-edit-filter-tag-refuses-other-buffers ()
   "Filtering by tag outside the edit buffer leaves that buffer untouched."

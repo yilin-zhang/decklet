@@ -118,24 +118,9 @@ Each descriptor is a plist with keys:
 
 Sidecar columns are inserted after the built-in `Back' column.")
 
-(defconst decklet-edit--numeric-columns
-  '("Stability" "Difficulty")
-  "Columns that should be sorted numerically.")
-
 (defconst decklet-edit--time-sort-columns
   '("Added" "Last Review" "Due")
   "Columns that default to descending order when sorting.")
-
-(defconst decklet-edit--db-sort-columns
-  '(("Word" . "word")
-    ("Added" . "added_date")
-    ("Last Review" . "last_review")
-    ("Due" . "due")
-    ("State" . "state")
-    ("Stability" . "stability")
-    ("Difficulty" . "difficulty"))
-  "Mapping of edit table column names to database column names.
-Values must stay within `decklet-db--sortable-columns'.")
 
 (defun decklet-edit--columns ()
   "Return ordered edit table column names, including sidecar columns."
@@ -143,22 +128,7 @@ Values must stay within `decklet-db--sortable-columns'.")
           (mapcar (lambda (column) (plist-get column :name)) decklet-edit-sidecar-columns)
           '("State" "Added" "Last Review" "Due" "Stability" "Difficulty")))
 
-(defun decklet-edit--column-indices ()
-  "Return an alist mapping edit table column names to indices."
-  (let ((index 0)
-        (table nil))
-    (dolist (name (decklet-edit--columns) (nreverse table))
-      (push (cons name index) table)
-      (setq index (1+ index)))))
-
 ;;; Helper functions: edit table formatting, sorting, point position
-
-(defun decklet-edit--db-sort-key (sort-key)
-  "Translate tabulated-list SORT-KEY to a DB sort-key.
-SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
-  (when sort-key
-    (let ((db-col (cdr (assoc-string (car sort-key) decklet-edit--db-sort-columns))))
-      (cons (or db-col "word") (cdr sort-key)))))
 
 (defun decklet-edit--clean-up ()
   "Clear edit session state."
@@ -172,22 +142,6 @@ SORT-KEY is (UI-COLUMN . DESCENDING-P).  Returns (DB-COLUMN . DESCENDING-P)."
       ""
     (format-time-string "%Y-%m-%d %H:%M"
                         (parse-iso8601-time-string timestamp))))
-
-(defun decklet-edit--entry-sort-string (entry column)
-  "Return sortable string for ENTRY at COLUMN."
-  (let* ((cell (aref (cadr entry) column))
-         (value (or (get-text-property 0 'decklet-sort-key cell)
-                    (and (stringp cell) (substring-no-properties cell))
-                    "")))
-    (if (stringp value) value (format "%s" value))))
-
-(defun decklet-edit--entry-sort-number (entry column)
-  "Return sortable number for ENTRY at COLUMN."
-  (let* ((cell (aref (cadr entry) column))
-         (value (or (get-text-property 0 'decklet-sort-number cell)
-                    (and (stringp cell) (substring-no-properties cell))
-                    "")))
-    (if (numberp value) value (string-to-number value))))
 
 (defmacro decklet-edit--preserving-window-position (&rest body)
   "Run BODY while keeping point on the same screen line in the edit window.
@@ -277,18 +231,22 @@ nearest surviving card otherwise."
           decklet-edit-sidecar-columns))
 
 (defun decklet-edit--column-sorter (column)
-  "Return a sorter closure for COLUMN.
-Column index and numeric-ness are looked up once, when the closure is
-built.  `decklet-edit--tabulated-list-format' rebuilds the closures on
-each refresh, so sidecar column changes take effect then."
-  (let ((index (alist-get column (decklet-edit--column-indices) nil nil #'string=))
-        (numeric-p (member column decklet-edit--numeric-columns)))
-    (lambda (a b)
-      (if numeric-p
-          (< (decklet-edit--entry-sort-number a index)
-             (decklet-edit--entry-sort-number b index))
-        (string< (decklet-edit--entry-sort-string a index)
-                 (decklet-edit--entry-sort-string b index))))))
+  "Return a sorter for edit table COLUMN; blank cells sort first.
+The sorter compares the `decklet-sort' property of the column's cells,
+numerically when it is a number."
+  ;; The index is looked up when the format is rebuilt on each refresh,
+  ;; so sidecar columns added in between shift it correctly.
+  (let ((index (seq-position (decklet-edit--columns) column)))
+    (cl-flet ((value (entry)
+                ;; A blank cell is "", which cannot carry a text property.
+                (get-text-property 0 'decklet-sort (aref (cadr entry) index))))
+      (lambda (a b)
+        (let ((x (value a))
+              (y (value b)))
+          (cond ((null y) nil)
+                ((null x) t)
+                ((numberp x) (< x y))
+                (t (string< x y))))))))
 
 (defun decklet-edit--column-sort-command (column)
   "Return an interactive command to sort by COLUMN."
@@ -320,10 +278,8 @@ each refresh, so sidecar column changes take effect then."
     (list "Hint" 28 nil)
     (list "Tags" 16 nil)
     (list "Back" 5 nil))
-   (mapcar (lambda (column)
-             (list (plist-get column :name)
-                   (or (plist-get column :width) 5)
-                   nil))
+   (mapcar (pcase-lambda ((map :name :width))
+             (list name (or width 5) nil))
            decklet-edit-sidecar-columns)
    (list
     (list "State" 10 t)
@@ -388,7 +344,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
        (list card-id
              (vconcat
               (vector
-               (propertize display-word 'face word-face)
+               (propertize display-word 'face word-face 'decklet-sort word)
                hint
                (propertize (string-join tags " ") 'face 'decklet-color-tags
                            'help-echo (string-join tags " "))
@@ -401,24 +357,23 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                (propertize state-text 'face state-face)
                (propertize (decklet-edit--format-timestamp added)
                            'face 'decklet-edit-metadata-face
-                           'decklet-sort-key added)
+                           'decklet-sort added)
                (propertize (decklet-edit--format-timestamp last-review)
                            'face 'decklet-edit-metadata-face
-                           'decklet-sort-key last-review)
+                           'decklet-sort last-review)
                (propertize (decklet-edit--format-timestamp due)
                            'face 'decklet-edit-metadata-face
-                           'decklet-sort-key due)
+                           'decklet-sort due)
                (propertize (if stability (format "%.3f" stability) "")
                            'face 'decklet-edit-metadata-face
-                           'decklet-sort-number (or stability 0))
+                           'decklet-sort stability)
                (propertize (if difficulty (format "%.3f" difficulty) "")
                            'face 'decklet-edit-metadata-face
-                           'decklet-sort-number (or difficulty 0)))))))
+                           'decklet-sort difficulty))))))
    (seq-filter
     (lambda (row) (or (null decklet-edit--tag-filter)
                       (member decklet-edit--tag-filter (plist-get row :tags))))
-    (decklet-db--select-card-rows decklet-edit--filter
-                                  (decklet-edit--db-sort-key tabulated-list-sort-key)))))
+    (decklet-db--select-card-rows decklet-edit--filter))))
 
 (defun decklet-edit--apply-marks ()
   "Apply mark overlays to all currently-marked rows."

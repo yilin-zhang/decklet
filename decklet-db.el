@@ -67,18 +67,6 @@ Set for review and edit buffers.  When the last primary buffer is
 killed, attached session buffers are closed first and the DB
 disconnects.")
 
-(defconst decklet-db--numeric-sort-columns '("stability" "difficulty")
-  "DB columns that use numeric COALESCE for sorting.")
-
-(defconst decklet-db--sortable-columns
-  '("word" "added_date" "last_review" "due" "state"
-    "stability" "difficulty")
-  "DB columns that card SELECTs may be sorted by.
-`decklet-db--edit-order-sql' rejects anything outside this set;
-column names are interpolated into SQL, so the check sits next to
-the interpolation.
-Keep `decklet-edit--db-sort-columns' values within this set.")
-
 (defconst decklet-db--card-columns
   "card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty, tags"
   "Column list shared by card SELECTs that feed `decklet-db--normalize-row'.
@@ -456,21 +444,8 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
       ('archived (cons " WHERE archived_at IS NOT NULL" nil))
       (_ (cons " WHERE archived_at IS NULL" nil)))))
 
-(defun decklet-db--edit-order-sql (sort-key)
-  "Return SQL ORDER BY clause for SORT-KEY.
-SORT-KEY is (DB-COLUMN . DESCENDING-P), where DB-COLUMN is a raw
-database column name string from `decklet-db--sortable-columns'."
-  (let ((db-column (or (car sort-key) "word")))
-    (unless (member db-column decklet-db--sortable-columns)
-      (error "Unsupported sort column: %S" db-column))
-    (let* ((direction (if (cdr sort-key) "DESC" "ASC"))
-           (order-expr (if (member db-column decklet-db--numeric-sort-columns)
-                           (format "COALESCE(%s, 0)" db-column)
-                         (format "COALESCE(%s, '')" db-column))))
-      (format " ORDER BY %s %s, rowid %s" order-expr direction direction))))
-
-(defun decklet-db--select-card-rows (&optional filter sort-key)
-  "Return cards filtered by FILTER and sorted by SORT-KEY."
+(defun decklet-db--select-card-rows (&optional filter)
+  "Return cards filtered by FILTER, ordered by word."
   (let ((conn (decklet-db--ensure)))
     (pcase-let ((`(,where . ,params) (decklet-db--edit-filter-sql filter)))
       (mapcar
@@ -478,8 +453,7 @@ database column name string from `decklet-db--sortable-columns'."
        (sqlite-select conn
                       (concat (format "SELECT %s FROM cards" decklet-db--card-columns)
                               where
-                              (decklet-db--edit-order-sql sort-key)
-                              ";")
+                              " ORDER BY word;")
                       params)))))
 
 (defun decklet-db--row->card-meta (row)
