@@ -74,7 +74,7 @@ backup can be restored."
     (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir)))
       (decklet-test--touch backup-file "backup")
       (decklet-test--with-temp-buffers (buf)
-	(with-current-buffer buf (decklet-db-register-session-buffer))
+	(with-current-buffer buf (decklet-db-acquire-session-buffer))
 	(cl-letf (((symbol-function 'decklet-backup--backup-files)
 		   (lambda () (list backup-file)))
 		  ((symbol-function 'decklet-backup--read-backup-choice)

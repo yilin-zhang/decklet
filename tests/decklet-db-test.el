@@ -44,7 +44,7 @@ buffer outlives the mode."
   (decklet-test--with-temp-db
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (killed leased popup)
-      (with-current-buffer killed (decklet-db-register-session-buffer))
+      (with-current-buffer killed (decklet-db-acquire-session-buffer))
       (with-current-buffer popup (decklet-card-back-mode 1))
       (let ((release (with-current-buffer leased
                        (decklet-db-acquire-session-buffer))))
@@ -65,7 +65,7 @@ the pre-disconnect hook exactly once."
     (decklet-db--ensure)
     (decklet-test--with-temp-buffers (plain stubborn)
       (dolist (buf (list plain stubborn))
-        (with-current-buffer buf (decklet-db-register-session-buffer)))
+        (with-current-buffer buf (decklet-db-acquire-session-buffer)))
       (with-current-buffer stubborn
         (add-hook 'kill-buffer-query-functions #'ignore nil t))
       (let* ((hook-count 0)

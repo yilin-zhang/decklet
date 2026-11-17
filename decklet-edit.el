@@ -773,7 +773,7 @@ and removed again when the edit buffer is killed."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
-  (decklet-db-register-session-buffer 'primary)
+  (decklet-db-acquire-session-buffer 'primary)
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)

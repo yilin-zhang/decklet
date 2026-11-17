@@ -122,8 +122,6 @@ example:
 
 The disposer is idempotent and stays safe once the buffer is dead, so
 the mode-off and kill-buffer paths can both run without coordination.
-`(decklet-db-register-session-buffer)` is the same call with the disposer
-discarded, for buffers whose lease should last as long as they do.
 
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.

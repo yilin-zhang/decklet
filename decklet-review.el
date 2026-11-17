@@ -1066,7 +1066,7 @@ is needed here."
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
-  (decklet-db-register-session-buffer 'primary)
+  (decklet-db-acquire-session-buffer 'primary)
   (setq buffer-read-only t)
   (buffer-disable-undo)
   (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))

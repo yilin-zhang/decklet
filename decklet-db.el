@@ -57,7 +57,7 @@ on an open DB connection.")
 
 (defvar-local decklet-db--session-buffer nil
   "Non-nil when the current buffer is part of the Decklet session.
-Set by `decklet-db-register-session-buffer'.  Session buffers keep
+Set by `decklet-db-acquire-session-buffer'.  Session buffers keep
 the connection open while they live, are closed by
 `decklet-disconnect', and block `decklet-db-restore'.")
 
@@ -208,17 +208,6 @@ idempotent and safe to call after the buffer is dead."
           (with-current-buffer buffer
             (decklet-db--clear-session-markers)))
         (decklet-db--disconnect-if-idle)))))
-
-(defun decklet-db-register-session-buffer (&optional primary)
-  "Mark the current buffer as part of the Decklet session.
-PRIMARY is passed through to `decklet-db-acquire-session-buffer'.
-
-This form discards the disposer, so the lease lasts until the
-buffer is killed.
-Prefer `decklet-db-acquire-session-buffer' whenever the buffer can
-outlive its use of the DB."
-  (decklet-db-acquire-session-buffer primary)
-  nil)
 
 (defun decklet-db--session-buffers (&optional exclude)
   "Return live Decklet session buffers, ignoring EXCLUDE.
