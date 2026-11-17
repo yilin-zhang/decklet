@@ -26,9 +26,6 @@
 (defvar decklet-current-card-id nil
   "The current card id being reviewed.")
 
-(defvar decklet-last-added-word nil
-  "Most recently added word outside review.")
-
 (defvar decklet-due-card-ids nil
   "List of card ids that are due for review.")
 
@@ -225,9 +222,6 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
         ;; Best-effort rollback to keep DB and log consistent.
         (ignore-errors (decklet-db--update-word card-id old-word))
         (user-error "Could not write rename to the review log"))
-      (when (and decklet-last-added-word
-                 (string-equal old-word decklet-last-added-word))
-        (setq decklet-last-added-word normalized))
       (decklet-fire-one-card-event 'decklet-cards-renamed-functions
                                    :card-id card-id
                                    :old-word old-word
@@ -305,11 +299,6 @@ Return the card's word."
         (decklet-set-card-hint card-id new-hint)))
     word))
 
-(defun decklet--add-hint-precheck ()
-  "Get the target word for adding hint, or signal an error if none."
-  (or decklet-last-added-word
-      (user-error "No word to add a hint to")))
-
 (defun decklet--add-card (word)
   "Add WORD as a new card and return a result plist.
 Keys in the returned plist:
@@ -331,7 +320,6 @@ preserves its existing `card-id'."
   (setq word (decklet-db--normalize-word word))
   (let* ((row (decklet-db--select-card-row-by-word word))
          (meta (and row (decklet-db--row->card-meta row))))
-    (setq decklet-last-added-word word)
     (cond
      ;; A brand-new word gets a row and one added event.
      ((null meta)
@@ -387,19 +375,6 @@ preserves its existing `card-id'."
             ((or ?y ?\r)
              (setq word (read-string "Word to add: ") more t editing nil))
             (?n (setq editing nil))))))))
-
-(defun decklet-add-hint (hint &optional target)
-  "Add HINT to TARGET word, defaulting to the last added word."
-  (interactive
-   (let ((target (decklet--add-hint-precheck)))
-     (list
-      (read-string (format "Hint for \"%s\": " target)
-                   (plist-get (decklet-db--require-card-row-by-word target) :hint))
-      target)))
-  (let ((target (or target (decklet--add-hint-precheck))))
-    (let ((card-id (plist-get (decklet-db--require-card-row-by-word target) :card-id)))
-      (decklet-set-card-hint card-id hint))
-    (format "Updated the hint of \"%s\". " target)))
 
 (provide 'decklet-deck)
 ;;; decklet-deck.el ends here

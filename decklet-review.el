@@ -468,7 +468,6 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
 (defun decklet-review--clean-up ()
   "Clear transient review session state."
   (setq decklet-current-card-id nil)
-  (setq decklet-last-added-word nil)
   (setq decklet-due-card-ids nil)
   (decklet-review--trail-reset)
   (decklet-review--reset-ui-state))

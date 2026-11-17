@@ -43,7 +43,6 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           (decklet-review-order (default-value 'decklet-review-order))
           ;; Reset UI state to prevent cross-test pollution.
           (decklet-current-card-id nil)
-          (decklet-last-added-word nil)
           (decklet-due-card-ids nil)
           (decklet-db--review-plan-cache nil)
           (decklet-review--queue-context nil)
