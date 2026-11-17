@@ -27,9 +27,6 @@
   "Function called after batch add confirmation.
 Receives a list of added words.")
 
-(defvar-local decklet-add-card-batch--on-cancel nil
-  "Function called after batch add cancellation.")
-
 (defvar decklet-add-card-batch-mode-map
   (define-keymap
     "C-c C-c" #'decklet-add-card-batch-confirm
@@ -168,8 +165,6 @@ the granularity of `decklet--add-card's status result."
 (defun decklet-add-card-batch-cancel ()
   "Cancel batch import and close the buffer."
   (interactive)
-  (when (functionp decklet-add-card-batch--on-cancel)
-    (funcall decklet-add-card-batch--on-cancel))
   (message "Batch import canceled")
   (quit-window t))
 
@@ -177,8 +172,8 @@ the granularity of `decklet--add-card's status result."
 (defun decklet-add-card-batch (&optional words &rest options)
   "Open a buffer for batch word entry.
 WORDS, when non-nil, are inserted one per line.
-OPTIONS is a plist supporting :buffer-name, :title, :on-confirm, :on-cancel,
-and :message-prefix."
+OPTIONS is a plist supporting :buffer-name, :title, :on-confirm and
+:message-prefix."
   (interactive)
   (let ((buffer (get-buffer-create
                  (or (plist-get options :buffer-name)
@@ -186,8 +181,7 @@ and :message-prefix."
     (with-current-buffer buffer
       (decklet-add-card-batch-mode)
       (setq header-line-format (or (plist-get options :title) "Decklet Batch Add")
-            decklet-add-card-batch--on-confirm (plist-get options :on-confirm)
-            decklet-add-card-batch--on-cancel (plist-get options :on-cancel))
+            decklet-add-card-batch--on-confirm (plist-get options :on-confirm))
       (let ((inhibit-read-only t))
         (erase-buffer)
         (when words
