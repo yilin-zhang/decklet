@@ -158,7 +158,7 @@ Consumers skip any rated record whose `id' appears as a void's
 ;; Daily consumption accounting
 ;;
 ;; Decklet core reads its own log back to count how many cards each
-;; `decklet-review-order' step has handed out during the current review
+;; `decklet-review-order' group has handed out during the current review
 ;; day.  Only the tail covering today is parsed, and the result is
 ;; cached against the file size so repeated queue rebuilds within a
 ;; session stay cheap.

@@ -556,7 +556,7 @@ When LENGTH is non-nil, use it as the separator width."
 (defun decklet-review-component-counters ()
   "Return the counter block for the instructions.
 The due and new figures are what is left to hand out today, so a
-`limit' stage in `decklet-review-order' shows up here as a smaller
+`limit' operation in `decklet-review-order' shows up here as a smaller
 number than the deck actually holds."
   (let* ((n-reviewed (plist-get decklet--counter :reviewed))
          (n-due-review (plist-get decklet--counter :due-review-remaining))
@@ -780,7 +780,7 @@ Void their log records and drop them, as if they never happened."
 
 (defun decklet-review--nothing-due-message ()
   "Return the message explaining why no card is on offer.
-The queue can be empty because a `limit' stage in
+The queue can be empty because a `limit' operation in
 `decklet-review-order' is spent, because cards are still in a
 learning step and come due later today, or because nothing is left.
 The first two can hold at once, since a spent limit on `:review'

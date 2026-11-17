@@ -6,7 +6,7 @@
 
 ;; SQLite connection management and card queries.  Also plans the
 ;; review queue from `decklet-review-order'.  It selects due cards, assigns
-;; them to order steps, applies daily limits from the review log, and
+;; them to order groups, applies daily limits from the review log, and
 ;; computes the review counters.
 
 ;;; Code:
@@ -522,10 +522,10 @@ value for FIELD counts as smallest."
               less
             (lambda (a b) (funcall less b a))))))
 
-(defun decklet-db--review-compile-stage (stage)
-  "Compile review STAGE into a function of a step's cards and USED.
-USED is how many cards the step has handed out today."
-  (pcase stage
+(defun decklet-db--review-compile-op (op)
+  "Compile review OP into a function of a group's cards and USED.
+USED is how many cards the group has handed out today."
+  (pcase op
     ('shuffle
      (lambda (items _used) (decklet--shuffle-list items)))
     (`(sort ,(and field (or :due :added :last-review :stability :difficulty))
@@ -533,23 +533,23 @@ USED is how many cards the step has handed out today."
      (lambda (items _used) (decklet-db--review-sort items field direction)))
     (`(limit ,(and n (pred natnump)))
      (lambda (items used) (seq-take items (max 0 (- n used)))))
-    ('spread (error "`spread' must be the last stage of a review step"))
-    (_ (error "Invalid review stage: %S" stage))))
+    ('spread (error "`spread' must come last in a review group"))
+    (_ (error "Invalid review operation: %S" op))))
 
 (defun decklet-db--review-compile-order (order)
-  "Compile review ORDER into a list of step plists, or signal an error.
-Each plist has :match, the compiled filter, :stages, the compiled
-stages, and :spread, non-nil when the step ends with `spread'."
+  "Compile review ORDER into a list of group plists, or signal an error.
+Each plist has :match, the compiled filter, :ops, the compiled
+operations, and :spread, non-nil when the group ends with `spread'."
   (unless (proper-list-p order)
     (error "Invalid review order: %S" order))
-  (mapcar (lambda (step)
-            (unless (and (consp step) (proper-list-p step))
-              (error "Invalid review step: %S" step))
-            (pcase-let* ((`(,filter . ,stages) step)
-                         (spread (eq (car (last stages)) 'spread)))
+  (mapcar (lambda (group)
+            (unless (and (consp group) (proper-list-p group))
+              (error "Invalid review group: %S" group))
+            (pcase-let* ((`(,filter . ,ops) group)
+                         (spread (eq (car (last ops)) 'spread)))
               (list :match (decklet-db--review-compile-filter filter)
-                    :stages (mapcar #'decklet-db--review-compile-stage
-                                    (if spread (butlast stages) stages))
+                    :ops (mapcar #'decklet-db--review-compile-op
+                                 (if spread (butlast ops) ops))
                     :spread spread)))
           order))
 
@@ -558,15 +558,15 @@ stages, and :spread, non-nil when the step ends with `spread'."
     ((state :review) shuffle)
     ((state :new) (sort :added :desc)))
   "Rules for selecting and placing due cards.
-Each step is (FILTER STAGE...).  FILTER picks cards: (state STATE...)
+Each group is (FILTER OP...).  FILTER picks cards: (state STATE...)
 with STATE one of :new, :learning, :relearning and :review, (tag NAME),
 or an (and ...), (or ...) or (not ...) of filters.  A due card belongs
-to the first step whose filter matches it.
+to the first group whose filter matches it.
 
-The stages then run left to right on the step's cards: shuffle,
+The operations then run left to right on the group's cards: shuffle,
 \=(sort FIELD :asc/:desc) and (limit N).  FIELD is :due, :added,
 :last-review, :stability or :difficulty.  (limit N) keeps N cards
-minus those the step handed out today; 0 pauses the step.  A final
+minus those the group handed out today; 0 pauses the group.  A final
 spread interleaves the cards into the queue built so far; otherwise
 they are appended.  See README for examples."
   :type '(repeat sexp)
@@ -607,27 +607,26 @@ cards by the review day.  Each item's :state is an FSRS keyword, or
                              :new)))
             rows)))
 
-(defun decklet-db--review-run (steps groups used)
-  "Run STEPS on their candidate GROUPS and return the queue plan.
-USED lists how many cards each step handed out today.  The plan is a
+(defun decklet-db--review-run (groups group-cards used)
+  "Run GROUPS on their GROUP-CARDS and return the queue plan.
+USED lists how many cards each group handed out today.  The plan is a
 plist with :items, the queue, and :limited, non-nil when a limit held
 cards back."
-  (let ((picked (cl-mapcar (lambda (step cards count)
-                             (seq-reduce (lambda (cards stage)
-                                           (funcall stage cards count))
-                                         (plist-get step :stages)
-                                         cards))
-                           steps groups used)))
-    (list :items (cl-reduce (lambda (queue step-and-cards)
-                              (pcase-let ((`(,step . ,cards) step-and-cards))
-                                (if (plist-get step :spread)
-                                    (decklet--interleave-evenly queue cards)
-                                  (append queue cards))))
-                            (cl-mapcar #'cons steps picked)
-                            :initial-value nil)
-          :limited (cl-some (lambda (picked cards)
-                              (< (length picked) (length cards)))
-                            picked groups))))
+  (let ((queue nil)
+        (limited nil))
+    (while groups
+      (let* ((group (pop groups))
+             (cards (pop group-cards))
+             (count (pop used))
+             (picked cards))
+        (dolist (op (plist-get group :ops))
+          (setq picked (funcall op picked count)))
+        (when (< (length picked) (length cards))
+          (setq limited t))
+        (setq queue (if (plist-get group :spread)
+                        (decklet--interleave-evenly queue picked)
+                      (append queue picked)))))
+    (list :items queue :limited limited)))
 
 (defvar decklet-db--review-plan-cache nil
   "Cached input and result of the most recent queue plan.")
@@ -635,33 +634,33 @@ cards back."
 (defun decklet-db--review-plan (&optional time)
   "Return a queue plan for TIME, shared by drawing and counters.
 The result contains :items and :limited.  Current tags assign both due
-cards and today's ratings to steps.  Unchanged inputs reuse the plan so
+cards and today's ratings to groups.  Unchanged inputs reuse the plan so
 counter refreshes do not reshuffle cards."
   (let* ((now (or time (current-time)))
-         (steps (decklet-db--review-compile-order decklet-review-order))
+         (groups (decklet-db--review-compile-order decklet-review-order))
          (tags (decklet-db--tag-map))
          (owner (lambda (state card-id)
                   ;; Deleted cards have no tags, so only untagged filters match.
-                  (cl-position-if (lambda (step)
-                                    (funcall (plist-get step :match)
+                  (cl-position-if (lambda (group)
+                                    (funcall (plist-get group :match)
                                              state (gethash card-id tags)))
-                                  steps)))
+                                  groups)))
          (by-owner (seq-group-by (lambda (item)
                                    (funcall owner (plist-get item :state)
                                             (plist-get item :card-id)))
                                  (decklet-db--due-items now)))
-         (groups (cl-loop for index below (length steps)
-                          collect (alist-get index by-owner)))
+         (group-cards (cl-loop for index below (length groups)
+                               collect (alist-get index by-owner)))
          (ratings (decklet-review-log-daily-card-states now))
-         (used (cl-loop for index below (length steps)
+         (used (cl-loop for index below (length groups)
                         collect (seq-count (pcase-lambda (`(,card-id . ,state))
                                              (eql index (funcall owner state card-id)))
                                            ratings)))
          (key (list decklet-db--conn (decklet-day-start-time now)
-                    (copy-tree decklet-review-order) groups used)))
+                    (copy-tree decklet-review-order) group-cards used)))
     (unless (equal key (car decklet-db--review-plan-cache))
       (setq decklet-db--review-plan-cache
-            (cons key (decklet-db--review-run steps groups used))))
+            (cons key (decklet-db--review-run groups group-cards used))))
     (cdr decklet-db--review-plan-cache)))
 
 (defun decklet-db--collect-due-items ()
@@ -678,7 +677,7 @@ counter refreshes do not reshuffle cards."
 The `:due-review', `:due-learning' and `:new' keys report what the
 deck holds.  Their `-remaining' companions report how much of that
 `decklet-review-order' will still hand out today, which is smaller
-whenever a step has a `limit' stage.  `:limited' is non-nil
+whenever a group has a `limit' operation.  `:limited' is non-nil
 when such a limit is what is holding cards back."
   (let* ((now (current-time))
          (day-start (decklet--time->fsrs-timestamp (decklet-day-start-time now)))

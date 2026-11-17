@@ -44,10 +44,10 @@
       (should (equal (decklet-get-card-tags id) '("botany" "reading")))
       (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "lily")) '("botany"))))))
 
-(ert-deftest decklet-test-tags-first-matching-step-owns-card ()
-  "A card belongs to the first step whose filter matches it.
-It stays there when that step's limit is spent, so it never reaches a
-later step that would also match."
+(ert-deftest decklet-test-tags-first-matching-group-owns-card ()
+  "A card belongs to the first group whose filter matches it.
+It stays there when that group's limit is spent, so it never reaches a
+later group that would also match."
   (decklet-test--with-temp-db
     (let ((decklet-review-order
            '(((and (state :new) (tag "botany")) (limit 1))
@@ -76,7 +76,7 @@ later step that would also match."
                    :timestamp "20250101T000000Z")))
           (decklet-set-card-tags id (if (eq state :review) '("medicine") '("botany")))
           (push id expected)))
-      ;; A paused learning card matches no step, so it is never offered.
+      ;; A paused learning card matches no group, so it is never offered.
       (decklet-set-card-tags
        (decklet-test--add-card-meta "blocked" :state :learning
                                     :last-review "20250101T000000Z"

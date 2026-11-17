@@ -390,11 +390,11 @@ example under `:custom`:
 ### Review Order
 
 `decklet-review-order` decides which cards review mode offers and in what
-order. Each entry is a step `(FILTER STAGE...)`. The filter picks cards, and
-the stages run on them from left to right.
+order. Each entry is a group `(FILTER OP...)`. The filter picks cards, and
+the operations run on them from left to right.
 
 ```emacs-lisp
-;; Default: short learning steps first, then reviews, then newest-added words.
+;; Default: learning cards first, then reviews, then newest-added words.
 (setopt decklet-review-order
         '(((state :learning :relearning) (sort :due :asc))
           ((state :review) shuffle)
@@ -416,11 +416,11 @@ the stages run on them from left to right.
           ((state :new) (sort :added :desc) (limit 10) spread)))
 ```
 
-A card belongs to the first step whose filter matches it, and it stays there
-even when that step's limit is spent. The last example therefore offers at
+A card belongs to the first group whose filter matches it, and it stays there
+even when that group's limit is spent. The last example therefore offers at
 most 14 new cards per day: 2 botany, 1 medicine, 1 astronomy and 10 others.
 Importing 300 botany words still brings in only 2 a day, because the botany
-step claims them before the plain `new` step can. A card no step matches is
+group claims them before the plain `new` group can. A card no group matches is
 not offered.
 
 Filters:
@@ -434,26 +434,26 @@ Filters:
 (not (tag "paused"))                    ; not this
 ```
 
-Stages:
+Operations:
 
 - `shuffle` puts the cards in random order.
-- `(sort FIELD ORDER)` sorts them. `FIELD` is `:due`, `:added`,
-  `:last-review`, `:stability` or `:difficulty`, and `ORDER` is `:asc` or
+- `(sort FIELD DIRECTION)` sorts them. `FIELD` is `:due`, `:added`,
+  `:last-review`, `:stability` or `:difficulty`, and `DIRECTION` is `:asc` or
   `:desc`. Cards without a value, such as a new card's stability, sort first
   in ascending order.
-- `(limit N)` keeps the first `N` cards, less those the step handed out today.
+- `(limit N)` keeps the first `N` cards, less those the group handed out today.
   See [Daily Limits](#daily-limits).
-- `spread`, as the last stage, mixes the cards evenly into the queue built by
-  the steps before. Without it, the cards go after them.
+- `spread`, as the last operation, mixes the cards evenly into the queue built
+  by the groups before. Without it, the cards go after them.
 
 The full grammar and the exact rules are in
 [Writing Extensions](docs/writing-extensions.md#review-order-reference).
 
 #### Daily Limits
 
-`(limit N)` caps a step at `N` cards per review day. Ratings count toward the
+`(limit N)` caps a group at `N` cards per review day. Ratings count toward the
 limit, while opening or skipping a card does not. Restarting Emacs does not
-reset it, and unused allowance does not carry over. `N = 0` pauses the step.
+reset it, and unused allowance does not carry over. `N = 0` pauses the group.
 
 Use limits mainly for `new` and, if you like, `review`. A limit on `learning`
 or `relearning` also holds back short-interval repeats once it is reached.

@@ -312,14 +312,14 @@ The README covers everyday `decklet-review-order` settings. This section
 gives the full grammar and the exact ownership and quota rules.
 
 ```text
-ORDER  := (STEP ...)
-STEP   := (FILTER STAGE ... [spread])
-FILTER := (state STATE ...) | (tag "name")
-        | (and FILTER ...) | (or FILTER ...) | (not FILTER)
-STATE  := :new | :learning | :relearning | :review
-STAGE  := shuffle | (sort FIELD ORDER) | (limit N)
-FIELD  := :due | :added | :last-review | :stability | :difficulty
-ORDER  := :asc | :desc
+ORDER     := (GROUP ...)
+GROUP     := (FILTER OP ... [spread])
+FILTER    := (state STATE ...) | (tag "name")
+           | (and FILTER ...) | (or FILTER ...) | (not FILTER)
+STATE     := :new | :learning | :relearning | :review
+OP        := shuffle | (sort FIELD DIRECTION) | (limit N)
+FIELD     := :due | :added | :last-review | :stability | :difficulty
+DIRECTION := :asc | :desc
 ```
 
 `and` and `or` take at least one filter, and `not` exactly one. Filters may
@@ -329,27 +329,27 @@ whole order and signals an error at the first invalid form.
 
 ### Ownership
 
-Ownership is decided for the whole deck before any step runs. A due card
-belongs to the first step, in configuration order, whose filter matches the
+Ownership is decided for the whole deck before any group runs. A due card
+belongs to the first group, in configuration order, whose filter matches the
 card's state and current tags. A card tagged both `botany` and `medicine`
-belongs only to the first step that matches it, including for quota
-accounting. If that step is full or paused, the card does not spill into a
-later step. Cards that no step matches are not offered.
+belongs only to the first group that matches it, including for quota
+accounting. If that group is full or paused, the card does not spill into a
+later group. Cards that no group matches are not offered.
 
-### Stages and placement
+### Operations and placement
 
-Each step runs its stages left to right on the cards it owns. `shuffle`
-randomizes them. `(sort FIELD ORDER)` sorts them, with card id breaking ties
+Each group runs its operations left to right on the cards it owns. `shuffle`
+randomizes them. `(sort FIELD DIRECTION)` sorts them, with card id breaking ties
 in the same direction; cards without a value for `FIELD` count as smallest.
-`(limit N)` keeps the first `N` minus the step's consumption today. A step
-without stages keeps its cards in card-id order.
+`(limit N)` keeps the first `N` minus the group's consumption today. A group
+without operations keeps its cards in card-id order.
 
-Steps join the queue in configuration order. A step ending in `spread`
-inserts its cards evenly through everything the preceding steps have
-gathered; any other step appends. `spread` anywhere but last is an error. If
-preceding steps produce no cards, a spread step's own cards are still
+Groups join the queue in configuration order. A group ending in `spread`
+inserts its cards evenly through everything the preceding groups have
+gathered; any other group appends. `spread` anywhere but last is an error. If
+preceding groups produce no cards, a spread group's own cards are still
 offered. It does not shuffle globally, and it keeps no fixed ratio once the
-other groups run out. Unused slots in one step are not transferred to
+other groups run out. Unused slots in one group are not transferred to
 another.
 
 ### Daily limit accounting
@@ -360,8 +360,8 @@ ratings in the current review day. Opening or skipping a card consumes
 nothing. Undo alone leaves the rating in place, and re-rating replaces the
 previous record through the log's void mechanism.
 
-To allocate consumption to steps, Decklet uses each rated card's current tags
-and the current step order. Changing tags or reordering steps
+To allocate consumption to groups, Decklet uses each rated card's current tags
+and the current group order. Changing tags or reordering groups
 recalculates today's quotas immediately. If a corrected group is already over
 its limit, it offers no more cards today, and completed ratings stay intact.
 Tag edits append no review-log events. The rating's pre-state still comes

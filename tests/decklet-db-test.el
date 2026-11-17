@@ -159,9 +159,9 @@ A daily limit lowers the `-remaining' count and sets `:limited'."
   (dolist (order '((((state :learning :relearning) (sort :due :asc))
                     ((state :review) shuffle (limit 120))
                     ((state :new) (sort :added :desc) (limit 10) spread))
-                   ;; A zero limit pauses a step, and stages are optional.
+                   ;; A zero limit pauses a group, and operations are optional.
                    (((state :new) (limit 0)) ((state :review)))
-                   ;; Filters nest, and any field sorts any step.
+                   ;; Filters nest, and any field sorts any group.
                    (((and (state :new) (tag "a") (not (tag "b"))) shuffle)
                     ((or (state :review) (tag "c")) (sort :stability :desc)))))
     (decklet-db--review-compile-order order))
@@ -172,7 +172,7 @@ A daily limit lowers the `-remaining' count and sets `:limited'."
                    (((not (tag "a") (tag "b"))))
                    (((state :new) (sort :due :sideways)))
                    (((state :new) (limit -1)))
-                   ;; `spread' only places a step, so it comes last.
+                   ;; `spread' only places a group, so it comes last.
                    (((state :new) spread shuffle))
                    ;; The old (SOURCE SPEC) syntax.
                    ((new shuffle))
@@ -200,8 +200,8 @@ its slot."
       (should (equal (decklet-db--select-due-card-ids)
                      (list (decklet-test--card-id "new-a")))))))
 
-(ert-deftest decklet-test-db-spread-distributes-step-through-queue ()
-  "A spread step is interleaved into what the preceding steps gathered."
+(ert-deftest decklet-test-db-spread-distributes-group-through-queue ()
+  "A spread group is interleaved into what the preceding groups gathered."
   (decklet-test--with-temp-db
     (let* ((decklet-review-order
             '(((state :review) (sort :due :asc))
