@@ -100,9 +100,9 @@ the pre-disconnect hook exactly once."
 (ert-deftest decklet-test-db-select-due-card-ids-honors-review-order ()
   "The due queue follows `decklet-review-order': learning, then new, then review."
   (decklet-test--with-temp-db
-    (let* ((decklet-review-order '((learning (sort :due :asc))
-                                   (new (sort :added :desc))
-                                   (review (sort :due :asc))))
+    (let* ((decklet-review-order '(((state :learning) (sort :due :asc))
+                                   ((state :new) (sort :added :desc))
+                                   ((state :review) (sort :due :asc))))
            (now (current-time))
            (at (lambda (secs) (decklet-test--ts (time-add now (seconds-to-time secs))))))
       (decklet-db--upsert-card
@@ -146,48 +146,45 @@ A daily limit lowers the `-remaining' count and sets `:limited'."
         (should (= 1 (plist-get counts :new)))
         (should (= 1 (plist-get counts :new-remaining)))
         (should-not (plist-get counts :limited)))
-      (let* ((decklet-review-order '(((learning relearning) (sort :due :asc))
-                                     (review shuffle)
-                                     (new (daily-limit 0 shuffle))))
+      (let* ((decklet-review-order '(((state :learning :relearning) (sort :due :asc))
+                                     ((state :review) shuffle)
+                                     ((state :new) shuffle (limit 0))))
              (counts (decklet-db--counts)))
         (should (= 1 (plist-get counts :new)))
         (should (= 0 (plist-get counts :new-remaining)))
         (should (plist-get counts :limited))))))
 
 (ert-deftest decklet-test-db-review-order-validation ()
-  "The review-order grammar accepts its canonical forms and rejects the rest."
-  (dolist (order '((((learning relearning) (sort :due :asc))
-                    (review (daily-limit 120 shuffle))
-                    (new (spread (daily-limit 10 (sort :added :desc)))))
-                   ;; A zero limit pauses a step for the day.
-                   ((new (daily-limit 0 shuffle)))
-                   (((new :tags (and "a" (not "b"))) shuffle)
-                    ((review :tags (or "a" "c")) shuffle))))
-    (decklet-db--review-validate-order order))
-  (dolist (order '(;; One fallback rule per state.
-                   ((review shuffle) (review (sort :due :asc)))
-                   ((new shuffle) ((new review) shuffle))
-                   ;; Learning cards sort only by :due or :added.
-                   ((learning (sort :stability :desc)))
-                   ;; A limit is a non-negative integer.
-                   ((new (daily-limit -1 shuffle)))
-                   ;; `spread' wraps `daily-limit', never the reverse.
-                   ((review shuffle) (new (daily-limit 10 (spread shuffle))))
-                   ;; A leading spread has nothing to spread into.
-                   ((new (spread shuffle)))
-                   ((review (daily-limit 10 (sort :due :sideways))))
-                   ;; Malformed tag selectors and the old dotted syntax.
-                   ((new :tags) shuffle)
-                   (((new :tags (eval "a")) shuffle))
+  "The review-order grammar accepts its documented forms and rejects the rest."
+  (dolist (order '((((state :learning :relearning) (sort :due :asc))
+                    ((state :review) shuffle (limit 120))
+                    ((state :new) (sort :added :desc) (limit 10) spread))
+                   ;; A zero limit pauses a step, and stages are optional.
+                   (((state :new) (limit 0)) ((state :review)))
+                   ;; Filters nest, and any field sorts any step.
+                   (((and (state :new) (tag "a") (not (tag "b"))) shuffle)
+                    ((or (state :review) (tag "c")) (sort :stability :desc)))))
+    (decklet-db--review-compile-order order))
+  (dolist (order '(;; States are keywords.
+                   (((state new)))
+                   (((tag "bad tag")))
+                   (((and)))
+                   (((not (tag "a") (tag "b"))))
+                   (((state :new) (sort :due :sideways)))
+                   (((state :new) (limit -1)))
+                   ;; `spread' only places a step, so it comes last.
+                   (((state :new) spread shuffle))
+                   ;; The old (SOURCE SPEC) syntax.
+                   ((new shuffle))
                    ((:new . shuffle))))
-    (should-error (decklet-db--review-validate-order order))))
+    (should-error (decklet-db--review-compile-order order))))
 
 (ert-deftest decklet-test-db-daily-limit-is-a-whole-day-budget ()
   "A daily limit counts today's ratings, so cards graded earlier use it up.
 Ratings from earlier days do not count, and a voided rating refunds
 its slot."
   (decklet-test--with-temp-db
-    (let ((decklet-review-order '((new (daily-limit 2 (sort :added :asc))))))
+    (let ((decklet-review-order '(((state :new) (sort :added :asc) (limit 2)))))
       (dolist (word '("new-a" "new-b" "new-c"))
         (decklet-test--add-card-meta word :state :new :last-review nil
                                      :timestamp "20250101T000000Z"))
@@ -207,8 +204,8 @@ its slot."
   "A spread step is interleaved into what the preceding steps gathered."
   (decklet-test--with-temp-db
     (let* ((decklet-review-order
-            '((review (sort :due :asc))
-              (new (spread (sort :added :asc)))))
+            '(((state :review) (sort :due :asc))
+              ((state :new) (sort :added :asc) spread)))
            (now (current-time))
            (at (lambda (secs)
                  (decklet-test--ts (time-add now (seconds-to-time secs))))))

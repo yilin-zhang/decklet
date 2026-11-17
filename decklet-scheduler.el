@@ -93,7 +93,7 @@ fine-tuned parameter vector."
   "Counter for reviewed, due-review, due-learning, and new cards.
 The plain keys count what the deck holds; the `-remaining' keys
 count what `decklet-review-order' will still hand out today, which
-is smaller when a step carries a `daily-limit'.  `:limited' is
+is smaller when a step has a `limit' stage.  `:limited' is
 non-nil when such a limit is holding cards back.  Refreshed from
 the database by `decklet--refresh-counter'.")
 

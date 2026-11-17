@@ -274,7 +274,7 @@ after adding a word. In the hint prompt, `M-j` inserts a newline.
 Cards can have multiple tags, such as `botany`, `medicine`, `astronomy`,
 or `reading`. Tag names are case-sensitive and cannot contain whitespace or
 colons. Tags have no scheduling effect until a
-[review-order selector](#review-order) uses them.
+[review-order filter](#review-order) uses them.
 
 - Press `t` in review or edit mode to replace the current card's tags. Enter
   space-separated names with completion; an empty response clears the tags.
@@ -325,7 +325,7 @@ Edit-mode rating is disabled while a review session is active.
 Set `decklet-review-daily-goal` to a number to show a progress bar in review
 mode. The goal only paces you. You can keep reviewing after reaching it.
 
-The goal is separate from the `daily-limit` in [Review Order](#review-order).
+The goal is separate from `limit` in [Review Order](#review-order).
 The goal is a number you aim for, and the limit is a number the queue will not
 exceed, so limits that add up to less than your goal leave the goal out of
 reach.
@@ -390,72 +390,70 @@ example under `:custom`:
 ### Review Order
 
 `decklet-review-order` decides which cards review mode offers and in what
-order. Each entry is a step `(SOURCE SPEC)`. The source picks cards by state
-(`learning`, `relearning`, `review`, `new`) and optionally by tag, and the
-spec sorts, shuffles, limits or spreads them.
+order. Each entry is a step `(FILTER STAGE...)`. The filter picks cards, and
+the stages run on them from left to right.
 
 ```emacs-lisp
 ;; Default: short learning steps first, then reviews, then newest-added words.
-(setq decklet-review-order
-      '(((learning relearning) (sort :due :asc))
-        (review shuffle)
-        (new (sort :added :desc))))
+(setopt decklet-review-order
+        '(((state :learning :relearning) (sort :due :asc))
+          ((state :review) shuffle)
+          ((state :new) (sort :added :desc))))
 
 ;; Steady general intake: at most 120 reviews and 10 new cards per day.
-(setq decklet-review-order
-      '(((learning relearning) (sort :due :asc))
-        (review (daily-limit 120 shuffle))
-        (new (spread (daily-limit 10 (sort :added :desc))))))
+(setopt decklet-review-order
+        '(((state :learning :relearning) (sort :due :asc))
+          ((state :review) shuffle (limit 120))
+          ((state :new) (sort :added :desc) (limit 10) spread)))
 
 ;; Bulk-import topic vocabulary, but introduce only a few words each day.
-(setq decklet-review-order
-      '(((learning relearning) (sort :due :asc))
-        (review shuffle)
-        (new (spread (daily-limit 10 (sort :added :desc))))
-        ((new :tags "botany")
-         (spread (daily-limit 2 shuffle)))
-        ((new :tags "medicine")
-         (spread (daily-limit 1 shuffle)))
-        ((new :tags "astronomy")
-         (spread (daily-limit 1 shuffle)))))
+(setopt decklet-review-order
+        '(((state :learning :relearning) (sort :due :asc))
+          ((state :review) shuffle)
+          ((and (state :new) (tag "botany")) shuffle (limit 2) spread)
+          ((and (state :new) (tag "medicine")) shuffle (limit 1) spread)
+          ((and (state :new) (tag "astronomy")) shuffle (limit 1) spread)
+          ((state :new) (sort :added :desc) (limit 10) spread)))
 ```
 
-The last example offers at most 14 new cards per day: 10 ordinary, 2 botany,
-1 medicine and 1 astronomy. A tag step owns all of its matching cards, so
-importing 300 botany words still brings in only 2 a day. The plain `new`
-step gets the new cards that no tag step claims. When a card matches several
-tag steps, the first one owns it.
+A card belongs to the first step whose filter matches it, and it stays there
+even when that step's limit is spent. The last example therefore offers at
+most 14 new cards per day: 2 botany, 1 medicine, 1 astronomy and 10 others.
+Importing 300 botany words still brings in only 2 a day, because the botany
+step claims them before the plain `new` step can. A card no step matches is
+not offered.
 
-Steps place their cards in the order you write them. `spread` mixes a step's
-cards evenly into the cards gathered by the steps before it, and plain steps
-append.
-
-Sources and selectors:
+Filters:
 
 ```emacs-lisp
-new                                         ; all otherwise-unclaimed new cards
-(learning relearning)                       ; shared step for two states
-(new :tags "botany")                        ; one tag
-(new :tags (or "botany" "flower"))           ; either tag
-(new :tags (and "medicine" "suffix"))        ; both tags
-(new :tags (not "paused"))                   ; lacks this tag
-(learning :tags "botany")                    ; selectors work on every state
-((learning relearning) :tags "botany")       ; combined states with a selector
+(state :new)                            ; one state
+(state :learning :relearning)           ; any of several states
+(tag "botany")                          ; cards with this tag
+(and (state :new) (tag "botany"))       ; all of these
+(or (tag "botany") (tag "flower"))      ; any of these
+(not (tag "paused"))                    ; not this
 ```
 
-Sort with `(sort FIELD ORDER)`, where `ORDER` is `:asc` or `:desc`. Every
-source supports `:due` and `:added`, and review-only sources also support
-`:last-review`, `:difficulty` and `:stability`.
+Stages:
 
-The full grammar and the exact ownership rules are in
+- `shuffle` puts the cards in random order.
+- `(sort FIELD ORDER)` sorts them. `FIELD` is `:due`, `:added`,
+  `:last-review`, `:stability` or `:difficulty`, and `ORDER` is `:asc` or
+  `:desc`. Cards without a value, such as a new card's stability, sort first
+  in ascending order.
+- `(limit N)` keeps the first `N` cards, less those the step handed out today.
+  See [Daily Limits](#daily-limits).
+- `spread`, as the last stage, mixes the cards evenly into the queue built by
+  the steps before. Without it, the cards go after them.
+
+The full grammar and the exact rules are in
 [Writing Extensions](docs/writing-extensions.md#review-order-reference).
 
 #### Daily Limits
 
-`(daily-limit N BASE)` caps a step at `N` cards per review day. Ratings count
-toward the limit, while opening or skipping a card does not. Restarting Emacs
-does not reset it, and unused allowance does not carry over. `N = 0` pauses
-the step.
+`(limit N)` caps a step at `N` cards per review day. Ratings count toward the
+limit, while opening or skipping a card does not. Restarting Emacs does not
+reset it, and unused allowance does not carry over. `N = 0` pauses the step.
 
 Use limits mainly for `new` and, if you like, `review`. A limit on `learning`
 or `relearning` also holds back short-interval repeats once it is reached.

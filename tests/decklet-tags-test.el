@@ -44,39 +44,30 @@
       (should (equal (decklet-get-card-tags id) '("botany" "reading")))
       (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "lily")) '("botany"))))))
 
-(ert-deftest decklet-test-tags-selector-ownership-before-limit ()
-  "Later tag selectors reserve their whole group before fallback selection."
-  (decklet-test--with-temp-db
-    (let* ((decklet-review-order
-            '((new (sort :added :asc))
-              ((new :tags "botany") (spread (daily-limit 1 (sort :added :asc))))))
-           (plain (decklet-test-tags--new "plain"))
-           (rose (decklet-test-tags--new "rose" "botany")))
-      (decklet-test-tags--new "lily" "botany")
-      (should (equal (decklet-db--select-due-card-ids) (list plain rose)))
-      (should (= (plist-get (decklet-db--counts) :new-remaining) 2))
-      (setcar (cdr (cadr (cadr decklet-review-order))) '(daily-limit 0 shuffle))
-      (should (equal (decklet-db--select-due-card-ids) (list plain))))))
-
-(ert-deftest decklet-test-tags-overlap-first-selector-wins ()
-  "Matching cards never spill to another selector when their owner is paused."
+(ert-deftest decklet-test-tags-first-matching-step-owns-card ()
+  "A card belongs to the first step whose filter matches it.
+It stays there when that step's limit is spent, so it never reaches a
+later step that would also match."
   (decklet-test--with-temp-db
     (let ((decklet-review-order
-           '((new shuffle)
-             ((new :tags "botany") (daily-limit 0 shuffle))
-             ((new :tags "medicine") shuffle))))
-      (decklet-test-tags--new "shared" "botany" "medicine")
-      (let ((id (decklet-test-tags--new "medical" "medicine")))
-        (should (equal (decklet-db--select-due-card-ids) (list id)))))))
+           '(((and (state :new) (tag "botany")) (limit 1))
+             ((and (state :new) (tag "medicine")) shuffle)
+             ((state :new) shuffle)))
+          (rose (decklet-test-tags--new "rose" "botany"))
+          (_shared (decklet-test-tags--new "shared" "botany" "medicine"))
+          (medical (decklet-test-tags--new "medical" "medicine"))
+          (plain (decklet-test-tags--new "plain")))
+      (should (equal (decklet-db--select-due-card-ids) (list rose medical plain)))
+      (should (= (plist-get (decklet-db--counts) :new-remaining) 3)))))
 
-(ert-deftest decklet-test-tags-selector-all-states-and-expressions ()
-  "Selectors apply consistently to every state and to combined sources."
+(ert-deftest decklet-test-tags-filters-cover-every-state ()
+  "Filters combine states and tags with `and', `or' and `not'."
   (decklet-test--with-temp-db
     (let ((decklet-review-order
-           '((((learning relearning) :tags (and "botany" (not "paused")))
+           '(((and (state :learning :relearning) (tag "botany") (not (tag "paused")))
               (sort :due :asc))
-             ((review :tags (or "medicine" "astronomy")) shuffle)
-             ((new :tags "botany") shuffle)))
+             ((and (state :review) (or (tag "medicine") (tag "astronomy"))) shuffle)
+             ((and (state :new) (tag "botany")) shuffle)))
           (expected nil))
       (dolist (state '(:learning :relearning :review :new))
         (let ((id (decklet-test--add-card-meta
@@ -85,16 +76,21 @@
                    :timestamp "20250101T000000Z")))
           (decklet-set-card-tags id (if (eq state :review) '("medicine") '("botany")))
           (push id expected)))
-      (decklet-test-tags--new "blocked" "paused")
+      ;; A paused learning card matches no step, so it is never offered.
+      (decklet-set-card-tags
+       (decklet-test--add-card-meta "blocked" :state :learning
+                                    :last-review "20250101T000000Z"
+                                    :timestamp "20250101T000000Z")
+       '("botany" "paused"))
       (should (equal (sort (decklet-db--select-due-card-ids) #'<) (sort expected #'<))))))
 
 (ert-deftest decklet-test-tags-retrospective-budget-and-restart ()
   "Current tags regroup today's history, including after restarting the DB."
   (decklet-test--with-temp-db
     (let* ((decklet-review-order
-            '((new (daily-limit 5 shuffle))
-              ((new :tags "botany") (daily-limit 1 shuffle))
-              ((new :tags "medicine") (daily-limit 1 shuffle))))
+            '(((and (state :new) (tag "botany")) shuffle (limit 1))
+              ((and (state :new) (tag "medicine")) shuffle (limit 1))
+              ((state :new) shuffle (limit 5))))
            (rated (decklet-test-tags--new "rose" "botany"))
            (plant (decklet-test-tags--new "lily" "botany"))
            (medical (decklet-test-tags--new "itis" "medicine")))
@@ -114,7 +110,7 @@
 (ert-deftest decklet-test-tags-counter-reuses-shuffle ()
   "Refreshing counters preserves a previously planned randomized queue."
   (decklet-test--with-temp-db
-    (let ((decklet-review-order '((new (daily-limit 2 shuffle)))))
+    (let ((decklet-review-order '(((state :new) shuffle (limit 2)))))
       (dotimes (i 8) (decklet-test-tags--new (format "word-%s" i)))
       (let ((ids (decklet-db--select-due-card-ids)))
         (cl-letf (((symbol-function 'decklet--shuffle-list)

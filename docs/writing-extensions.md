@@ -55,16 +55,13 @@ Calls to `decklet-set-card-*` also refresh the review and edit buffers
 through the field-updated hook, so extensions do not manage refresh
 themselves.
 
-### Tag matching and daily history
+### Daily history
 
-- `(decklet-validate-tag-selector SELECTOR)` checks the selector grammar.
-- `(decklet-tags-match-p TAGS SELECTOR)` matches a validated selector against
-  tag strings without querying the database.
 - `(decklet-review-log-daily-card-states &optional TIME)` returns distinct
   `(CARD-ID . STATE)` pairs for valid ratings in that review day, excluding
-  voided records. `STATE` is the pre-rating FSRS keyword (`:new`, etc.);
-  only the review-order configuration uses plain state symbols. Extensions
-  can combine these pairs with current card tags for their own statistics.
+  voided records. `STATE` is the pre-rating FSRS keyword (`:new`, etc.),
+  as in a review-order `state` filter. Extensions can combine these pairs
+  with current card tags for their own statistics.
 - `(decklet-review-log-daily-state-counts &optional TIME)` returns aggregate
   per-state counts.
 
@@ -315,57 +312,56 @@ The README covers everyday `decklet-review-order` settings. This section
 gives the full grammar and the exact ownership and quota rules.
 
 ```text
-STEP   := (SOURCE SPEC)
-SOURCE := STATES | (STATES :tags SELECTOR)
-STATES := STATE | (STATE ...)
-STATE  := learning | relearning | review | new
-SPEC   := SIZED | (spread SIZED)
-SIZED  := BASE | (daily-limit N BASE)
-BASE   := shuffle | (sort FIELD ORDER)
-SELECTOR := "tag" | (or SELECTOR ...) | (and SELECTOR ...) | (not SELECTOR)
+ORDER  := (STEP ...)
+STEP   := (FILTER STAGE ... [spread])
+FILTER := (state STATE ...) | (tag "name")
+        | (and FILTER ...) | (or FILTER ...) | (not FILTER)
+STATE  := :new | :learning | :relearning | :review
+STAGE  := shuffle | (sort FIELD ORDER) | (limit N)
+FIELD  := :due | :added | :last-review | :stability | :difficulty
+ORDER  := :asc | :desc
 ```
 
-`and` and `or` require at least one expression, and `not` requires exactly
-one. Expressions may nest, for example `(and "botany" (not "paused"))`.
-Sorting uses `:asc` or `:desc`. Every source supports `:due` and `:added`,
-and review-only sources also support `:last-review`, `:difficulty`, and
-`:stability`. A combined-state step has one shared daily allowance.
+`and` and `or` take at least one filter, and `not` exactly one. Filters may
+nest, for example `(and (state :new) (tag "botany") (not (tag "paused")))`.
+`N` is a non-negative integer. Setting the option with `setopt` checks the
+whole order and signals an error at the first invalid form.
 
 ### Ownership
 
-Ownership is decided for the whole deck before any step selects cards:
+Ownership is decided for the whole deck before any step runs. A due card
+belongs to the first step, in configuration order, whose filter matches the
+card's state and current tags. A card tagged both `botany` and `medicine`
+belongs only to the first step that matches it, including for quota
+accounting. If that step is full or paused, the card does not spill into a
+later step. Cards that no step matches are not offered.
 
-1. A matching tag-selector step takes priority over a plain fallback step,
-   regardless of their positions in the configuration.
-2. When multiple tag selectors match the same card's state and tags, the
-   first matching selector owns it. A card tagged both `botany` and `medicine`
-   belongs only to the first matching step, including for quota accounting.
-   If that step is full or paused, the card does not spill into later steps
-   or the fallback.
-3. Each state allows at most one fallback step. States may appear in multiple
-   tag-selector steps. Cards matched by neither a selector nor a fallback
-   are not offered.
-4. Ownership applies within the selected states. A `(new :tags "botany")`
-   rule leaves botany cards in the ordinary `review` step.
+### Stages and placement
 
-After ownership is assigned, each step sorts or shuffles its cards, takes its
-remaining daily allowance, and places the result in configuration order.
-`spread` inserts evenly through everything preceding steps have gathered;
-otherwise the step appends. It cannot be the first step. If preceding steps
-produce no cards, its own cards are still offered. It does not shuffle
-globally, and it keeps no fixed ratio once the other groups run out. Unused
-slots in one step are not transferred to another.
+Each step runs its stages left to right on the cards it owns. `shuffle`
+randomizes them. `(sort FIELD ORDER)` sorts them, with card id breaking ties
+in the same direction; cards without a value for `FIELD` count as smallest.
+`(limit N)` keeps the first `N` minus the step's consumption today. A step
+without stages keeps its cards in card-id order.
+
+Steps join the queue in configuration order. A step ending in `spread`
+inserts its cards evenly through everything the preceding steps have
+gathered; any other step appends. `spread` anywhere but last is an error. If
+preceding steps produce no cards, a spread step's own cards are still
+offered. It does not shuffle globally, and it keeps no fixed ratio once the
+other groups run out. Unused slots in one step are not transferred to
+another.
 
 ### Daily limit accounting
 
-`(daily-limit N BASE)` selects at most `N` minus today's consumption.
+`(limit N)` selects at most `N` minus today's consumption.
 Consumption counts distinct (card id, pre-rating state) pairs from valid
 ratings in the current review day. Opening or skipping a card consumes
 nothing. Undo alone leaves the rating in place, and re-rating replaces the
 previous record through the log's void mechanism.
 
 To allocate consumption to steps, Decklet uses each rated card's current tags
-and the current selector priority. Changing tags or reordering selectors
+and the current step order. Changing tags or reordering steps
 recalculates today's quotas immediately. If a corrected group is already over
 its limit, it offers no more cards today, and completed ratings stay intact.
 Tag edits append no review-log events. The rating's pre-state still comes

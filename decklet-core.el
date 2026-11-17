@@ -82,29 +82,6 @@ Names are case-sensitive, nonempty, and contain no whitespace or colon."
       (user-error "Invalid tag: %S" tag)))
   (sort (delete-dups (copy-sequence tags)) #'string<))
 
-(defun decklet-validate-tag-selector (selector)
-  "Validate tag SELECTOR, a string or an `and', `or', or `not' expression."
-  (cond
-   ((stringp selector) (decklet-normalize-tags (list selector)))
-   ((and (proper-list-p selector)
-         (memq (car selector) '(and or not))
-         (cdr selector)
-         (or (not (eq (car selector) 'not)) (= (length selector) 2)))
-    (mapc #'decklet-validate-tag-selector (cdr selector)))
-   (t (error "Invalid tag selector: %S" selector))))
-
-(defun decklet-tags-match-p (tags selector)
-  "Return non-nil if TAGS match validated SELECTOR.
-SELECTOR is a tag string or a nested `and', `or', or `not' expression."
-  (if (stringp selector)
-      (and (member selector tags) t)
-    (pcase (car selector)
-      ('and (cl-every (lambda (part) (decklet-tags-match-p tags part))
-                      (cdr selector)))
-      ('or (cl-some (lambda (part) (decklet-tags-match-p tags part))
-                    (cdr selector)))
-      ('not (not (decklet-tags-match-p tags (cadr selector)))))))
-
 ;; Lifecycle hooks for extensions
 ;;
 ;; These abnormal hooks allow extensions to react to card mutations

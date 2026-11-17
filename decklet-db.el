@@ -484,229 +484,187 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
 
 ;; Review order
 
-(defun decklet-db--review-parse-step (step)
-  "Parse STEP into (TARGETS SELECTOR SPREAD LIMIT BASE).
-STEP is (SOURCE SPEC).  SOURCE is a state, a list of states, or
-  (STATES :tags SELECTOR).  Internal TARGETS use FSRS keywords."
-  (unless (and (proper-list-p step) (= (length step) 2))
-    (error "Expected (SOURCE SPEC), got: %S" step))
-  (let* ((source (car step))
-         (selector nil)
-         (targets source)
-         (base (cadr step))
-         (spread nil)
-         (limit nil))
-    (when (and (consp source) (memq :tags source))
-      (unless (and (proper-list-p source) (= (length source) 3)
-                   (eq (cadr source) :tags))
-        (error "Invalid review source: %S" source))
-      (setq targets (car source) selector (nth 2 source))
-      (decklet-validate-tag-selector selector))
-    (unless (consp targets) (setq targets (list targets)))
-    (unless (and (proper-list-p targets) targets
-                 (cl-every (lambda (state)
-                             (memq state '(new learning relearning review))) targets)
-                 (= (length targets) (length (delete-dups (copy-sequence targets)))))
-      (error "Invalid review states: %S" targets))
-    (setq targets (mapcar (lambda (state) (intern (concat ":" (symbol-name state))))
-                          targets))
-    (pcase base
-      (`(spread ,inner) (setq spread t base inner)))
-    (pcase base
-      (`(daily-limit ,n ,inner)
-       (unless (and (integerp n) (>= n 0)) (error "Invalid daily limit: %S" n))
-       (setq limit n base inner)))
-    (pcase base
-      ('shuffle)
-      (`(sort ,field ,direction)
-       (unless (and (memq direction '(:asc :desc))
-                    (memq field (if (equal targets '(:review))
-                                    '(:due :added :last-review :difficulty :stability)
-                                  '(:due :added))))
-         (error "Invalid review sort: %S" base)))
-      (_ (error "Invalid review order spec: %S" (cadr step))))
-    (list targets selector spread limit base)))
+(defun decklet-db--review-compile-filter (filter)
+  "Compile review FILTER into a predicate on a card's state and tags.
+The predicate takes an FSRS state keyword and a list of tag strings."
+  (pcase filter
+    (`(state . ,(and states (pred consp) (pred proper-list-p)))
+     (dolist (state states)
+       (unless (memq state '(:new :learning :relearning :review))
+         (error "Invalid review state: %S" state)))
+     (lambda (state _tags) (memq state states)))
+    (`(tag ,(and name (pred stringp)))
+     (decklet-normalize-tags (list name))
+     (lambda (_state tags) (member name tags)))
+    (`(not ,inner)
+     (let ((match (decklet-db--review-compile-filter inner)))
+       (lambda (state tags) (not (funcall match state tags)))))
+    (`(,(and op (or 'and 'or)) . ,(and parts (pred consp) (pred proper-list-p)))
+     (let ((matches (mapcar #'decklet-db--review-compile-filter parts))
+           (combine (if (eq op 'and) #'cl-every #'cl-some)))
+       (lambda (state tags)
+         (funcall combine (lambda (match) (funcall match state tags)) matches))))
+    (_ (error "Invalid review filter: %S" filter))))
 
-(defun decklet-db--review-validate-order (order)
-  "Validate ORDER, including unique fallback ownership per state."
-  (unless (proper-list-p order) (error "Invalid review order: %S" order))
-  (let ((fallbacks nil) (first t))
-    (dolist (step order)
-      (pcase-let ((`(,targets ,selector ,spread ,_limit ,_base)
-                   (decklet-db--review-parse-step step)))
-        (when (and first spread) (error "A spread step needs a preceding step"))
-        (unless selector
-          (dolist (target targets)
-            (when (memq target fallbacks)
-              (error "Duplicate fallback for %S" target))
-            (push target fallbacks)))
-        (setq first nil)))))
+(defun decklet-db--review-sort (items field direction)
+  "Return ITEMS sorted by FIELD in DIRECTION, `:asc' or `:desc'.
+Ties keep card-id order in the same direction.  An item without a
+value for FIELD counts as smallest."
+  (let ((less (lambda (a b)
+                (let ((x (plist-get a field))
+                      (y (plist-get b field)))
+                  (cond ((equal x y) (< (plist-get a :card-id)
+                                        (plist-get b :card-id)))
+                        ((null x) t)
+                        ((null y) nil)
+                        ((numberp x) (< x y))
+                        (t (string< x y)))))))
+    (sort (copy-sequence items)
+          (if (eq direction :asc)
+              less
+            (lambda (a b) (funcall less b a))))))
+
+(defun decklet-db--review-compile-stage (stage)
+  "Compile review STAGE into a function of a step's cards and USED.
+USED is how many cards the step has handed out today."
+  (pcase stage
+    ('shuffle
+     (lambda (items _used) (decklet--shuffle-list items)))
+    (`(sort ,(and field (or :due :added :last-review :stability :difficulty))
+            ,(and direction (or :asc :desc)))
+     (lambda (items _used) (decklet-db--review-sort items field direction)))
+    (`(limit ,(and n (pred natnump)))
+     (lambda (items used) (seq-take items (max 0 (- n used)))))
+    ('spread (error "`spread' must be the last stage of a review step"))
+    (_ (error "Invalid review stage: %S" stage))))
+
+(defun decklet-db--review-compile-order (order)
+  "Compile review ORDER into a list of step plists, or signal an error.
+Each plist has :match, the compiled filter, :stages, the compiled
+stages, and :spread, non-nil when the step ends with `spread'."
+  (unless (proper-list-p order)
+    (error "Invalid review order: %S" order))
+  (mapcar (lambda (step)
+            (unless (and (consp step) (proper-list-p step))
+              (error "Invalid review step: %S" step))
+            (pcase-let* ((`(,filter . ,stages) step)
+                         (spread (eq (car (last stages)) 'spread)))
+              (list :match (decklet-db--review-compile-filter filter)
+                    :stages (mapcar #'decklet-db--review-compile-stage
+                                    (if spread (butlast stages) stages))
+                    :spread spread)))
+          order))
 
 (defcustom decklet-review-order
-  '(((learning relearning) (sort :due :asc))
-    (review shuffle)
-    (new (sort :added :desc)))
+  '(((state :learning :relearning) (sort :due :asc))
+    ((state :review) shuffle)
+    ((state :new) (sort :added :desc)))
   "Rules for selecting and placing due cards.
-Each step is (SOURCE SPEC).  SOURCE is new, learning, relearning,
-review, a list of these states, or (STATES :tags SELECTOR).
-SELECTOR is a tag string or a nested (or ...), (and ...), or
-  (not SELECTOR) expression.  Tag rules own matching cards before
-fallback rules, regardless of position; overlapping tag rules use
-first match.  Ownership precedes daily limits, so held cards never
-leak into another step.  Each state permits one fallback rule.
+Each step is (FILTER STAGE...).  FILTER picks cards: (state STATE...)
+with STATE one of :new, :learning, :relearning and :review, (tag NAME),
+or an (and ...), (or ...) or (not ...) of filters.  A due card belongs
+to the first step whose filter matches it.
 
-SPEC is shuffle or (sort FIELD :asc/:desc), optionally wrapped in
-  (daily-limit N BASE), then optionally in (spread SIZED).
-Daily limits count distinct cards per pre-rating state over the
-review day, using current tags and current rules.  A spent limit
-stops the step, including learning repeats.  Set N to 0 to pause.
-Spread interleaves through preceding steps; otherwise cards append.
-Fields are :due and :added, plus :last-review, :stability and
-:difficulty for review-only sources.  See README for examples."
+The stages then run left to right on the step's cards: shuffle,
+\=(sort FIELD :asc/:desc) and (limit N).  FIELD is :due, :added,
+:last-review, :stability or :difficulty.  (limit N) keeps N cards
+minus those the step handed out today; 0 pauses the step.  A final
+spread interleaves the cards into the queue built so far; otherwise
+they are appended.  See README for examples."
   :type '(repeat sexp)
   :set (lambda (symbol value)
-         (decklet-db--review-validate-order value)
+         (decklet-db--review-compile-order value)
          (set-default symbol value))
   :group 'decklet-review)
 
-(defun decklet-db--review-owner (state tags steps)
-  "Return the owning index for a card with STATE and TAGS, or nil.
-Search the parsed review rules in STEPS."
-  (let ((fallback nil) (owner nil))
-    (cl-loop for step in steps for index from 0 do
-             (when (memq state (car step))
-               (if (nth 1 step)
-                   (when (and (null owner)
-                              (decklet-tags-match-p tags (nth 1 step)))
-                     (setq owner index))
-                 (setq fallback index))))
-    (or owner fallback)))
+(defun decklet-db--due-items (now)
+  "Return the cards due at NOW as plists, in card-id order.
+Learning and relearning cards are due by the minute, review and new
+cards by the review day.  Each item's :state is an FSRS keyword, or
+:new for a card never reviewed."
+  (let ((rows (sqlite-select
+               (decklet-db--ensure)
+               "SELECT card_id, word, due, added_date, last_review,
+                       stability, difficulty, state
+                  FROM cards
+                 WHERE archived_at IS NULL
+                   AND ((last_review IS NOT NULL AND state IN (?, ?) AND due <= ?)
+                        OR (last_review IS NOT NULL AND state = ? AND due <= ?)
+                        OR (last_review IS NULL AND due <= ?))
+                 ORDER BY card_id;"
+               (let ((day-end (decklet--time->fsrs-timestamp
+                               (decklet--next-day-start-time now))))
+                 (list (decklet-fsrs-state-string :learning)
+                       (decklet-fsrs-state-string :relearning)
+                       (decklet--time->fsrs-timestamp now)
+                       (decklet-fsrs-state-string :review) day-end
+                       day-end)))))
+    (mapcar (pcase-lambda (`(,card-id ,word ,due ,added ,last-review
+                                      ,stability ,difficulty ,state))
+              (list :card-id card-id :word word :due due :added added
+                    :last-review last-review :stability stability
+                    :difficulty difficulty
+                    :state (if last-review
+                               (decklet--normalize-fsrs-state state)
+                             :new)))
+            rows)))
 
-(defun decklet-db--review-sort-clause (field order)
-  "Return ORDER BY clause for FIELD and ORDER."
-  (let* ((column (pcase field
-                   (:due "due")
-                   (:added "added_date")
-                   (:last-review "last_review")
-                   (:difficulty "difficulty")
-                   (:stability "stability")
-                   (_ (error "Unknown sort field: %S" field))))
-         (direction (if (eq order :asc) "ASC" "DESC")))
-    ;; Tie-break equal sort values by insertion order so later-added cards stay
-    ;; after earlier ones (later inserts usually have larger rowid values).
-    (format " ORDER BY %s %s, rowid %s" column direction direction)))
-
-(defun decklet-db--review-target-clause (target now)
-  "Return SQL clause and params for TARGET at NOW."
-  ;; Review cards are due by day; learning/relearning cards are due by timestamp.
-  (let ((review-cutoff (decklet--time->fsrs-timestamp
-                        (decklet--next-day-start-time now)))
-        (learning-cutoff (decklet--time->fsrs-timestamp now))
-        (s-review (decklet-fsrs-state-string :review))
-        (s-learning (decklet-fsrs-state-string :learning))
-        (s-relearning (decklet-fsrs-state-string :relearning)))
-    (pcase target
-      (:learning
-       (cons "state = ?
-              AND last_review IS NOT NULL
-              AND due <= ?" (list s-learning learning-cutoff)))
-      (:relearning
-       (cons "state = ?
-              AND last_review IS NOT NULL
-              AND due <= ?" (list s-relearning learning-cutoff)))
-      (:review
-       (cons "state = ?
-              AND last_review IS NOT NULL
-              AND due <= ?" (list s-review review-cutoff)))
-      (:new
-       (cons "last_review IS NULL
-              AND due <= ?" (list review-cutoff)))
-      (_ (error "Unknown review target: %S" target)))))
-
-(defun decklet-db--due-items (targets now base)
-  "Return due items for TARGETS at NOW, ordered the way BASE asks.
-BASE is (sort FIELD ORDER), which becomes an SQL ORDER BY, or
-`shuffle', which leaves the order to the caller."
-  (pcase-let* ((`(,field ,sort-order) (pcase base
-                                        (`(sort ,field ,order) (list field order))
-                                        (_ '(nil nil))))
-               (conn (decklet-db--ensure))
-               (clauses-and-params
-                (mapcar (lambda (target)
-                          (decklet-db--review-target-clause target now))
-                        targets))
-               ;; Build a single WHERE clause with the params in matching order.
-               (sql (format
-                     "SELECT card_id, word, due, added_date, last_review, stability, difficulty, state
-                       FROM cards
-                       WHERE archived_at IS NULL
-                         AND (%s)%s;"
-                     (string-join (mapcar #'car clauses-and-params) " OR ")
-                     (if field
-                         (decklet-db--review-sort-clause field sort-order)
-                       "")))
-               (rows (sqlite-select
-                      conn sql (apply #'append (mapcar #'cdr clauses-and-params))))
-               (items (mapcar
-                       (lambda (row)
-                         (cl-loop for key in '(:card-id :word :due :added
-                                                        :last-review :stability
-                                                        :difficulty :state)
-                                  for val in row
-                                  append (list key val)))
-                       rows)))
-    items))
+(defun decklet-db--review-run (steps groups used)
+  "Run STEPS on their candidate GROUPS and return the queue plan.
+USED lists how many cards each step handed out today.  The plan is a
+plist with :items, the queue, and :limited, non-nil when a limit held
+cards back."
+  (let ((picked (cl-mapcar (lambda (step cards count)
+                             (seq-reduce (lambda (cards stage)
+                                           (funcall stage cards count))
+                                         (plist-get step :stages)
+                                         cards))
+                           steps groups used)))
+    (list :items (cl-reduce (lambda (queue step-and-cards)
+                              (pcase-let ((`(,step . ,cards) step-and-cards))
+                                (if (plist-get step :spread)
+                                    (decklet--interleave-evenly queue cards)
+                                  (append queue cards))))
+                            (cl-mapcar #'cons steps picked)
+                            :initial-value nil)
+          :limited (cl-some (lambda (picked cards)
+                              (< (length picked) (length cards)))
+                            picked groups))))
 
 (defvar decklet-db--review-plan-cache nil
   "Cached input and result of the most recent queue plan.")
 
 (defun decklet-db--review-plan (&optional time)
   "Return a queue plan for TIME, shared by drawing and counters.
-The result contains :items and :limited.  Current tags classify both
-candidates and today's effective rating records.  Unchanged inputs
-reuse the plan so counter refreshes do not reshuffle cards."
-  (decklet-db--review-validate-order decklet-review-order)
+The result contains :items and :limited.  Current tags assign both due
+cards and today's ratings to steps.  Unchanged inputs reuse the plan so
+counter refreshes do not reshuffle cards."
   (let* ((now (or time (current-time)))
-         (steps (mapcar #'decklet-db--review-parse-step decklet-review-order))
+         (steps (decklet-db--review-compile-order decklet-review-order))
          (tags (decklet-db--tag-map))
-         (spent (make-vector (length steps) 0))
-         (records (decklet-review-log-daily-card-states now))
-         (groups
-          (cl-loop for step in steps for index from 0 collect
-                   (seq-filter
-                    (lambda (item)
-                      (let ((state (if (plist-get item :last-review)
-                                       (decklet--normalize-fsrs-state
-                                        (plist-get item :state))
-                                     :new)))
-                        (plist-put item :state state)
-                        (eql index (decklet-db--review-owner
-                                    state (gethash (plist-get item :card-id) tags) steps))))
-                    (decklet-db--due-items (car step) now (nth 4 step))))))
-    (dolist (record records)
-      ;; Deleted cards have no current tags and follow the untagged rules.
-      (when-let* ((owner (decklet-db--review-owner
-                          (cdr record) (gethash (car record) tags) steps)))
-        (aset spent owner (1+ (aref spent owner)))))
-    (let ((key (list decklet-db--conn (decklet-day-start-time now)
-                     (copy-tree decklet-review-order) groups spent)))
-      (if (equal key (car decklet-db--review-plan-cache))
-          (cdr decklet-db--review-plan-cache)
-        (let ((items nil) (limited nil))
-          (cl-loop for step in steps for candidates in groups for index from 0 do
-                   (let* ((limit (nth 3 step))
-                          (allowance (and limit (max 0 (- limit (aref spent index)))))
-                          (ordered (if (eq (nth 4 step) 'shuffle)
-                                       (decklet--shuffle-list candidates)
-                                     candidates))
-                          (selected (if allowance (seq-take ordered allowance) ordered)))
-                     (when (< (length selected) (length candidates)) (setq limited t))
-                     (setq items (if (nth 2 step)
-                                     (decklet--interleave-evenly items selected)
-                                   (append items selected)))))
-          (let ((plan (list :items items :limited limited)))
-            (setq decklet-db--review-plan-cache (cons key plan))
-            plan))))))
+         (owner (lambda (state card-id)
+                  ;; Deleted cards have no tags, so only untagged filters match.
+                  (cl-position-if (lambda (step)
+                                    (funcall (plist-get step :match)
+                                             state (gethash card-id tags)))
+                                  steps)))
+         (by-owner (seq-group-by (lambda (item)
+                                   (funcall owner (plist-get item :state)
+                                            (plist-get item :card-id)))
+                                 (decklet-db--due-items now)))
+         (groups (cl-loop for index below (length steps)
+                          collect (alist-get index by-owner)))
+         (ratings (decklet-review-log-daily-card-states now))
+         (used (cl-loop for index below (length steps)
+                        collect (seq-count (pcase-lambda (`(,card-id . ,state))
+                                             (eql index (funcall owner state card-id)))
+                                           ratings)))
+         (key (list decklet-db--conn (decklet-day-start-time now)
+                    (copy-tree decklet-review-order) groups used)))
+    (unless (equal key (car decklet-db--review-plan-cache))
+      (setq decklet-db--review-plan-cache
+            (cons key (decklet-db--review-run steps groups used))))
+    (cdr decklet-db--review-plan-cache)))
 
 (defun decklet-db--collect-due-items ()
   "Return due items selected by the current review rules."
@@ -722,7 +680,7 @@ reuse the plan so counter refreshes do not reshuffle cards."
 The `:due-review', `:due-learning' and `:new' keys report what the
 deck holds.  Their `-remaining' companions report how much of that
 `decklet-review-order' will still hand out today, which is smaller
-whenever a step carries a `daily-limit'.  `:limited' is non-nil
+whenever a step has a `limit' stage.  `:limited' is non-nil
 when such a limit is what is holding cards back."
   (let* ((now (current-time))
          (day-start (decklet--time->fsrs-timestamp (decklet-day-start-time now)))
