@@ -618,6 +618,7 @@ This runs for `decklet-edit-quit' and for a plain `kill-buffer' alike."
         decklet-edit--tag-filter nil)
   (remove-hook 'window-selection-change-functions
                #'decklet-edit--flush-pending-refresh)
+  (decklet-card-back--close-at-session-end)
   (run-hooks 'decklet-edit-quit-hook))
 
 (defun decklet-edit-quit ()

@@ -61,6 +61,15 @@ declines both save and discard."
       (?d (set-buffer-modified-p nil) t)
       (?c nil))))
 
+(defun decklet-card-back--close-at-session-end ()
+  "Kill the unmodified card back popups if this is the last session buffer.
+Review and edit call this while their buffer is being killed."
+  (unless (decklet-db--session-buffers (current-buffer))
+    (dolist (buffer (buffer-list))
+      (when (and (buffer-local-value 'decklet-card-back-mode buffer)
+                 (not (buffer-modified-p buffer)))
+        (kill-buffer buffer)))))
+
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
   :lighter " DeckletEdit"

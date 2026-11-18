@@ -144,16 +144,17 @@ still present in `buffer-list'."
                      (buffer-local-value 'decklet-db--session-buffer buffer)))
               (buffer-list)))
 
-(defun decklet-db--disconnect-if-idle (&optional exclude)
-  "Disconnect the DB when no session buffer (ignoring EXCLUDE) is open.
-Used after one-shot work like JSON export/import or saving a card
-back, which may have lazily opened the connection outside any session."
-  (unless (decklet-db--session-buffers exclude)
+(defun decklet-db--disconnect-if-idle ()
+  "Disconnect the DB when no session buffer is open.
+Used after one-shot work outside a session, such as loading or saving
+a card back, which opens the connection lazily."
+  (unless (decklet-db--session-buffers)
     (decklet-db--disconnect)))
 
 (defun decklet-db--on-session-buffer-killed ()
   "Disconnect the DB when the last session buffer is killed."
-  (decklet-db--disconnect-if-idle (current-buffer)))
+  (unless (decklet-db--session-buffers (current-buffer))
+    (decklet-db--disconnect)))
 
 ;;;###autoload
 (defun decklet-disconnect ()

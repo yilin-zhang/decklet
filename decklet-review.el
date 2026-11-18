@@ -776,6 +776,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
         decklet-review--trail-past nil
         decklet-review--trail-future nil)
   (decklet-review--reset-ui-state)
+  (decklet-card-back--close-at-session-end)
   (run-hooks 'decklet-review-quit-hook))
 
 (defun decklet-review-quit ()
