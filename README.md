@@ -502,8 +502,7 @@ Plain `setq` after load does not.
 ```
 
 `decklet-fsrs-parameters` is usually filled in by an FSRS tuner trained on
-your [review log](#review-log), such as `decklet-fsrs-tuner` in
-[Extensions](#extensions).
+your [review log](#review-log).
 
 ### Rollover Time
 
@@ -538,7 +537,7 @@ restores one you pick from a list, newest first.
 ### Review Log
 
 Besides the database, Decklet keeps a log of every rating in
-`decklet-review-log-file` (`review-log.jsonl` under `decklet-directory`). The
+`decklet-review-log-file` (`review-log.jsonl` in the [base directory](#data-location)). The
 database holds each card's current state, and the log holds how it got there.
 An FSRS tuner can fit parameters to your memory from this history. The log is
 included in every backup. Its format is described in
@@ -560,7 +559,7 @@ For example, to add sound effects to review:
 
 ```emacs-lisp
 (defun my/decklet-play-sound (path)
-  (start-process "decklet-sound" nil "afplay" (expand-file-name path)))
+  (start-process "my-decklet-sound" nil "afplay" (expand-file-name path)))
 
 (use-package decklet
   :hook
@@ -606,17 +605,10 @@ To change the text width:
 
 ## Extensions
 
-Optional features live in the separate
+Optional features, such as pronunciation audio, images and review
+statistics, live in the separate
 [`decklet-extensions`](https://github.com/yilin-zhang/decklet-extensions)
-repo, each as its own package. Among them:
-
-- `decklet-calendar`: shows upcoming due counts on the Emacs calendar.
-- `decklet-import`: imports saved words from a Kindle or Kobo.
-- `decklet-sound`, `decklet-tts-edge`, `decklet-tts-kokoro`: pronunciation
-  audio.
-- `decklet-images`: an image per card.
-- `decklet-stats`: per-word review history and a review heatmap.
-- `decklet-fsrs-tuner`: tunes FSRS parameters from your review log.
+repo.
 
 To write your own, see [Writing Extensions](docs/writing-extensions.md).
 
