@@ -4,14 +4,10 @@
 
 ;;; Commentary:
 
-;; SQLite connection management and card queries.  Also plans the
-;; review queue from `decklet-review-order'.  It selects due cards, assigns
-;; them to order groups, applies daily limits from the review log, and
-;; computes the review counters.
+;; SQLite connection management and card queries.
 
 ;;; Code:
 
-(require 'cl-lib)
 (require 'map)
 (require 'seq)
 (require 'sqlite)
@@ -19,7 +15,6 @@
 
 (require 'decklet-core)
 (require 'decklet-scheduler)
-(require 'decklet-review-log)
 
 (defgroup decklet-db nil
   "Database for Decklet."
@@ -55,16 +50,10 @@ Use this for last-chance cleanup of sidecar resources that depend
 on an open DB connection.")
 
 (defvar-local decklet-db--session-buffer nil
-  "Non-nil when the current buffer is part of the Decklet session.
-Set by `decklet-db-acquire-session-buffer'.  Session buffers keep
-the connection open while they live, are closed by
-`decklet-disconnect', and block `decklet-db-restore'.")
-
-(defvar-local decklet-db--session-primary nil
-  "Non-nil when the current buffer owns the session lifetime.
-Set for review and edit buffers.  When the last primary buffer is
-killed, attached session buffers are closed first and the DB
-disconnects.")
+  "Non-nil when the current buffer holds the Decklet session.
+Set by `decklet-db--acquire-session-buffer' in the review and edit
+buffers.  Session buffers keep the connection open while they live,
+are closed by `decklet-disconnect', and block `decklet-db-restore'.")
 
 (defconst decklet-db--card-columns
   "card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty, tags"
@@ -87,20 +76,14 @@ Column order must match `decklet-db--normalize-row's `pcase-let'.")
         trimmed))))
 
 (defun decklet-db--normalize-row (row)
-  "Normalize ROW into a card plist with named keys.
-ROW's column order must match the physical DB column order (skipping
-`archived_at'): card_id, word, hint, back, added_date, last_review,
-due, state, step, stability, difficulty, tags.
-Words are stored normalized (see `decklet-db--normalize-word' at the
-write sites), so the read path takes them as-is.
-Return a plist with keys :card-id, :word, :hint, :back, :added,
-:last-review, :due, :state, :step, :stability, :difficulty, and :tags."
+  "Turn ROW, selected with `decklet-db--card-columns', into a card plist.
+Text is normalized when written, so it is taken as stored."
   (when row
     (pcase-let ((`(,card-id ,word ,hint ,back ,added ,last-review ,due ,state ,step ,stability ,difficulty ,tags) row))
       (list :card-id card-id
             :word word
-            :hint (decklet-db--normalize-optional-text hint)
-            :back (decklet-db--normalize-optional-text back)
+            :hint hint
+            :back back
             :added added
             :last-review last-review
             :due due
@@ -108,18 +91,14 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
             :step step
             :stability stability
             :difficulty difficulty
-            :tags (and tags (json-parse-string tags :array-type 'list))))))
-
-(defun decklet-db--ensure-db-dir ()
-  "Ensure the database directory exists."
-  (when-let* ((dir (file-name-directory decklet-db-file)))
-    (make-directory dir t)))
+            :tags (json-parse-string tags :array-type 'list)))))
 
 (defun decklet-db--ensure ()
   "Ensure SQLite connection and schema are initialized."
   (unless decklet-db--conn
     (run-hooks 'decklet-db-pre-connect-hook)
-    (decklet-db--ensure-db-dir)
+    (when-let* ((dir (file-name-directory decklet-db-file)))
+      (make-directory dir t))
     (setq decklet-db--conn (sqlite-open decklet-db-file))
     (sqlite-execute decklet-db--conn "PRAGMA journal_mode = TRUNCATE;")
     (sqlite-execute decklet-db--conn "PRAGMA foreign_keys = ON;")
@@ -136,12 +115,9 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
                        state       TEXT    NOT NULL,
                        step        INTEGER,
                        stability   REAL,
-                       difficulty  REAL
+                       difficulty  REAL,
+                       tags        TEXT    NOT NULL DEFAULT '[]'
                      );")
-    (unless (seq-some (lambda (column) (equal (nth 1 column) "tags"))
-                      (sqlite-select decklet-db--conn "PRAGMA table_info(cards);"))
-      (sqlite-execute decklet-db--conn
-                      "ALTER TABLE cards ADD COLUMN tags TEXT NOT NULL DEFAULT '[]';"))
     ;; `card_id' is the rowid and `word' is UNIQUE, so both are indexed.
     (sqlite-execute decklet-db--conn
                     "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
@@ -155,46 +131,12 @@ Return a plist with keys :card-id, :word, :hint, :back, :added,
     (sqlite-close decklet-db--conn)
     (setq decklet-db--conn nil)))
 
-(defun decklet-db--clear-session-markers ()
-  "Drop the current buffer's session markers and lifecycle hooks.
-Leaves the connection alone; callers decide when to check for idleness."
-  (kill-local-variable 'decklet-db--session-buffer)
-  (kill-local-variable 'decklet-db--session-primary)
-  (remove-hook 'kill-buffer-query-functions
-               #'decklet-db--primary-kill-query t)
-  (remove-hook 'kill-buffer-hook
-               #'decklet-db--on-session-buffer-killed t))
-
-(defun decklet-db-acquire-session-buffer (&optional primary)
-  "Mark the current buffer as part of the Decklet session.
-Session buffers keep the DB connection open, are closed by
-`decklet-disconnect', and block `decklet-db-restore'.  Extension
-popups that use the DB should call this during setup.
-
-PRIMARY is for Decklet's review and edit buffers.  Killing the last
-primary buffer closes the other session buffers first, then
-disconnects.
-
-Return a disposer that releases the lease and disconnects when no
-session buffer is left.  Killing the buffer releases the lease too,
-so only a buffer that outlives its use of the DB, such as one with a
-minor mode the user can turn off, needs to call it.  The disposer is
-idempotent and safe to call after the buffer is dead."
-  (let ((buffer (current-buffer))
-        (released nil))
-    (setq-local decklet-db--session-buffer t)
-    (when primary
-      (setq-local decklet-db--session-primary t)
-      (add-hook 'kill-buffer-query-functions
-                #'decklet-db--primary-kill-query nil t))
-    (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t)
-    (lambda ()
-      (unless released
-        (setq released t)
-        (when (buffer-live-p buffer)
-          (with-current-buffer buffer
-            (decklet-db--clear-session-markers)))
-        (decklet-db--disconnect-if-idle)))))
+(defun decklet-db--acquire-session-buffer ()
+  "Mark the current buffer as holding the Decklet session.
+The connection stays open while a session buffer lives, and closes
+when the last one is killed."
+  (setq-local decklet-db--session-buffer t)
+  (add-hook 'kill-buffer-hook #'decklet-db--on-session-buffer-killed nil t))
 
 (defun decklet-db--session-buffers (&optional exclude)
   "Return live Decklet session buffers, ignoring EXCLUDE.
@@ -205,26 +147,10 @@ still present in `buffer-list'."
                      (buffer-local-value 'decklet-db--session-buffer buffer)))
               (buffer-list)))
 
-(defun decklet-db--primary-session-buffers (&optional exclude)
-  "Return live primary session buffers, ignoring EXCLUDE."
-  (seq-filter (lambda (buffer)
-                (buffer-local-value 'decklet-db--session-primary buffer))
-              (decklet-db--session-buffers exclude)))
-
-(defun decklet-db--primary-kill-query ()
-  "Close attached session buffers when the last primary buffer dies.
-With another primary buffer still live, allow the kill untouched.
-Otherwise try to close every other session buffer first, and veto
-the kill if one refuses (e.g. an unsaved card back whose save
-prompt was canceled)."
-  (or (decklet-db--primary-session-buffers (current-buffer))
-      (not (seq-some (lambda (buffer) (not (kill-buffer buffer)))
-                     (decklet-db--session-buffers (current-buffer))))))
-
 (defun decklet-db--disconnect-if-idle (&optional exclude)
   "Disconnect the DB when no session buffer (ignoring EXCLUDE) is open.
-Used after one-shot commands like JSON export/import, which may
-have lazily opened the connection outside any session."
+Used after one-shot work like JSON export/import or saving a card
+back, which may have lazily opened the connection outside any session."
   (unless (decklet-db--session-buffers exclude)
     (decklet-db--disconnect)))
 
@@ -234,22 +160,14 @@ have lazily opened the connection outside any session."
 
 ;;;###autoload
 (defun decklet-disconnect ()
-  "Close Decklet session buffers, then disconnect the DB.
-Killing a session buffer can prompt (e.g. an unsaved card back); if
-any buffer refuses to die, abort and leave the DB connected."
+  "Close the Decklet review and edit buffers, then disconnect the DB."
   (interactive)
-  (let* ((buffers (decklet-db--session-buffers))
-         (primaries (decklet-db--primary-session-buffers))
-         ;; Kill primaries first.  The last one cascade-kills the attached
-         ;; buffers via its kill query, so an abort names the
-         ;; review or edit buffer.
-         (ordered (append primaries (seq-difference buffers primaries)))
-         (had-conn decklet-db--conn))
-    (dolist (buffer ordered)
-      (when (buffer-live-p buffer)
-        (unless (kill-buffer buffer)
-          (user-error "Decklet disconnect canceled by buffer %s"
-                      (buffer-name buffer)))))
+  (let ((buffers (decklet-db--session-buffers))
+        (had-conn decklet-db--conn))
+    (dolist (buffer buffers)
+      (unless (kill-buffer buffer)
+        (user-error "Decklet disconnect canceled by buffer %s"
+                    (buffer-name buffer))))
     (decklet-db--disconnect)
     (when (called-interactively-p 'any)
       (message (if (or buffers had-conn)
@@ -264,11 +182,6 @@ any buffer refuses to die, abort and leave the DB connected."
                          (format "SELECT %s FROM cards WHERE word = ?;"
                                  decklet-db--card-columns)
                          (list word))))))
-
-(defun decklet-db--require-card-row-by-word (word)
-  "Return the card row for WORD, or signal a user error."
-  (or (decklet-db--select-card-row-by-word word)
-      (user-error "No card found for \"%s\"" word)))
 
 (defun decklet-db--select-card-row (card-id)
   "Return the card row for CARD-ID or nil."
@@ -292,10 +205,6 @@ any buffer refuses to die, abort and leave the DB connected."
   (or (decklet-db--select-card-row card-id)
       (user-error "No card found for id %s" card-id)))
 
-(defun decklet-db--select-card-word (card-id)
-  "Return the word for CARD-ID, or nil if absent."
-  (decklet-db--select-card-field card-id 'word))
-
 (defun decklet-db--select-card-field (card-id field)
   "Return FIELD for CARD-ID, or nil if absent.
 FIELD is interpolated into SQL; only `word', `hint', and `back' are accepted."
@@ -307,19 +216,16 @@ FIELD is interpolated into SQL; only `word', `hint', and `back' are accepted."
                          (list card-id)))))
 
 (defun decklet-db--update-card-text-field (card-id field value)
-  "Update text FIELD for CARD-ID with VALUE, returning normalized text.
+  "Set text FIELD of CARD-ID to VALUE, already normalized by the caller.
 FIELD is interpolated into SQL; only `hint' and `back' are accepted."
   (unless (memq field '(hint back))
     (error "Unsupported card text field: %S" field))
-  (let* ((value (decklet-db--normalize-optional-text value))
-         (conn (decklet-db--ensure)))
-    (sqlite-execute conn
-                    (format "UPDATE cards SET %s = ? WHERE card_id = ?;" field)
-                    (list value card-id))
-    value))
+  (sqlite-execute (decklet-db--ensure)
+                  (format "UPDATE cards SET %s = ? WHERE card_id = ?;" field)
+                  (list value card-id)))
 
 (defun decklet-db--set-card-archived-at (card-id archived-at)
-  "Set CARD-ID archived_at to ARCHIVED-AT."
+  "Set CARD-ID archived_at to ARCHIVED-AT, or nil to unarchive it."
   (let ((conn (decklet-db--ensure)))
     (sqlite-execute conn "UPDATE cards SET archived_at = ? WHERE card_id = ?;"
                     (list archived-at card-id))))
@@ -354,14 +260,6 @@ card's stable identity is preserved across rating updates."
            (decklet-card-meta-stability card-meta)
            (decklet-card-meta-difficulty card-meta)))))
 
-(defun decklet-db--update-hint (card-id hint)
-  "Update CARD-ID's hint with HINT in the database, return normalized hint."
-  (decklet-db--update-card-text-field card-id 'hint hint))
-
-(defun decklet-db--update-back (card-id back)
-  "Update CARD-ID's back with BACK in the database, return normalized back."
-  (decklet-db--update-card-text-field card-id 'back back))
-
 (defun decklet-db--update-tags (card-id tags)
   "Replace CARD-ID's TAGS and return the normalized list."
   (let ((tags (decklet-normalize-tags tags)))
@@ -379,28 +277,10 @@ card's stable identity is preserved across rating updates."
       (puthash (car row) (json-parse-string (cadr row) :array-type 'list) table))
     table))
 
-(defun decklet-db--select-card-hint (card-id)
-  "Return the hint for CARD-ID, or nil."
-  (decklet-db--normalize-optional-text
-   (decklet-db--select-card-field card-id 'hint)))
-
-(defun decklet-db--select-card-back (card-id)
-  "Return the back content for CARD-ID's card, or nil."
-  (decklet-db--normalize-optional-text
-   (decklet-db--select-card-field card-id 'back)))
-
 (defun decklet-db--delete-card (card-id)
   "Delete CARD-ID from the database."
   (let ((conn (decklet-db--ensure)))
     (sqlite-execute conn "DELETE FROM cards WHERE card_id = ?;" (list card-id))))
-
-(defun decklet-db--archive-card (card-id archived-at)
-  "Mark CARD-ID as archived at ARCHIVED-AT."
-  (decklet-db--set-card-archived-at card-id archived-at))
-
-(defun decklet-db--unarchive-card (card-id)
-  "Clear CARD-ID's archived flag."
-  (decklet-db--set-card-archived-at card-id nil))
 
 (defun decklet-db--mint-card-id ()
   "Return a fresh unique card id.
@@ -458,9 +338,7 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
   "Convert card plist ROW into a `decklet-card-meta' instance."
   (when row
     (pcase-let* (((map :card-id :added :last-review :due :state :step :stability :difficulty) row)
-                 (is-new (decklet-last-review-empty-p last-review))
-                 (state (decklet--normalize-fsrs-state state))
-                 (step (if is-new (or step 0) step)))
+                 (state (decklet--normalize-fsrs-state state)))
       (make-decklet-card-meta
        :card-id card-id
        :added-date added
@@ -480,101 +358,6 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
         :tags (plist-get row :tags)
         :meta (decklet-db--row->card-meta row)))
 
-;; Review order
-
-(defun decklet-db--review-compile-filter (filter)
-  "Compile review FILTER into a predicate on a card's state and tags.
-The predicate takes an FSRS state keyword and a list of tag strings."
-  (pcase filter
-    (`(state . ,(and states (pred consp) (pred proper-list-p)))
-     (dolist (state states)
-       (unless (memq state '(:new :learning :relearning :review))
-         (error "Invalid review state: %S" state)))
-     (lambda (state _tags) (memq state states)))
-    (`(tag ,(and name (pred stringp)))
-     (decklet-normalize-tags (list name))
-     (lambda (_state tags) (member name tags)))
-    (`(not ,inner)
-     (let ((match (decklet-db--review-compile-filter inner)))
-       (lambda (state tags) (not (funcall match state tags)))))
-    (`(,(and op (or 'and 'or)) . ,(and parts (pred consp) (pred proper-list-p)))
-     (let ((matches (mapcar #'decklet-db--review-compile-filter parts))
-           (combine (if (eq op 'and) #'cl-every #'cl-some)))
-       (lambda (state tags)
-         (funcall combine (lambda (match) (funcall match state tags)) matches))))
-    (_ (error "Invalid review filter: %S" filter))))
-
-(defun decklet-db--review-sort (items field direction)
-  "Return ITEMS sorted by FIELD in DIRECTION, `:asc' or `:desc'.
-Ties keep card-id order in the same direction.  An item without a
-value for FIELD counts as smallest."
-  (let ((less (lambda (a b)
-                (let ((x (plist-get a field))
-                      (y (plist-get b field)))
-                  (cond ((equal x y) (< (plist-get a :card-id)
-                                        (plist-get b :card-id)))
-                        ((null x) t)
-                        ((null y) nil)
-                        ((numberp x) (< x y))
-                        (t (string< x y)))))))
-    (sort (copy-sequence items)
-          (if (eq direction :asc)
-              less
-            (lambda (a b) (funcall less b a))))))
-
-(defun decklet-db--review-compile-op (op)
-  "Compile review OP into a function of a group's cards and USED.
-USED is how many cards the group has handed out today."
-  (pcase op
-    ('shuffle
-     (lambda (items _used) (decklet--shuffle-list items)))
-    (`(sort ,(and field (or :due :added :last-review :stability :difficulty))
-            ,(and direction (or :asc :desc)))
-     (lambda (items _used) (decklet-db--review-sort items field direction)))
-    (`(limit ,(and n (pred natnump)))
-     (lambda (items used) (seq-take items (max 0 (- n used)))))
-    ('spread (error "`spread' must come last in a review group"))
-    (_ (error "Invalid review operation: %S" op))))
-
-(defun decklet-db--review-compile-order (order)
-  "Compile review ORDER into a list of group plists, or signal an error.
-Each plist has :match, the compiled filter, :ops, the compiled
-operations, and :spread, non-nil when the group ends with `spread'."
-  (unless (proper-list-p order)
-    (error "Invalid review order: %S" order))
-  (mapcar (lambda (group)
-            (unless (and (consp group) (proper-list-p group))
-              (error "Invalid review group: %S" group))
-            (pcase-let* ((`(,filter . ,ops) group)
-                         (spread (eq (car (last ops)) 'spread)))
-              (list :match (decklet-db--review-compile-filter filter)
-                    :ops (mapcar #'decklet-db--review-compile-op
-                                 (if spread (butlast ops) ops))
-                    :spread spread)))
-          order))
-
-(defcustom decklet-review-order
-  '(((state :learning :relearning) (sort :due :asc))
-    ((state :review) shuffle)
-    ((state :new) (sort :added :desc)))
-  "Rules for selecting and placing due cards.
-Each group is (FILTER OP...).  FILTER picks cards: (state STATE...)
-with STATE one of :new, :learning, :relearning and :review, (tag NAME),
-or an (and ...), (or ...) or (not ...) of filters.  A due card belongs
-to the first group whose filter matches it.
-
-The operations then run left to right on the group's cards: shuffle,
-\=(sort FIELD :asc/:desc) and (limit N).  FIELD is :due, :added,
-:last-review, :stability or :difficulty.  (limit N) keeps N cards
-minus those the group handed out today; 0 pauses the group.  A final
-spread interleaves the cards into the queue built so far; otherwise
-they are appended.  See README for examples."
-  :type '(repeat sexp)
-  :set (lambda (symbol value)
-         (decklet-db--review-compile-order value)
-         (set-default symbol value))
-  :group 'decklet-review)
-
 (defun decklet-db--due-items (now)
   "Return the cards due at NOW as plists, in card-id order.
 Learning and relearning cards are due by the minute, review and new
@@ -590,11 +373,11 @@ cards by the review day.  Each item's :state is an FSRS keyword, or
                         OR (last_review IS NOT NULL AND state = ? AND due <= ?)
                         OR (last_review IS NULL AND due <= ?))
                  ORDER BY card_id;"
-               (let ((day-end (decklet--time->fsrs-timestamp
+               (let ((day-end (decklet--now
                                (decklet--next-day-start-time now))))
                  (list (decklet-fsrs-state-string :learning)
                        (decklet-fsrs-state-string :relearning)
-                       (decklet--time->fsrs-timestamp now)
+                       (decklet--now now)
                        (decklet-fsrs-state-string :review) day-end
                        day-end)))))
     (mapcar (pcase-lambda (`(,card-id ,word ,due ,added ,last-review
@@ -607,134 +390,24 @@ cards by the review day.  Each item's :state is an FSRS keyword, or
                              :new)))
             rows)))
 
-(defun decklet-db--review-run (groups group-cards used)
-  "Run GROUPS on their GROUP-CARDS and return the queue plan.
-USED lists how many cards each group handed out today.  The plan is a
-plist with :items, the queue, and :limited, non-nil when a limit held
-cards back."
-  (let ((queue nil)
-        (limited nil))
-    (while groups
-      (let* ((group (pop groups))
-             (cards (pop group-cards))
-             (count (pop used))
-             (picked cards))
-        (dolist (op (plist-get group :ops))
-          (setq picked (funcall op picked count)))
-        (when (< (length picked) (length cards))
-          (setq limited t))
-        (setq queue (if (plist-get group :spread)
-                        (decklet--interleave-evenly queue picked)
-                      (append queue picked)))))
-    (list :items queue :limited limited)))
-
-(defvar decklet-db--review-plan-cache nil
-  "Cached input and result of the most recent queue plan.")
-
-(defun decklet-db--review-plan (&optional time)
-  "Return a queue plan for TIME, shared by drawing and counters.
-The result contains :items and :limited.  Current tags assign both due
-cards and today's ratings to groups.  Unchanged inputs reuse the plan so
-counter refreshes do not reshuffle cards."
-  (let* ((now (or time (current-time)))
-         (groups (decklet-db--review-compile-order decklet-review-order))
-         (tags (decklet-db--tag-map))
-         (owner (lambda (state card-id)
-                  ;; Deleted cards have no tags, so only untagged filters match.
-                  (cl-position-if (lambda (group)
-                                    (funcall (plist-get group :match)
-                                             state (gethash card-id tags)))
-                                  groups)))
-         (by-owner (seq-group-by (lambda (item)
-                                   (funcall owner (plist-get item :state)
-                                            (plist-get item :card-id)))
-                                 (decklet-db--due-items now)))
-         (group-cards (cl-loop for index below (length groups)
-                               collect (alist-get index by-owner)))
-         (ratings (decklet-review-log-daily-card-states now))
-         (used (cl-loop for index below (length groups)
-                        collect (seq-count (pcase-lambda (`(,card-id . ,state))
-                                             (eql index (funcall owner state card-id)))
-                                           ratings)))
-         (key (list decklet-db--conn (decklet-day-start-time now)
-                    (copy-tree decklet-review-order) group-cards used)))
-    (unless (equal key (car decklet-db--review-plan-cache))
-      (setq decklet-db--review-plan-cache
-            (cons key (decklet-db--review-run groups group-cards used))))
-    (cdr decklet-db--review-plan-cache)))
-
-(defun decklet-db--collect-due-items ()
-  "Return due items selected by the current review rules."
-  (plist-get (decklet-db--review-plan) :items))
-
-(defun decklet-db--select-due-card-ids ()
-  "Return card ids due for review according to `decklet-review-order'."
-  (mapcar (lambda (item) (plist-get item :card-id))
-          (decklet-db--collect-due-items)))
-
-(defun decklet-db--counts ()
-  "Return counter plist from database state.
-The `:due-review', `:due-learning' and `:new' keys report what the
-deck holds.  Their `-remaining' companions report how much of that
-`decklet-review-order' will still hand out today, which is smaller
-whenever a group has a `limit' operation.  `:limited' is non-nil
-when such a limit is what is holding cards back."
-  (let* ((now (current-time))
-         (day-start (decklet--time->fsrs-timestamp (decklet-day-start-time now)))
-         (review-cutoff (decklet--time->fsrs-timestamp (decklet--next-day-start-time now)))
-         (learning-cutoff (decklet--time->fsrs-timestamp now))
-         (s-review (decklet-fsrs-state-string :review))
-         (s-learning (decklet-fsrs-state-string :learning))
-         (s-relearning (decklet-fsrs-state-string :relearning))
-         (conn (decklet-db--ensure))
-         (row (car (sqlite-select
-                    conn
-                    "SELECT
-                       SUM(CASE WHEN last_review >= ? AND last_review < ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NOT NULL AND state = ?
-                                     AND due <= ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NOT NULL
-                                     AND state IN (?, ?)
-                                     AND due <= ? THEN 1 ELSE 0 END),
-                       SUM(CASE WHEN last_review IS NULL THEN 1 ELSE 0 END)
-                     FROM cards WHERE archived_at IS NULL;"
-                    (list day-start review-cutoff
-                          s-review review-cutoff
-                          s-learning s-relearning learning-cutoff))))
-         (plan (decklet-db--review-plan now))
-         (left (lambda (target)
-                 (cl-count target (plist-get plan :items)
-                           :key (lambda (item) (plist-get item :state))))))
-    (list :reviewed             (or (nth 0 row) 0)
-          :due-review           (or (nth 1 row) 0)
-          :due-learning         (or (nth 2 row) 0)
-          :new                  (or (nth 3 row) 0)
-          :due-review-remaining (funcall left :review)
-          :due-learning-remaining (+ (funcall left :learning)
-                                     (funcall left :relearning))
-          :new-remaining        (funcall left :new)
-          :limited              (plist-get plan :limited))))
-
 (defun decklet-db--next-due-time ()
   "Return the next time a card falls due today, or nil when none does.
 Only learning and relearning cards can come due later in the same
 review day; anything further out belongs to a later day."
-  (let* ((now (current-time))
-         (conn (decklet-db--ensure))
-         (due (caar (sqlite-select
-                     conn
-                     "SELECT MIN(due) FROM cards
-                       WHERE archived_at IS NULL
-                         AND last_review IS NOT NULL
-                         AND state IN (?, ?)
-                         AND due > ?
-                         AND due < ?;"
-                     (list (decklet-fsrs-state-string :learning)
-                           (decklet-fsrs-state-string :relearning)
-                           (decklet--time->fsrs-timestamp now)
-                           (decklet--time->fsrs-timestamp
-                            (decklet--next-day-start-time now)))))))
-    (and due (stringp due) due)))
+  (let ((now (current-time)))
+    (caar (sqlite-select
+           (decklet-db--ensure)
+           "SELECT MIN(due) FROM cards
+             WHERE archived_at IS NULL
+               AND last_review IS NOT NULL
+               AND state IN (?, ?)
+               AND due > ?
+               AND due < ?;"
+           (list (decklet-fsrs-state-string :learning)
+                 (decklet-fsrs-state-string :relearning)
+                 (decklet--now now)
+                 (decklet--now
+                  (decklet--next-day-start-time now)))))))
 
 ;; Calendar queries
 
@@ -747,8 +420,8 @@ Return a plist with keys:
 - :rows    list of (DATE-STRING COUNT) rows
 - :overdue count of cards due before DAY-START."
   (let* ((conn (decklet-db--ensure))
-         (day-start-ts (decklet--time->fsrs-timestamp day-start))
-         (cutoff-ts (decklet--time->fsrs-timestamp cutoff))
+         (day-start-ts (decklet--now day-start))
+         (cutoff-ts (decklet--now cutoff))
          (offset (format "%+d hours"
                          (- (decklet--clamp decklet-day-rollover-hour 0 23))))
          (rows (sqlite-select

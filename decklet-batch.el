@@ -64,21 +64,13 @@ Word lines are emphasized; only the hint prefix is subdued."
   (setq-local font-lock-defaults '(decklet-add-card-batch-font-lock-keywords))
   (font-lock-refresh-defaults))
 
-(defun decklet--batch-clean-lines ()
-  "Return non-empty trimmed lines from the current buffer.
-Lines that are empty or contain only whitespace are removed."
-  (seq-filter
-   (lambda (line) (not (string-empty-p line)))
-   (mapcar #'string-trim
-           (split-string (buffer-string) "\n" nil))))
-
 (defun decklet--batch-collect-cards ()
   "Parse the batch buffer into word, hint and optional tags plists.
 Lines starting with # add hint text; lines starting with : contain
 space-separated :tag tokens.  Both attach to the preceding word and
 may be interleaved.  Validate the entire buffer before writing cards."
   (let ((cards nil) (current nil))
-    (dolist (line (decklet--batch-clean-lines))
+    (dolist (line (split-string (buffer-string) "\n" t "[ \t\r]+"))
       (cond
        ((string-prefix-p "#" line)
         (unless current (user-error "Hint line must follow a word: %s" line))

@@ -8,6 +8,7 @@
 
 ;;; Code:
 
+(require 'seq)
 
 (require 'decklet-core)
 (require 'decklet-db)
@@ -37,7 +38,7 @@ Set to nil to disable pruning."
   :group 'decklet-db)
 
 (defconst decklet-backup--backup-timestamp-re "[0-9]\\{8\\}T[0-9]\\{6\\}Z"
-  "Regex matching the UTC timestamp produced by `decklet--timestamp-utc'.")
+  "Regex matching the UTC timestamp produced by `decklet-backup--timestamp'.")
 
 (defun decklet-backup--backup-file-pattern (base ext)
   "Return a regexp matching timestamped backup files for BASE.EXT."
@@ -46,16 +47,13 @@ Set to nil to disable pruning."
           decklet-backup--backup-timestamp-re
           (regexp-quote ext)))
 
+(defun decklet-backup--timestamp ()
+  "Return the current time as a UTC timestamp for filenames."
+  (format-time-string "%Y%m%dT%H%M%SZ" nil "UTC0"))
+
 (defun decklet-backup--backup-name (base ext timestamp)
   "Return the backup file name for BASE.EXT at TIMESTAMP."
   (format "%s-%s.%s" base timestamp ext))
-
-(defun decklet-backup--backup-token (file base ext)
-  "Return FILE's timestamp token for BASE.EXT, or nil."
-  (let ((name (file-name-nondirectory file))
-        (pattern (decklet-backup--backup-file-pattern base ext)))
-    (when (string-match pattern name)
-      (match-string 1 name))))
 
 (defun decklet-backup--backup ()
   "Create a paired database/review-log backup and prune old backup pairs.
@@ -63,7 +61,7 @@ A second backup within the same second overwrites the first; both
 are snapshots of the same state."
   (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
          (base (file-name-base decklet-db-file))
-         (timestamp (decklet--timestamp-utc))
+         (timestamp (decklet-backup--timestamp))
          (backup-file (expand-file-name
                        (decklet-backup--backup-name base "sqlite" timestamp)
                        backup-dir))
@@ -98,13 +96,17 @@ are snapshots of the same state."
 
 (defun decklet-backup--matching-review-log-backup (database-backup)
   "Return the review-log backup paired with DATABASE-BACKUP, or nil."
-  (let* ((token (decklet-backup--backup-token
-                 database-backup (file-name-base decklet-db-file) "sqlite"))
-         (log-base (file-name-base decklet-review-log-file))
-         (log-ext (file-name-extension decklet-review-log-file))
+  (let* ((name (file-name-nondirectory database-backup))
+         (token (and (string-match (decklet-backup--backup-file-pattern
+                                    (file-name-base decklet-db-file) "sqlite")
+                                   name)
+                     (match-string 1 name)))
          (candidate (and token
                          (expand-file-name
-                          (format "%s-%s.%s" log-base token log-ext)
+                          (decklet-backup--backup-name
+                           (file-name-base decklet-review-log-file)
+                           (file-name-extension decklet-review-log-file)
+                           token)
                           decklet-backup-directory))))
     (and candidate (file-exists-p candidate) candidate)))
 
@@ -224,6 +226,14 @@ Registered by the review and edit modules on their session hooks."
       (when (decklet-db--session-buffers)
         (user-error
          "Please disconnect Decklet before restore; use `decklet-disconnect'"))
+      ;; Saving such a buffer after the restore would write its old
+      ;; content into the restored database.
+      (when (seq-some (lambda (buffer)
+                        (with-current-buffer buffer
+                          (and (bound-and-true-p decklet-card-back-mode)
+                               (buffer-modified-p))))
+                      (buffer-list))
+        (user-error "Save or discard the modified card backs before restore"))
       (when (yes-or-no-p (format "Restore %s to %s? "
                                  (file-name-nondirectory backup-file)
                                  decklet-db-file))

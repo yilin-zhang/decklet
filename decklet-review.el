@@ -103,50 +103,22 @@ Entries take the same forms as in `decklet-review-fixed-components'."
 ;; Faces
 
 (defface decklet-review-word-face
-  '((((type graphic))
-     :inherit decklet-color-word
-     :weight bold
-     :height 1.5)
-    (((type tty))
-     :inherit decklet-color-word
-     :weight bold
-     :height 1.0))
+  '((t :inherit decklet-color-word :weight bold :height 1.5))
   "Face for displaying the current word."
   :group 'decklet-review)
 
 (defface decklet-review-state-new-face
-  '((((type graphic))
-     :inherit decklet-color-state-new
-     :weight bold
-     :height 1.2)
-    (((type tty))
-     :inherit decklet-color-state-new
-     :weight bold
-     :height 1.0))
+  '((t :inherit decklet-color-state-new :weight bold :height 1.2))
   "Face for displaying the `NEW WORD' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-learning-face
-  '((((type graphic))
-     :inherit decklet-color-state-learning
-     :weight bold
-     :height 1.2)
-    (((type tty))
-     :inherit decklet-color-state-learning
-     :weight bold
-     :height 1.0))
+  '((t :inherit decklet-color-state-learning :weight bold :height 1.2))
   "Face for displaying the `LEARNING' status."
   :group 'decklet-review)
 
 (defface decklet-review-state-review-face
-  '((((type graphic))
-     :inherit decklet-color-state-review
-     :weight bold
-     :height 1.2)
-    (((type tty))
-     :inherit decklet-color-state-review
-     :weight bold
-     :height 1.0))
+  '((t :inherit decklet-color-state-review :weight bold :height 1.2))
   "Face for displaying the `REVIEWING' status."
   :group 'decklet-review)
 
@@ -453,23 +425,11 @@ FIXED-OUTPUTS is centered vertically in the window."
           (decklet-review-mode))))
     buffer))
 
-(defun decklet-review--hint-delay-enabled-p ()
-  "Return non-nil when hint delay is enabled.
-Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
-  (and decklet-review-hint-delay (> decklet-review-hint-delay 0)))
-
 (defun decklet-review--reset-ui-state ()
   "Reset UI state."
   (decklet-review--cancel-hint-timer)
   (setq decklet-review--state-display-hint
-        (not (decklet-review--hint-delay-enabled-p))))
-
-(defun decklet-review--clean-up ()
-  "Clear transient review session state."
-  (setq decklet-current-card-id nil)
-  (setq decklet-due-card-ids nil)
-  (decklet-review--trail-reset)
-  (decklet-review--reset-ui-state))
+        (not (and decklet-review-hint-delay (> decklet-review-hint-delay 0)))))
 
 (defun decklet-review--refresh-visible (&rest _args)
   "Refresh the review buffer if it is visible in a window."
@@ -509,7 +469,8 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
 (defun decklet-review--start-hint-timer ()
   "Start `decklet-review--hint-timer'."
   (when (and (not decklet-review--hint-timer)
-             (decklet-review--hint-delay-enabled-p))
+             decklet-review-hint-delay
+             (> decklet-review-hint-delay 0))
     (setq decklet-review--hint-timer
           (run-at-time decklet-review-hint-delay
                        nil
@@ -517,30 +478,9 @@ Hint delay is enabled when `decklet-review-hint-delay' is a positive number."
                          (setq decklet-review--state-display-hint t)
                          (decklet-review--render-buffer t))))))
 
-(defun decklet-review--instruction-key-label (command)
-  "Return a key label for COMMAND from `decklet-review-mode-map'."
-  (if (where-is-internal command (list decklet-review-mode-map))
-      (substitute-command-keys
-       (format "\\<decklet-review-mode-map>\\[%s]" command))
-    ""))
-
-(defun decklet-review--instruction-interval-label (meta grade)
-  "Return a propertized interval label for card META at GRADE.
-When `decklet-review-enable-interval-labels' is nil, return an empty string.
-Otherwise, simulate one FSRS review with GRADE and format the predicted
-interval as a compact label, for example (10m)."
-  (if (not decklet-review-enable-interval-labels)
-      ""
-    (propertize
-     (format " (%s)"
-             (decklet--format-interval
-              (decklet--simulate-review-interval meta grade)))
-     'face 'decklet-review-rating-interval-face)))
-
-(defun decklet-review--separator (&optional length)
-  "Return the styled separator line for instruction blocks.
-When LENGTH is non-nil, use it as the separator width."
-  (propertize (make-string (or length 49) ?─)
+(defun decklet-review--separator (width)
+  "Return the styled separator line, WIDTH characters wide."
+  (propertize (make-string width ?─)
               'face 'decklet-review-separator-face))
 
 (defun decklet-review-component-title ()
@@ -587,15 +527,25 @@ number than the deck actually holds."
 
 (defun decklet-review--make-rating-option (command label meta grade undo-grade)
   "Build a single rating option string for COMMAND with LABEL.
-META and GRADE are used for interval prediction.  When UNDO-GRADE matches
-GRADE, apply `decklet-review-undo-highlight-face' to the LABEL text only."
-  (let* ((highlight (and undo-grade (= undo-grade grade)))
-         (styled-label (if highlight
-                           (propertize label 'face 'decklet-review-undo-highlight-face)
-                         label)))
-    (concat (decklet-review--instruction-key-label command)
-            " " styled-label
-            (decklet-review--instruction-interval-label meta grade))))
+The option shows COMMAND's key, LABEL, and, when
+`decklet-review-enable-interval-labels' is on, the interval FSRS
+predicts for card META at GRADE, such as (10m).  When UNDO-GRADE
+matches GRADE, LABEL gets `decklet-review-undo-highlight-face'."
+  (concat (if (where-is-internal command (list decklet-review-mode-map))
+              (substitute-command-keys
+               (format "\\<decklet-review-mode-map>\\[%s]" command))
+            "")
+          " "
+          (if (and undo-grade (= undo-grade grade))
+              (propertize label 'face 'decklet-review-undo-highlight-face)
+            label)
+          (if decklet-review-enable-interval-labels
+              (propertize
+               (format " (%s)"
+                       (decklet--format-interval
+                        (decklet--simulate-review-interval meta grade)))
+               'face 'decklet-review-rating-interval-face)
+            "")))
 
 (defun decklet-review-component-rates ()
   "Return the options block for review ratings and commands.
@@ -634,8 +584,7 @@ returned something."
 
 (defun decklet-review-component-word ()
   "Insert the current word in the review buffer."
-  (let ((word (propertize decklet-review--render-word 'face 'decklet-review-word-face)))
-    word))
+  (propertize decklet-review--render-word 'face 'decklet-review-word-face))
 
 (defun decklet-review-component-hint ()
   "Insert the current word's hint in the review buffer."
@@ -704,11 +653,6 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 
 ;; Review flow and rating commands
 
-(defun decklet-review--trail-reset ()
-  "Clear both sides of the trail."
-  (setq decklet-review--trail-past nil
-        decklet-review--trail-future nil))
-
 (defun decklet-review--undo-in-progress-p ()
   "Return non-nil when review is in undo state."
   (not (null decklet-review--trail-future)))
@@ -716,17 +660,6 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 (defun decklet-review--trail-current-entry ()
   "Return the entry currently being revisited during undo, or nil."
   (car decklet-review--trail-future))
-
-(defun decklet-review--trail-append (entry)
-  "Record ENTRY as a completed forward step.
-Callers must be in forward-flow state (future empty)."
-  (push entry decklet-review--trail-past))
-
-(defun decklet-review--trail-update-and-advance (grade)
-  "Update the currently undone entry with GRADE and move it onto past."
-  (let ((entry (car decklet-review--trail-future)))
-    (plist-put entry :grade grade)
-    (push (pop decklet-review--trail-future) decklet-review--trail-past)))
 
 (defun decklet-review--trail-drop-dead (entries)
   "Return ENTRIES without leading entries whose card no longer exists.
@@ -756,27 +689,12 @@ Void their log records and drop them, as if they never happened."
       (message "Discarded %d later review%s of this card"
                dropped (if (= dropped 1) "" "s")))))
 
-(defun decklet-review--trail-delete (card-id)
-  "Remove entries for CARD-ID from both sides of the trail."
-  (let ((keep (lambda (e) (not (eql (plist-get e :card-id) card-id)))))
-    (setq decklet-review--trail-past (seq-filter keep decklet-review--trail-past)
-          decklet-review--trail-future (seq-filter keep decklet-review--trail-future))))
-
 (defun decklet-review--present-card (card-id)
   "Set CARD-ID as the current card and render the review buffer."
   (setq decklet-current-card-id card-id)
   (decklet-review--reset-ui-state)
   (run-hooks 'decklet-review-next-card-hook)
   (decklet-review--render-buffer))
-
-(defun decklet-review--trail-skip ()
-  "Append a skip entry for the current card to the trail."
-  (when decklet-current-card-id
-    (when-let* ((meta (decklet-get-card-meta decklet-current-card-id)))
-      (decklet-review--trail-append
-       (list :card-id decklet-current-card-id
-             :grade nil
-             :pre-meta (copy-decklet-card-meta meta))))))
 
 (defun decklet-review--nothing-due-message ()
   "Return the message explaining why no card is on offer.
@@ -813,8 +731,8 @@ The visible card and undo history remain in place."
   (setq decklet-due-card-ids nil))
 
 (defun decklet-review--on-fields-changed (events)
-  "Invalidate pending cards when EVENTS change tags or import scheduling."
-  (when (cl-some (lambda (event) (memq (plist-get event :field) '(tags import))) events)
+  "Invalidate pending cards when EVENTS change tags."
+  (when (cl-some (lambda (event) (eq (plist-get event :field) 'tags)) events)
     (decklet-review--invalidate-queue)
     (when (get-buffer decklet-review-buffer-name)
       (decklet--refresh-counter)
@@ -844,21 +762,28 @@ The visible card and undo history remain in place."
 When in undo state, confirm the current undone card and advance.
 When current list is empty, re-check for due cards and continue if any exist."
   (interactive)
-  (cond
-   ((decklet-review--undo-in-progress-p)
-    ;; Confirm the undone card by moving its entry back to the past side.
-    (push (pop decklet-review--trail-future) decklet-review--trail-past)
-    (decklet-review--advance))
-   (t
-    (decklet-review--trail-skip)
-    (decklet-review--advance))))
+  (if (decklet-review--undo-in-progress-p)
+      ;; Confirm the undone card by moving its entry back to the past side.
+      (push (pop decklet-review--trail-future) decklet-review--trail-past)
+    ;; Record a skip, so undo can come back to this card.
+    (when-let* ((meta (and decklet-current-card-id
+                           (decklet-get-card-meta decklet-current-card-id))))
+      (push (list :card-id decklet-current-card-id
+                  :grade nil
+                  :pre-meta (copy-decklet-card-meta meta))
+            decklet-review--trail-past)))
+  (decklet-review--advance))
 
 (defun decklet-review--on-kill-buffer ()
   "Cleanup handler for the review buffer's `kill-buffer-hook'.
 Runs whether the session is ended via `decklet-review-quit' or by
 killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
-  (decklet-review--clean-up)
+  (setq decklet-current-card-id nil
+        decklet-due-card-ids nil
+        decklet-review--trail-past nil
+        decklet-review--trail-future nil)
+  (decklet-review--reset-ui-state)
   (run-hooks 'decklet-review-quit-hook))
 
 (defun decklet-review-quit ()
@@ -892,13 +817,15 @@ always leave the same amount of state behind."
           (when prior-log-id
             (decklet-review-log-append-void prior-log-id))
           (decklet-review--trail-drop-later-entries card-id)
-          (decklet-review--trail-update-and-advance grade))
+          (plist-put entry :grade grade)
+          (push (pop decklet-review--trail-future) decklet-review--trail-past))
       ;; Normal rating.  Snapshot pre-meta, rate, then append to the trail.
       (let* ((old-meta (decklet-db--row->card-meta row))
              (pre-meta (copy-decklet-card-meta old-meta))
              (new-log-id (decklet--rate-card-state card-id word old-meta grade)))
-        (decklet-review--trail-append
-         (list :card-id card-id :grade grade :pre-meta pre-meta :log-id new-log-id))))
+        (push (list :card-id card-id :grade grade :pre-meta pre-meta
+                    :log-id new-log-id)
+              decklet-review--trail-past)))
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
       (run-hooks 'decklet-review-daily-goal-reached-hook))
@@ -972,7 +899,6 @@ hook; no explicit refresh is needed here."
   (interactive)
   (decklet-prompt-set-tags (decklet--require-current-card-id "tag")))
 
-;;;###autoload
 (defun decklet-review-set-hint ()
   "Prompt to update the current card's hint.
 The review buffer re-renders via the
@@ -1018,7 +944,8 @@ is needed here."
     ;; `kill-buffer-hook') would never run, leaving start-hook setup like
     ;; `decklet-review--enable-resize-refresh' dangling.
     (run-hooks 'decklet-review-start-hook)
-    (decklet-review--trail-reset)
+    (setq decklet-review--trail-past nil
+          decklet-review--trail-future nil)
     (let ((buffer (decklet-review--setup-buffer)))
       (switch-to-buffer buffer)
       (decklet--refresh-counter)
@@ -1046,8 +973,12 @@ is needed here."
 
 (defun decklet-review--on-cards-deleted (events)
   "Drop trail entries for every deleted card in EVENTS."
-  (dolist (event events)
-    (decklet-review--trail-delete (plist-get event :card-id))))
+  (let ((deleted (mapcar (lambda (event) (plist-get event :card-id)) events)))
+    (cl-flet ((keep (entries)
+                (seq-remove (lambda (entry) (memql (plist-get entry :card-id) deleted))
+                            entries)))
+      (setq decklet-review--trail-past (keep decklet-review--trail-past)
+            decklet-review--trail-future (keep decklet-review--trail-future)))))
 
 (add-hook 'decklet-cards-deleted-functions
           #'decklet-review--on-cards-deleted)
@@ -1065,7 +996,7 @@ is needed here."
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
-  (decklet-db-acquire-session-buffer 'primary)
+  (decklet-db--acquire-session-buffer)
   (setq buffer-read-only t)
   (buffer-disable-undo)
   (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))

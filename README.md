@@ -46,7 +46,6 @@ It is built differently from many SRS tools:
   - [Rollover Time](#rollover-time)
   - [Database](#database)
     - [Backup](#backup)
-    - [JSON Export and Import](#json-export-and-import)
   - [Review Log](#review-log)
   - [Hooks](#hooks)
   - [Review UI Components](#review-ui-components)
@@ -107,11 +106,9 @@ candor       /ˈkændər/             ♦     review     2025-04-05 11:07 2025-0
              decklet-add-card-batch
              decklet-review
              decklet-edit
-             ;; Backups and JSON transfer
+             ;; Backups
              decklet-db-backup
-             decklet-db-restore
-             decklet-db-export-json
-             decklet-db-import-json)
+             decklet-db-restore)
   :custom
   ;; `decklet-lookup-providers` defaults to nil.
   ;; For English learners, these are some useful choices.
@@ -286,8 +283,7 @@ colons. Tags have no scheduling effect until a
 - Batch add accepts `:tag` lines (see [Batch Add Buffer](#batch-add-buffer)).
   Re-adding an existing word merges the new tags into its existing ones.
 
-Tags follow a card across renames and are included in backups and JSON
-export.
+Tags follow a card across renames and are included in backups.
 
 ### Card Back
 
@@ -538,35 +534,6 @@ when needed and closes when you quit the last review or edit buffer.
 
 `M-x decklet-db-backup` makes a backup now, and `M-x decklet-db-restore`
 restores one you pick from a list, newest first.
-
-#### JSON Export and Import
-
-`M-x decklet-db-export-json` writes the deck to a JSON file for backup,
-inspection, migration or analysis. `M-x decklet-db-import-json` reads the same
-format, which is useful for moving FSRS data in from another tool.
-
-```json
-[
-  {
-    "word": "lucid",
-    "added_date": "2025-04-12T09:18:00-07:00",
-    "last_review": "2025-04-20T08:02:00-07:00",
-    "due": "2025-05-18T04:00:00-07:00",
-    "archived_at": null,
-    "state": "review",
-    "step": 0,
-    "stability": 32.41,
-    "difficulty": 3.12,
-    "hint": "/ˈluːsɪd/",
-    "tags": ["reading"],
-    "back": "From Latin *lucidus* (light, bright). Think: a lucid dream is one where the light of awareness shines through."
-  }
-]
-```
-
-When a word already exists, the import asks whether to overwrite or skip it.
-How each field behaves on overwrite is described in
-[Writing Extensions](docs/writing-extensions.md#json-import-fields).
 
 ### Review Log
 

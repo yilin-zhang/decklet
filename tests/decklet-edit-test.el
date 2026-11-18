@@ -29,7 +29,8 @@ BODY can refer to `buf', the edit buffer."
 ;;; Delete
 
 (ert-deftest decklet-test-edit-delete-acts-on-marks-or-point ()
-  "Delete removes the marked cards, or the card at point when none is marked."
+  "Delete removes the marked cards, or the card at point when none is marked.
+Declining the confirmation deletes nothing and keeps the marks."
   (decklet-test--with-temp-db
     (dolist (w '("alpha" "beta" "gamma" "delta")) (decklet--add-card w))
     (decklet-edit-test--with-buffer
@@ -37,6 +38,10 @@ BODY can refer to `buf', the edit buffer."
       (decklet-edit-mark-at-point)
       (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
       (decklet-edit-mark-at-point)
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
+        (decklet-edit-delete-card))
+      (should (= 4 (length (decklet-list-words))))
+      (should (= 2 (hash-table-count decklet-edit--marked)))
       (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
       (should (equal '("delta" "gamma") (sort (decklet-list-words) #'string<)))
@@ -44,18 +49,6 @@ BODY can refer to `buf', the edit buffer."
       (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
       (should (equal '("delta") (decklet-list-words))))))
-
-(ert-deftest decklet-test-edit-delete-cancelled-is-noop ()
-  "Declining the delete confirmation leaves the deck and marks untouched."
-  (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "alpha")
-    (decklet-edit-test--with-buffer
-      (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
-      (decklet-edit-mark-at-point)
-      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
-        (decklet-edit-delete-card))
-      (should (decklet-db--select-card-row-by-word "alpha"))
-      (should (= 1 (hash-table-count decklet-edit--marked))))))
 
 ;;; Archive
 

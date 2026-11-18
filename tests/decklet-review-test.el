@@ -15,32 +15,6 @@
          (setq kill-buffer-query-functions nil)
          (kill-buffer (current-buffer))))))
 
-;;; Session teardown
-
-(ert-deftest decklet-test-review-quit-needs-attached-buffers-to-die ()
-  "Quitting review closes attached popups and the DB, unless one refuses.
-A popup that refuses to die keeps the review buffer and the DB alive."
-  (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (let ((review (get-buffer-create decklet-review-buffer-name)))
-      (unwind-protect
-          (decklet-test--with-temp-buffers (attached)
-            (with-current-buffer review (decklet-review-mode))
-            (with-current-buffer attached
-              (decklet-card-back-mode 1)
-              (add-hook 'kill-buffer-query-functions #'ignore nil t))
-            (decklet-review-quit)
-            (should (buffer-live-p review))
-            (should (buffer-live-p attached))
-            (should decklet-db--conn)
-            (with-current-buffer attached
-              (remove-hook 'kill-buffer-query-functions #'ignore t))
-            (decklet-review-quit)
-            (should-not (buffer-live-p review))
-            (should-not (buffer-live-p attached))
-            (should-not decklet-db--conn))
-        (when (buffer-live-p review) (kill-buffer review))))))
-
 ;;; Grading
 
 (ert-deftest decklet-test-review-daily-goal-hook-fires-once ()
@@ -164,9 +138,9 @@ new-card base), not the stability left behind by the undone rating."
       (let* ((records (decklet-test--read-log))
              (again (nth 0 records))
              (good (nth 1 records)))
-        (should (equal (list decklet-review-log-kind-rated
-                             decklet-review-log-kind-rated
-                             decklet-review-log-kind-void)
+        (should (equal (list "rated"
+                             "rated"
+                             "void")
                        (mapcar (lambda (r) (plist-get r :kind)) records)))
         (should (= 1 (plist-get again :grade)))
         (should (= (plist-get again :id) (plist-get (nth 2 records) :voids)))
@@ -251,6 +225,16 @@ from the already-rated row in the DB."
                 (should (equal (cons id :new) (car seen)))))
           (setq kill-buffer-query-functions nil)
           (kill-buffer (current-buffer)))))))
+
+;;; Queue invalidation
+
+(ert-deftest decklet-test-review-retag-drops-pending-queue ()
+  "Changing a card's tags drops the pending queue, which was grouped by tags."
+  (decklet-test--with-temp-db
+    (let* ((id (plist-get (decklet--add-card "rose") :card-id))
+           (decklet-due-card-ids (list id)))
+      (decklet-set-card-tags id '("medicine"))
+      (should-not decklet-due-card-ids))))
 
 (provide 'decklet-review-test)
 ;;; decklet-review-test.el ends here

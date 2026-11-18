@@ -52,7 +52,7 @@ Only a failed DB write retires the freshly written log record."
                  (lambda () (error "Counter refresh failed"))))
         (should-error (decklet-rate-card id 3)))
       (should (decklet-card-meta-last-review (decklet-get-card-meta id)))
-      (should (equal (list decklet-review-log-kind-rated)
+      (should (equal (list "rated")
                      (mapcar (lambda (r) (plist-get r :kind))
                              (decklet-test--read-log)))))))
 
@@ -65,9 +65,24 @@ Only a failed DB write retires the freshly written log record."
                  (lambda (&rest _) (error "Disk full"))))
         (should-error (decklet-rate-card id 3)))
       (should-not (decklet-card-meta-last-review (decklet-get-card-meta id)))
-      (should (equal (list decklet-review-log-kind-rated
-                           decklet-review-log-kind-void)
+      (should (equal (list "rated"
+                           "void")
                      (mapcar (lambda (r) (plist-get r :kind))
                              (decklet-test--read-log)))))))
 
+;;; Tags
+
+(ert-deftest decklet-test-deck-tags-normalize-and-validate ()
+  "Tags are stored sorted without duplicates; invalid tags are rejected."
+  (decklet-test--with-temp-db
+    (let ((id (plist-get (decklet--add-card "rose") :card-id)))
+      (decklet-set-card-tags id '("botany"))
+      (should (equal (decklet-add-card-tags id '("flower" "botany"))
+                     '("botany" "flower")))
+      (decklet-remove-card-tags id '("flower"))
+      (should (equal (decklet-list-tags) '("botany")))
+      (should-error (decklet-set-card-tags id '("bad tag")) :type 'user-error)
+      (should (equal (decklet-get-card-tags id) '("botany"))))))
+
+(provide 'decklet-deck-test)
 ;;; decklet-deck-test.el ends here

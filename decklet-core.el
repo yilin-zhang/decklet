@@ -136,9 +136,8 @@ Each event plist has keys:
   "Abnormal hook called with (EVENTS) after card fields are updated.
 Each event plist has keys:
   :card-id  id of the updated card.
-  :field    symbol naming the field (`hint', `back', `tags', `import' for
-            bulk JSON imports, or an extension-defined symbol such
-            as `image').")
+  :field    symbol naming the field (`hint', `back', `tags', or an
+            extension-defined symbol such as `image').")
 
 (defvar decklet-cards-rated-functions nil
   "Abnormal hook called with (EVENTS) after cards are graded.
@@ -204,51 +203,6 @@ per-card files kept by extensions."
 (defun decklet--clamp (value min-val max-val)
   "Clamp VALUE to be between MIN-VAL and MAX-VAL."
   (min max-val (max min-val value)))
-
-(defun decklet--timestamp-utc (&optional time)
-  "Return TIME formatted as a UTC timestamp for filenames."
-  (format-time-string "%Y%m%dT%H%M%SZ" (or time (current-time)) "UTC0"))
-
-(defun decklet--shuffle-list (lst)
-  "Return a new randomly shuffled copy of LST.
-Fisher-Yates; Emacs has no built-in shuffle."
-  (let* ((vec (vconcat lst))
-         (len (length vec)))
-    (dotimes (i len)
-      (let* ((j (+ i (random (- len i))))
-             (tmp (aref vec i)))
-        (aset vec i (aref vec j))
-        (aset vec j tmp)))
-    (append vec nil)))
-
-(defun decklet--interleave-evenly (base items)
-  "Return a new list with ITEMS distributed evenly through BASE.
-ITEMS are placed at half-stride offsets, so the result never starts
-with an element of ITEMS unless BASE is empty, and never ends with
-a run of them.  Order within BASE and within ITEMS is preserved."
-  (let ((n-base (length base))
-        (n-items (length items)))
-    (cond
-     ((null items) (copy-sequence base))
-     ((null base) (copy-sequence items))
-     (t
-      (let* ((total (+ n-base n-items))
-             (stride (/ (float total) n-items))
-             (rest base)
-             (pending items)
-             ;; Half-stride offset keeps the first slot for BASE.
-             (slot (round (/ stride 2.0)))
-             (placed 1)
-             (result nil))
-        (dotimes (i total)
-          (cond
-           ((and pending (= i slot))
-            (push (pop pending) result)
-            (setq slot (round (+ (* stride placed) (/ stride 2.0)))
-                  placed (1+ placed)))
-           (rest (push (pop rest) result))
-           (pending (push (pop pending) result))))
-        (nreverse result))))))
 
 (defun decklet--mint-monotonic-id (counter-sym &optional seed-fn)
   "Return the next strictly monotonic microsecond id stored in COUNTER-SYM.

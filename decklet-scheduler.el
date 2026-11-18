@@ -10,7 +10,6 @@
 
 (require 'cl-lib)
 (require 'fsrs)
-(require 'subr-x)
 
 (require 'decklet-core)
 
@@ -86,17 +85,6 @@ is invalidated.  Public entry point for tuners that install a
 fine-tuned parameter vector."
   (decklet--set-scheduler-option 'decklet-fsrs-parameters params))
 
-(defvar decklet--counter
-  '(:reviewed 0 :due-review 0 :due-learning 0 :new 0
-              :due-review-remaining 0 :due-learning-remaining 0 :new-remaining 0
-              :limited nil)
-  "Counter for reviewed, due-review, due-learning, and new cards.
-The plain keys count what the deck holds; the `-remaining' keys
-count what `decklet-review-order' will still hand out today, which
-is smaller when a group has a `limit' operation.  `:limited' is
-non-nil when such a limit is holding cards back.  Refreshed from
-the database by `decklet--refresh-counter'.")
-
 (cl-defstruct (decklet-card-meta)
   ;; Scheduling metadata only.  Content fields (hint, back) live in the DB.
   (card-id nil)
@@ -108,19 +96,10 @@ the database by `decklet--refresh-counter'.")
   (stability nil)
   (difficulty nil))
 
-(defun decklet-last-review-empty-p (last-review)
-  "Return non-nil when LAST-REVIEW means never reviewed.
-LAST-REVIEW is considered empty when it is nil or an empty string."
-  (string-empty-p (or last-review "")))
-
-(defun decklet-card-meta-effective-state-new-p (meta)
-  "Check if the card described by META is new (never reviewed)."
-  (eq (decklet-card-meta-effective-state meta) :new))
-
 (defun decklet-card-effective-state (state last-review)
   "Return effective state derived from STATE and LAST-REVIEW.
 The result is one of `:new', `:learning', `:relearning', or `:review'."
-  (if (decklet-last-review-empty-p last-review)
+  (if (null last-review)
       :new
     (pcase (decklet--normalize-fsrs-state state)
       (:learning :learning)
@@ -148,11 +127,9 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
 
 (defun decklet--normalize-fsrs-state (state)
   "Normalize STATE into an FSRS keyword."
-  (cond
-   ((keywordp state) state)
-   ((stringp state)
-    (intern (if (string-prefix-p ":" state) state (concat ":" state))))
-   (t nil)))
+  (if (stringp state)
+      (intern (concat ":" state))
+    state))
 
 (defun decklet--fsrs-schedulable-state (state)
   "Return the FSRS scheduler state for STATE.
@@ -167,8 +144,7 @@ cards, but FSRS schedules those cards from the learning state."
 (defun decklet-fsrs-state-string (state)
   "Return the serialized string representation of STATE."
   (when state
-    (let ((name (symbol-name state)))
-      (if (string-prefix-p ":" name) (substring name 1) name))))
+    (substring (symbol-name state) 1)))
 
 (defun decklet--fsrs-rating-from-grade (grade)
   "Convert numeric GRADE to FSRS rating keyword."
@@ -201,23 +177,9 @@ cards, but FSRS schedules those cards from the learning state."
   (decklet--rollover-time-on-relative-date
    (decklet-day-start-time time) 1))
 
-(defun decklet--now ()
-  "Return the current time as an FSRS timestamp string."
-  (fsrs-now))
-
-(defun decklet--time->fsrs-timestamp (time)
-  "Return TIME formatted as an FSRS timestamp string."
+(defun decklet--now (&optional time)
+  "Return TIME, or the current time, as an FSRS timestamp string."
   (fsrs-now time))
-
-(defun decklet--elapsed-days-since (last-review &optional now)
-  "Return the number of days elapsed between LAST-REVIEW and NOW.
-Both arguments are FSRS timestamp strings; NOW defaults to the
-current time via `decklet--now'.  Returns 0.0 when LAST-REVIEW is
-nil or empty (i.e. the card has never been reviewed)."
-  (if (or (null last-review) (string-empty-p last-review))
-      0.0
-    (/ (fsrs-timestamp-difference (or now (decklet--now)) last-review)
-       86400.0)))
 
 (defun decklet--card-meta->fsrs-card (meta)
   "Create an FSRS card from card META.

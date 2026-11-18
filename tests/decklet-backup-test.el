@@ -37,8 +37,8 @@ Each backup gets its own timestamp, so a backup that was not skipped
 would show up as a new file instead of overwriting the last one."
   (decklet-test--with-temp-db
     (let ((stamps '("20260101T000001Z" "20260101T000002Z" "20260101T000003Z")))
-      (cl-letf (((symbol-function 'decklet--timestamp-utc)
-                 (lambda (&optional _time) (pop stamps))))
+      (cl-letf (((symbol-function 'decklet-backup--timestamp)
+                 (lambda () (pop stamps))))
         (decklet--add-card "backup-word")
         (decklet-db-backup)
         (decklet-db-backup)
@@ -74,13 +74,13 @@ backup can be restored."
     (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite" tmp-dir)))
       (decklet-test--touch backup-file "backup")
       (decklet-test--with-temp-buffers (buf)
-	(with-current-buffer buf (decklet-db-acquire-session-buffer))
-	(cl-letf (((symbol-function 'decklet-backup--backup-files)
-		   (lambda () (list backup-file)))
-		  ((symbol-function 'decklet-backup--read-backup-choice)
-		   (lambda (_choices default) default)))
-	  (should-error (decklet-db-restore) :type 'user-error))
-	(should decklet-db--conn)))))
+        (with-current-buffer buf (decklet-db--acquire-session-buffer))
+        (cl-letf (((symbol-function 'decklet-backup--backup-files)
+                   (lambda () (list backup-file)))
+                  ((symbol-function 'decklet-backup--read-backup-choice)
+                   (lambda (_choices default) default)))
+          (should-error (decklet-db-restore) :type 'user-error))
+        (should decklet-db--conn)))))
 
 (ert-deftest decklet-test-backup-restore-auto-disconnects-without-session ()
   "With no session buffers open, restore disconnects and overwrites the DB."
@@ -108,6 +108,31 @@ backup can be restored."
                        database-payload))
       (should (string= (decklet-test--file-string decklet-review-log-file)
                        log-payload)))))
+
+(ert-deftest decklet-test-backup-restore-refuses-with-modified-card-back ()
+  "Restore refuses while a card back has unsaved edits, leaving the DB as is.
+Saving that edit later would write it into the restored database."
+  (decklet-test--with-temp-db
+    (decklet--add-card "kept")
+    (decklet-db--disconnect)
+    (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite"
+                                         decklet-backup-directory))
+          (before (decklet-test--file-string decklet-db-file)))
+      (make-directory decklet-backup-directory t)
+      (decklet-test--touch backup-file "backup-payload")
+      (decklet-test--touch (expand-file-name "review-log-20260101T010101Z.jsonl"
+                                             decklet-backup-directory))
+      (decklet-test--with-temp-buffers (popup)
+        (with-current-buffer popup
+          (decklet-card-back-mode 1)
+          (insert "unsaved"))
+        (cl-letf (((symbol-function 'decklet-backup--backup-files)
+                   (lambda () (list backup-file)))
+                  ((symbol-function 'decklet-backup--read-backup-choice)
+                   (lambda (_choices default) default))
+                  ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
+          (should-error (decklet-db-restore) :type 'user-error)))
+      (should (string= before (decklet-test--file-string decklet-db-file))))))
 
 (ert-deftest decklet-test-backup-restore-requires-matching-review-log ()
   "Restore refuses a database backup whose paired review log is missing."

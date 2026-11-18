@@ -122,23 +122,11 @@ Sidecar columns are inserted after the built-in `Back' column.")
   '("Added" "Last Review" "Due")
   "Columns that default to descending order when sorting.")
 
-(defun decklet-edit--columns ()
-  "Return ordered edit table column names, including sidecar columns."
-  (append '("Word" "Hint" "Tags" "Back")
-          (mapcar (lambda (column) (plist-get column :name)) decklet-edit-sidecar-columns)
-          '("State" "Added" "Last Review" "Due" "Stability" "Difficulty")))
-
 ;;; Helper functions: edit table formatting, sorting, point position
-
-(defun decklet-edit--clean-up ()
-  "Clear edit session state."
-  (setq decklet-edit--marked (make-hash-table :test 'eql))
-  (setq decklet-edit--filter 'all
-        decklet-edit--tag-filter nil))
 
 (defun decklet-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."
-  (if (string-empty-p (or timestamp ""))
+  (if (null timestamp)
       ""
     (format-time-string "%Y-%m-%d %H:%M"
                         (parse-iso8601-time-string timestamp))))
@@ -224,20 +212,18 @@ nearest surviving card otherwise."
       (or (decklet-edit--goto-card-id origin-card-id)
           (decklet-edit--goto-card-id target-card-id)))))
 
-(defun decklet-edit--sidecar-column-cells (row)
-  "Return sidecar column cells for ROW."
-  (mapcar (lambda (column)
-            (or (funcall (plist-get column :value) row) ""))
-          decklet-edit-sidecar-columns))
-
 (defun decklet-edit--column-sorter (column)
   "Return a sorter for edit table COLUMN; blank cells sort first.
 The sorter compares the `decklet-sort' property of the column's cells,
 numerically when it is a number."
-  ;; The index is looked up when the format is rebuilt on each refresh,
-  ;; so sidecar columns added in between shift it correctly.
-  (let ((index (seq-position (decklet-edit--columns) column)))
+  ;; The format holding COLUMN is installed after this sorter is built,
+  ;; so look up the column's position on first use.
+  (let (index)
     (cl-flet ((value (entry)
+                (unless index
+                  (setq index (seq-position tabulated-list-format column
+                                            (lambda (spec name)
+                                              (equal (car spec) name)))))
                 ;; A blank cell is "", which cannot carry a text property.
                 (get-text-property 0 'decklet-sort (aref (cadr entry) index))))
       (lambda (a b)
@@ -320,7 +306,6 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
      (pcase-let* (((map :card-id :word :hint :tags :back :added :last-review :due
                         :state :stability :difficulty)
                    row)
-                  (last-review (or last-review ""))
                   (state (decklet--normalize-fsrs-state state))
                   (effective-state (decklet-card-effective-state state last-review))
                   (word-face (if (eq decklet-edit--filter 'archived)
@@ -350,7 +335,10 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
                    (propertize decklet-edit-card-back-indicator
                                'face 'decklet-edit-card-back-indicator-face)
                  ""))
-              (apply #'vector (decklet-edit--sidecar-column-cells row))
+              (apply #'vector
+                     (mapcar (lambda (column)
+                               (or (funcall (plist-get column :value) row) ""))
+                             decklet-edit-sidecar-columns))
               (vector
                (propertize state-text 'face state-face)
                (propertize (decklet-edit--format-timestamp added)
@@ -375,7 +363,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
 
 (defun decklet-edit--apply-marks ()
   "Apply mark overlays to all currently-marked rows."
-  (decklet-edit--clear-mark-overlays)
+  (remove-overlays (point-min) (point-max) 'decklet-mark t)
   (save-excursion
     (goto-char (point-min))
     (while (< (point) (point-max))
@@ -389,10 +377,6 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
   (let (card-ids)
     (maphash (lambda (card-id _value) (push card-id card-ids)) decklet-edit--marked)
     (nreverse card-ids)))
-
-(defun decklet-edit--clear-mark-overlays ()
-  "Remove all mark overlays in the edit view."
-  (remove-overlays (point-min) (point-max) 'decklet-mark t))
 
 (defun decklet-edit--add-mark-overlay ()
   "Add mark overlays on the current line."
@@ -431,7 +415,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
 (defun decklet-edit--unmark-all ()
   "Clear all mark in the edit view."
   (clrhash decklet-edit--marked)
-  (decklet-edit--clear-mark-overlays))
+  (remove-overlays (point-min) (point-max) 'decklet-mark t))
 
 ;;; Edit mode commands
 
@@ -503,10 +487,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   "Toggle between archived cards and all cards in the edit table."
   (interactive)
   (setq decklet-edit--filter
-        (cond
-         ((eq decklet-edit--filter 'archived) 'all)
-         ((eq decklet-edit--filter 'all) 'archived)
-         (t 'all)))
+        (if (eq decklet-edit--filter 'all) 'archived 'all))
   (decklet-edit-refresh)
   (message "Filter: %s" decklet-edit--filter))
 
@@ -545,7 +526,6 @@ buffer, which refreshes if the card is on screen."
           (unless (string-empty-p tag) tag)))
   (decklet-edit-refresh))
 
-;;;###autoload
 (defun decklet-edit-set-hint ()
   "Set the hint for the card at point.
 `decklet-cards-field-updated-functions' carries the change to the
@@ -642,7 +622,9 @@ card back into the active deck as a side effect."
 Runs whether the session is ended via `decklet-edit-quit' or by
 killing the buffer directly (e.g. `C-x k'), so the two code paths
 always leave the same amount of state behind."
-  (decklet-edit--clean-up)
+  (setq decklet-edit--marked (make-hash-table :test 'eql)
+        decklet-edit--filter 'all
+        decklet-edit--tag-filter nil)
   (remove-hook 'window-selection-change-functions
                #'decklet-edit--flush-pending-refresh)
   (run-hooks 'decklet-edit-quit-hook))
@@ -726,7 +708,7 @@ and removed again when the edit buffer is killed."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
-  (decklet-db-acquire-session-buffer 'primary)
+  (decklet-db--acquire-session-buffer)
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)

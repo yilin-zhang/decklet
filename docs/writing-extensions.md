@@ -15,7 +15,6 @@ all built this way and are good worked examples.
 - [Example: per-card image sidecar](#example-per-card-image-sidecar)
 - [Review Log](#review-log)
 - [Review order reference](#review-order-reference)
-- [JSON import fields](#json-import-fields)
 - [Testing and CI](#testing-and-ci)
 
 ## Public API
@@ -62,8 +61,6 @@ themselves.
   voided records. `STATE` is the pre-rating FSRS keyword (`:new`, etc.),
   as in a review-order `state` filter. Extensions can combine these pairs
   with current card tags for their own statistics.
-- `(decklet-review-log-daily-state-counts &optional TIME)` returns aggregate
-  per-state counts.
 
 ### Context helpers
 
@@ -85,40 +82,13 @@ The id survives renames, so files need no migration when a word changes. Words
 are unsafe as file names. `Polish` and `polish` are two cards, but a
 case-insensitive file system (macOS's default) folds them into one file.
 
-### Session buffers
+### Connection
 
-If your extension opens its own popup or side buffer that belongs to
-the Decklet session (like the built-in card-back popup), call
-`(decklet-db-acquire-session-buffer)` once during that buffer's setup.
-Session buffers keep the shared SQLite connection open while they
-live. Quitting the last review/edit buffer closes them first (each may
-prompt to save), `decklet-disconnect` closes them explicitly, and a
-backup restore refuses to run while any is open. Querying the deck
-from one-shot commands outside a session needs no special handling.
-
-`decklet-db-acquire-session-buffer` returns a disposer that releases
-the lease. If the buffer lives exactly as long as its use of the DB,
-you can ignore the disposer, because killing the buffer releases the
-lease. If the buffer can outlive it, say with a minor mode the user
-can switch off, keep the disposer and call it when you let go.
-Otherwise the connection stays open with nothing holding it. For
-example:
-
-```elisp
-(defvar-local my-ext--release-session nil)
-
-(define-minor-mode my-ext-mode
-  "..."
-  (if my-ext-mode
-      (unless my-ext--release-session
-        (setq my-ext--release-session (decklet-db-acquire-session-buffer)))
-    (when my-ext--release-session
-      (funcall my-ext--release-session)
-      (setq my-ext--release-session nil))))
-```
-
-The disposer is idempotent and stays safe once the buffer is dead, so
-the mode-off and kill-buffer paths can both run without coordination.
+The review and edit buffers hold the shared SQLite connection while
+they live. Killing the last of them, or running `decklet-disconnect`,
+closes it, and a backup restore refuses to run while either is open.
+Any other code that calls the public API opens the connection when it
+needs it; popups and one-shot commands need no special handling.
 
 Use `decklet-db-pre-disconnect-hook` only for last-chance cleanup of
 sidecar resources that should go away when Decklet fully disconnects.
@@ -202,12 +172,12 @@ carries `:card-id`, and richer events carry the extra keys shown below.
 
 | Hook | Per-event plist keys | Fires when |
 |---|---|---|
-| `decklet-cards-added-functions` | `:card-id` | a new card is stored (including imports) |
+| `decklet-cards-added-functions` | `:card-id` | a new card is stored (including batch adds) |
 | `decklet-cards-deleted-functions` | `:card-id`, `:card` (pre-delete plist snapshot) | a card is removed from the deck |
 | `decklet-cards-renamed-functions` | `:card-id`, `:old-word`, `:new-word` | a card's word key changes |
 | `decklet-cards-archived-functions` | `:card-id` | a card is archived |
 | `decklet-cards-unarchived-functions` | `:card-id` | a card is unarchived |
-| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, `tags`, `import` for bulk JSON imports, or an extension-defined symbol such as `image`) | hint/back/tag changes, JSON-import overwrites, or extension-owned sidecar changes |
+| `decklet-cards-field-updated-functions` | `:card-id`, `:field` (`hint`, `back`, `tags`, or an extension-defined symbol such as `image`) | hint/back/tag changes, or extension-owned sidecar changes |
 | `decklet-cards-rated-functions` | `:card-id`, `:old-meta`, `:grade`, `:new-meta`, `:prior-grade` | a card is rated in review or edit mode |
 
 Consumers iterate over the events:
@@ -377,20 +347,6 @@ does not reshuffle unchanged candidates. Deleting a card removes only that
 card from the pending queue. Tag changes rebuild the pending queue, while the
 displayed card and undo history stay available. Day and review-order changes
 are picked up when advancing to the next card.
-
-## JSON import fields
-
-`decklet-db-import-json` reads the schema that `decklet-db-export-json`
-writes. When an import overwrites an existing card:
-
-- `hint` and `back`: a missing key keeps the existing value. `null` or a
-  blank string clears it.
-- `tags`: a missing key keeps the existing tags. `["botany", "flower"]`
-  replaces them, and `[]` clears them.
-
-Timestamps may be any ISO 8601 date-time, with or without a UTC offset. They
-are stored converted to UTC (`2025-04-12T16:18:00Z`), the form Decklet
-itself writes. Two records with the same word in one file are rejected.
 
 ## Testing and CI
 

@@ -29,10 +29,15 @@
     (unless card-id
       (user-error "No card associated with this buffer"))
     (let ((content (buffer-substring-no-properties (point-min) (point-max))))
-      (decklet-set-card-back card-id content)
-      (set-buffer-modified-p nil)
-      (message "Wrote card back of word \"%s\""
-               (or (decklet-get-card-word card-id) "")))))
+      (unwind-protect
+          (progn
+            (decklet-set-card-back card-id content)
+            (set-buffer-modified-p nil)
+            (message "Wrote card back of word \"%s\""
+                     (decklet-get-card-word card-id)))
+        ;; Outside a review or edit session the save opened the
+        ;; connection itself, so close it again.
+        (decklet-db--disconnect-if-idle)))))
 
 (defun decklet-card-back--write-contents ()
   "`write-contents-functions' handler for `decklet-card-back-mode'.
@@ -56,26 +61,15 @@ declines both save and discard."
       (?d (set-buffer-modified-p nil) t)
       (?c nil))))
 
-(defvar-local decklet-card-back--release-session nil
-  "Disposer for this buffer's DB session lease, or nil when not held.
-Held while `decklet-card-back-mode' is on.  The popup buffer can
-outlive the mode, so turning the mode off releases the lease.")
-
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
   :lighter " DeckletEdit"
   (if decklet-card-back-mode
       (progn
-        (unless decklet-card-back--release-session
-          (setq decklet-card-back--release-session
-                (decklet-db-acquire-session-buffer)))
         (add-hook 'write-contents-functions
                   #'decklet-card-back--write-contents nil t)
         (add-hook 'kill-buffer-query-functions
                   #'decklet-card-back--kill-buffer-query nil t))
-    (when decklet-card-back--release-session
-      (funcall decklet-card-back--release-session)
-      (setq decklet-card-back--release-session nil))
     (remove-hook 'write-contents-functions
                  #'decklet-card-back--write-contents t)
     (remove-hook 'kill-buffer-query-functions
@@ -84,7 +78,10 @@ outlive the mode, so turning the mode off releases the lease.")
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."
   (interactive (list (decklet-prompt-word "Word: ")))
-  (let* ((card (decklet-db--require-card-row-by-word word))
+  (let* ((card (unwind-protect
+                   (or (decklet-db--select-card-row-by-word word)
+                       (user-error "No card found for \"%s\"" word))
+                 (decklet-db--disconnect-if-idle)))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
          (buf-name (format "*Decklet Card Back: %s*" word))

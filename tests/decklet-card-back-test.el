@@ -58,5 +58,22 @@ the buffer and its edit."
               (should (string= "draft" (buffer-string)))))
         (decklet-card-back-test--kill buf)))))
 
+(ert-deftest decklet-test-card-back-save-outside-session-closes-connection ()
+  "Saving a card back with no review or edit open writes it and disconnects.
+The save opens the connection itself, so it must not leave it open."
+  (decklet-test--with-temp-db
+    (decklet--add-card "calm")
+    (let ((buf (decklet-card-back-test--open "calm")))
+      (decklet-db--disconnect)
+      (unwind-protect
+          (progn
+            (with-current-buffer buf
+              (insert "quiet")
+              (decklet-save-card-back))
+            (should-not decklet-db--conn)
+            (should (equal "quiet" (decklet-get-card-back
+                                    (decklet-test--card-id "calm")))))
+        (decklet-card-back-test--kill buf)))))
+
 (provide 'decklet-card-back-test)
 ;;; decklet-card-back-test.el ends here

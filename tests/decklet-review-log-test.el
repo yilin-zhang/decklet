@@ -54,13 +54,13 @@ next review starts from the memory state the first one produced."
 
 ;;; Daily consumption accounting
 
-(ert-deftest decklet-test-review-log-daily-counts-count-cards-once ()
+(ert-deftest decklet-test-review-log-daily-card-states-count-cards-once ()
   "Repeated ratings of one card from the same state consume one slot."
   (decklet-test--with-temp-db
     (dotimes (_ 3)
       (decklet-review-log--append-line
        (list :kind "rated"
-             :id (decklet-review-log--mint-record-id)
+             :id (decklet--mint-monotonic-id 'decklet-review-log--next-record-id)
              :card_id 1
              :t (decklet--now)
              :word "repeat"
@@ -69,27 +69,7 @@ next review starts from the memory state the first one produced."
              :pre_effective_state "learning"
              :pre_stability 1.0
              :elapsed_days 0.0)))
-    (should (equal '((:learning . 1)) (decklet-review-log-daily-state-counts)))))
-
-(ert-deftest decklet-test-review-log-daily-counts-classify-legacy-records ()
-  "Records without `pre_effective_state' are still classified.
-A null `pre_stability' marks a card's first ever review, which the
-stored `pre_state' cannot distinguish from an ongoing learning step."
-  (decklet-test--with-temp-db
-    (pcase-dolist (`(,card-id ,stability) '((1 nil) (2 2.5)))
-      (decklet-review-log--append-line
-       (list :kind "rated"
-             :id (decklet-review-log--mint-record-id)
-             :card_id card-id
-             :t (decklet--now)
-             :word (format "legacy-%d" card-id)
-             :grade 3
-             :pre_state "learning"
-             :pre_stability stability
-             :elapsed_days 0.0)))
-    (let ((counts (decklet-review-log-daily-state-counts)))
-      (should (= 1 (cdr (assq :new counts))))
-      (should (= 1 (cdr (assq :learning counts)))))))
+    (should (equal '((1 . :learning)) (decklet-review-log-daily-card-states)))))
 
 (provide 'decklet-review-log-test)
 ;;; decklet-review-log-test.el ends here

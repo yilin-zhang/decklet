@@ -37,8 +37,8 @@
 ;; The log writer is owned by Decklet core so every rating is
 ;; captured transactionally with the card update.  External
 ;; consumers (dashboards, optimizers, analytics) should read the
-;; file directly; core exposes daily card/state readers for the daily
-;; limits in `decklet-review-order' and is documented in the "Daily
+;; file directly; core reads back today's ratings for the daily
+;; limits in `decklet-review-order', as described in the "Daily
 ;; consumption accounting" section below.
 
 ;;; Code:
@@ -64,23 +64,7 @@ treat the file as append-only and parse it one JSON object per line."
 Seeded lazily on the first mint; cross-session monotonicity holds
 as long as the system clock advances.")
 
-(defconst decklet-review-log-kind-rated "rated"
-  "Serialized kind for rating records.")
-(defconst decklet-review-log-kind-void "void"
-  "Serialized kind for records that retire an earlier rating.")
-(defconst decklet-review-log-kind-rename "rename"
-  "Serialized kind for card rename records.")
-
-(defun decklet-review-log--mint-record-id ()
-  "Return a fresh monotonic microsecond record id."
-  (decklet--mint-monotonic-id 'decklet-review-log--next-record-id))
-
 ;; Low-level writer
-
-(defun decklet-review-log--ensure-directory ()
-  "Ensure the directory for `decklet-review-log-file' exists."
-  (when-let* ((dir (file-name-directory decklet-review-log-file)))
-    (make-directory dir t)))
 
 (defun decklet-review-log--append-line (record)
   "Append RECORD plist as one JSONL line to `decklet-review-log-file'.
@@ -89,7 +73,8 @@ and reported via `message'; the function returns non-nil on a
 successful write, nil on failure."
   (condition-case err
       (progn
-        (decklet-review-log--ensure-directory)
+        (when-let* ((dir (file-name-directory decklet-review-log-file)))
+          (make-directory dir t))
         (let ((json (json-serialize record :null-object nil)))
           (with-temp-buffer
             (insert json "\n")
@@ -112,11 +97,10 @@ stable card id (`decklet-card-meta-card-id').  GRADE is the rating,
 meta after FSRS scheduled the rating.  Returns the new record id on
 success, nil on write failure."
   (let* ((now-str (decklet--now))
-         (record-id (decklet-review-log--mint-record-id))
-         (elapsed-days (decklet--elapsed-days-since
-                        (decklet-card-meta-last-review old-meta)
-                        now-str))
-         (record (list :kind decklet-review-log-kind-rated
+         (record-id (decklet--mint-monotonic-id
+                     'decklet-review-log--next-record-id))
+         (last-review (decklet-card-meta-last-review old-meta))
+         (record (list :kind "rated"
                        :id record-id
                        :card_id card-id
                        :t now-str
@@ -133,7 +117,11 @@ success, nil on write failure."
                                     (decklet-card-meta-state new-meta))
                        :post_stability (decklet-card-meta-stability new-meta)
                        :post_difficulty (decklet-card-meta-difficulty new-meta)
-                       :elapsed_days elapsed-days)))
+                       :elapsed_days
+                       (if last-review
+                           (/ (fsrs-timestamp-difference now-str last-review)
+                              86400.0)
+                         0.0))))
     (and (decklet-review-log--append-line record)
          record-id)))
 
@@ -142,14 +130,14 @@ success, nil on write failure."
 Consumers skip any rated record whose `id' appears as a void's
 `voids' field."
   (decklet-review-log--append-line
-   (list :kind decklet-review-log-kind-void
+   (list :kind "void"
          :voids voided-record-id
          :t (decklet--now))))
 
 (defun decklet-review-log-append-rename (card-id old-word new-word)
   "Append a rename event for CARD-ID from OLD-WORD to NEW-WORD."
   (decklet-review-log--append-line
-   (list :kind decklet-review-log-kind-rename
+   (list :kind "rename"
          :card_id card-id
          :old old-word
          :new new-word
@@ -182,20 +170,6 @@ void events.")
       (json-parse-string line :object-type 'plist :null-object nil
                          :array-type 'list)
     (error nil)))
-
-(defun decklet-review-log--record-effective-state (record)
-  "Return the effective state string a card had when RECORD was written."
-  (or (plist-get record :pre_effective_state)
-      ;; Compatibility path for records written before
-      ;; `pre_effective_state' existed.  FSRS assigns stability on a
-      ;; card's very first review, so a null `pre_stability' marks a
-      ;; card that was new.  Any other record's stored `pre_state' is
-      ;; already the effective one.
-      ;; Deprecated: drop this branch once such records no longer
-      ;; matter for daily accounting.
-      (if (plist-get record :pre_stability)
-          (plist-get record :pre_state)
-        "new")))
 
 (defun decklet-review-log--read-lines (start end drop-first)
   "Return complete log lines in the byte range START to END.
@@ -235,12 +209,12 @@ Return the cons of the extended (RECORDS . VOIDED) lists."
                 (_ (not (string< stamp day-start))))
       (let ((kind (plist-get record :kind)))
         (cond
-         ((equal kind decklet-review-log-kind-rated)
+         ((equal kind "rated")
           (push (list (plist-get record :id)
                       (plist-get record :card_id)
-                      (decklet-review-log--record-effective-state record))
+                      (plist-get record :pre_effective_state))
                 records))
-         ((equal kind decklet-review-log-kind-void)
+         ((equal kind "void")
           (push (plist-get record :voids) voided))))))
   (cons records voided))
 
@@ -283,7 +257,7 @@ nil when the log file cannot be read."
 STATE is the pre-rating effective FSRS keyword.  Voided ratings are
 excluded.  Missing or unreadable logs return nil.  Callers that
 need tags group these records by the cards' current tags."
-  (let* ((day-start (decklet--time->fsrs-timestamp (decklet-day-start-time time)))
+  (let* ((day-start (decklet--now (decklet-day-start-time time)))
          (cache (decklet-review-log--refresh-scan day-start))
          (voided (make-hash-table :test 'eql))
          (seen (make-hash-table :test 'equal))
@@ -297,14 +271,6 @@ need tags group these records by the cards' current tags."
               (puthash pair t seen)
               (push pair pairs))))))
     pairs))
-
-(defun decklet-review-log-daily-state-counts (&optional time)
-  "Return (STATE . COUNT) entries for the review day containing TIME.
-Each card counts once per pre-rating state; voided ratings are ignored."
-  (let ((counts nil))
-    (dolist (pair (decklet-review-log-daily-card-states time))
-      (cl-incf (alist-get (cdr pair) counts 0)))
-    counts))
 
 (provide 'decklet-review-log)
 

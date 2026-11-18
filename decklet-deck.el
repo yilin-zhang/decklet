@@ -15,6 +15,7 @@
 (require 'decklet-core)
 (require 'decklet-scheduler)
 (require 'decklet-db)
+(require 'decklet-queue)
 (require 'decklet-review-log)
 
 (defcustom decklet-add-and-refresh t
@@ -28,13 +29,20 @@
 (defvar decklet-due-card-ids nil
   "List of card ids that are due for review.")
 
+(defvar decklet--counter
+  '(:reviewed 0 :due-review 0 :due-learning 0 :new 0
+              :due-review-remaining 0 :due-learning-remaining 0 :new-remaining 0
+              :limited nil)
+  "Review counters, refreshed by `decklet--refresh-counter'.
+See `decklet-queue--counts' for the keys.")
+
 (defun decklet--refresh-counter ()
   "Refresh counters from database state."
-  (setq decklet--counter (decklet-db--counts)))
+  (setq decklet--counter (decklet-queue--counts)))
 
 (defun decklet--refresh-due-card-ids ()
   "Refresh the due card-id list from the database."
-  (setq decklet-due-card-ids (decklet-db--select-due-card-ids)))
+  (setq decklet-due-card-ids (decklet-queue--due-card-ids)))
 
 (defun decklet--require-current-card-id (action)
   "Return the current card id, or signal a `user-error' naming ACTION.
@@ -62,11 +70,11 @@ ACTION is a verb phrase, as in \"No word to ACTION\"."
 
 (defun decklet-get-card-hint (card-id)
   "Return the hint string for CARD-ID, or nil when absent."
-  (decklet-db--select-card-hint card-id))
+  (decklet-db--select-card-field card-id 'hint))
 
 (defun decklet-get-card-back (card-id)
   "Return the card back content for CARD-ID, or nil when absent."
-  (decklet-db--select-card-back card-id))
+  (decklet-db--select-card-field card-id 'back))
 
 (defun decklet-get-card-meta (card-id)
   "Return the `decklet-card-meta' struct for CARD-ID, or nil when absent."
@@ -76,7 +84,7 @@ ACTION is a verb phrase, as in \"No word to ACTION\"."
 
 (defun decklet-get-card-word (card-id)
   "Return the current word for CARD-ID, or nil when absent."
-  (decklet-db--select-card-word card-id))
+  (decklet-db--select-card-field card-id 'word))
 
 (defun decklet-get-card-id-by-word (word)
   "Return the card id for WORD, or nil when absent."
@@ -217,10 +225,7 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
   (let* ((old-word (decklet-get-card-word card-id))
          (normalized (decklet-db--update-word card-id new-word)))
     (unless (string-equal old-word normalized)
-      (unless (decklet-review-log-append-rename card-id old-word normalized)
-        ;; Best-effort rollback to keep DB and log consistent.
-        (ignore-errors (decklet-db--update-word card-id old-word))
-        (user-error "Could not write rename to the review log"))
+      (decklet-review-log-append-rename card-id old-word normalized)
       (decklet-fire-one-card-event 'decklet-cards-renamed-functions
                                    :card-id card-id
                                    :old-word old-word
@@ -233,7 +238,7 @@ Return non-nil when the stored value changed."
   (let* ((row (decklet-db--require-card-row card-id))
          (normalized (decklet-db--normalize-optional-text hint)))
     (unless (equal (plist-get row :hint) normalized)
-      (decklet-db--update-hint card-id normalized)
+      (decklet-db--update-card-text-field card-id 'hint normalized)
       (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
                                    :card-id card-id :field 'hint)
       t)))
@@ -244,7 +249,7 @@ Return non-nil when the stored value changed."
   (let* ((row (decklet-db--require-card-row card-id))
          (normalized (decklet-db--normalize-optional-text content)))
     (unless (equal (plist-get row :back) normalized)
-      (decklet-db--update-back card-id normalized)
+      (decklet-db--update-card-text-field card-id 'back normalized)
       (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
                                    :card-id card-id :field 'back)
       t)))
@@ -255,8 +260,7 @@ Return non-nil when the stored value changed."
     (decklet-db--delete-card card-id)
     (when (eql decklet-current-card-id card-id)
       (setq decklet-current-card-id nil))
-    (when decklet-due-card-ids
-      (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
+    (setq decklet-due-card-ids (delete card-id decklet-due-card-ids))
     (decklet--refresh-counter)
     (decklet-fire-one-card-event 'decklet-cards-deleted-functions
                                  :card-id card-id :card card)))
@@ -264,9 +268,7 @@ Return non-nil when the stored value changed."
 (defun decklet-archive-card (card-id)
   "Archive CARD-ID without deleting it."
   (decklet-db--require-card-row card-id)
-  (decklet-db--archive-card card-id (decklet--now))
-  (when decklet-due-card-ids
-    (setq decklet-due-card-ids (delete card-id decklet-due-card-ids)))
+  (decklet-db--set-card-archived-at card-id (decklet--now))
   (decklet--refresh-counter)
   (decklet-fire-one-card-event 'decklet-cards-archived-functions
                                :card-id card-id))
@@ -274,7 +276,7 @@ Return non-nil when the stored value changed."
 (defun decklet-unarchive-card (card-id)
   "Unarchive CARD-ID and return it to the active deck."
   (decklet-db--require-card-row card-id)
-  (decklet-db--unarchive-card card-id)
+  (decklet-db--set-card-archived-at card-id nil)
   (decklet--refresh-counter)
   (decklet-fire-one-card-event 'decklet-cards-unarchived-functions
                                :card-id card-id))
@@ -333,13 +335,10 @@ preserves its existing `card-id'."
           (list :card-id card-id
                 :status 'added
                 :message (format "Added \"%s\" to the deck. " word)))))
-     ;; A reviewed card already exists, so leave it alone.
-     ((not (decklet-card-meta-effective-state-new-p meta))
-      (list :card-id (decklet-card-meta-card-id meta)
-            :status 'exists
-            :message (format "Word \"%s\" already exists in the deck. " word)))
-     ;; A still-new card is refreshed only when `decklet-add-and-refresh' is on.
-     ((not decklet-add-and-refresh)
+     ;; A reviewed card is left alone.  A still-new card is refreshed
+     ;; only when `decklet-add-and-refresh' is on.
+     ((or (not (eq (decklet-card-meta-effective-state meta) :new))
+          (not decklet-add-and-refresh))
       (list :card-id (decklet-card-meta-card-id meta)
             :status 'exists
             :message (format "Word \"%s\" already exists in the deck. " word)))

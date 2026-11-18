@@ -4,7 +4,6 @@
 
 (require 'ert)
 (require 'cl-lib)
-(require 'json)
 (require 'decklet)
 
 ;; `cl-letf' on C primitives triggers native-compilation of a
@@ -44,7 +43,7 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           ;; Reset UI state to prevent cross-test pollution.
           (decklet-current-card-id nil)
           (decklet-due-card-ids nil)
-          (decklet-db--review-plan-cache nil)
+          (decklet-queue--plan-cache nil)
           (decklet-review--queue-context nil)
           (decklet-edit--tag-filter nil)
           (decklet--counter (copy-sequence (default-value 'decklet--counter))))
@@ -59,29 +58,27 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
 
 (defun decklet-test--ts (time)
   "Convert TIME to a Decklet timestamp string."
-  (decklet--time->fsrs-timestamp time))
+  (decklet--now time))
 
 (cl-defun decklet-test--make-card-meta (&rest args
-                                              &key
-                                              (state :review)
-                                              (timestamp nil)
+                                              &key timestamp
+                                              (last-review nil last-review-p)
                                               &allow-other-keys)
-  "Return a `decklet-card-meta' pre-populated with scheduled-card defaults.
-STATE defaults to `:review'.  TIMESTAMP, when provided, is used for
-`:added-date', `:last-review', and `:due' unless those keys appear
-explicitly in ARGS.  When TIMESTAMP is nil, the current time is
-used.  Any additional keys in ARGS override the defaults."
+  "Return a `decklet-card-meta' in a state the real code can produce.
+By default the card has been reviewed: state `:review' with stability
+and difficulty.  Passing `:last-review nil' makes it a new card in the
+learning state with no memory data.  TIMESTAMP, when given, replaces
+the current time for the added, last-review and due dates.  Any other
+keys in ARGS override these defaults."
   (let* ((ts (or timestamp (decklet-test--ts (current-time))))
-	 (defaults (list :added-date ts :last-review ts :due ts :state state))
-	 (merged (copy-sequence defaults)))
-    ;; Strip our own keyword args so we don't forward :timestamp to
-    ;; `make-decklet-card-meta' (which would signal).
-    (let ((clean args))
-      (while clean
-	(unless (eq (car clean) :timestamp)
-	  (setq merged (plist-put merged (car clean) (cadr clean))))
-	(setq clean (cddr clean))))
-    (apply #'make-decklet-card-meta merged)))
+         (meta (if (and last-review-p (null last-review))
+                   (list :added-date ts :due ts :state :learning :step 0)
+                 (list :added-date ts :last-review ts :due ts :state :review
+                       :stability 1.0 :difficulty 5.0))))
+    (cl-loop for (key value) on args by #'cddr
+             unless (eq key :timestamp)
+             do (setq meta (plist-put meta key value)))
+    (apply #'make-decklet-card-meta meta)))
 
 (defun decklet-test--card-id (word)
   "Return the card id stored for WORD, or nil when absent."
@@ -93,22 +90,14 @@ KEYS are forwarded to `decklet-test--make-card-meta'."
   (decklet-db--upsert-card word (apply #'decklet-test--make-card-meta keys))
   (decklet-test--card-id word))
 
-;;; JSON import / review-log readback
-
-(defun decklet-test--import (rows)
-  "Write ROWS to a temp JSON file in the test directory and import it.
-Return the import stats plist from `decklet-db-import-json'."
-  (let ((file (expand-file-name "import.json" decklet-directory))
-        (json-encoding-pretty-print t))
-    (with-temp-file file (insert (json-encode rows)))
-    (decklet-db-import-json file)))
+;;; Review-log readback
 
 (defun decklet-test--log-rated (state &optional stamp)
   "Append a rated log record whose effective pre-state is STATE.
 STAMP defaults to now.  Returns the record id."
-  (let ((id (decklet-review-log--mint-record-id)))
+  (let ((id (decklet--mint-monotonic-id 'decklet-review-log--next-record-id)))
     (decklet-review-log--append-line
-     (list :kind decklet-review-log-kind-rated
+     (list :kind "rated"
            :id id
            :card_id id
            :t (or stamp (decklet--now))
