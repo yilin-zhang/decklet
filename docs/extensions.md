@@ -30,7 +30,7 @@ worked examples.
 | `(decklet-get-card-id-by-word WORD)` | card id or nil |
 | `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all` (default), `review`, `learning`, or `archived` |
 | `(decklet-db-due-counts-by-date DAY-START CUTOFF)` | plist `(:rows :overdue)`; `:rows` is a list of `(DATE-STRING COUNT)` between the two time values, `:overdue` counts cards due before `DAY-START` |
-| `(decklet-review-log-daily-card-states &optional TIME)` | distinct `(CARD-ID . STATE)` pairs rated in that review day, without voided ratings; `STATE` is the pre-rating keyword, such as `:new` |
+| `(decklet-review-log-ratings-since CUTOFF)` | `rated` log records at or after the time `CUTOFF`, newest first, without voided ones; each is a plist with the fields listed under [Review log](#review-log) |
 
 ### Mutating cards
 

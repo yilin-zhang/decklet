@@ -146,7 +146,9 @@ If either copy fails, neither file is changed."
           (copy-file db-backup db-tmp 'overwrite 'keep-time)
           (copy-file log-backup log-tmp 'overwrite 'keep-time)
           (rename-file db-tmp decklet-db-file 'overwrite)
-          (rename-file log-tmp decklet-review-log-file 'overwrite))
+          (rename-file log-tmp decklet-review-log-file 'overwrite)
+          ;; The scan cache assumes the log only grows.
+          (decklet-review-log--clear-scan-cache))
       (delete-file db-tmp)
       (delete-file log-tmp))))
 

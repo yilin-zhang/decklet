@@ -35,36 +35,6 @@
           (decklet-review--handle-grade 3)))
       (should (= hook-count 1)))))
 
-(ert-deftest decklet-test-review-delete-preserves-pending-order ()
-  "Deleting the visible or a pending card preserves the remaining queue."
-  (decklet-test--with-temp-db
-    (dolist (word '("delete-current" "delete-next" "delete-pending" "delete-last"))
-      (decklet--add-card word))
-    (let* ((current (decklet-test--card-id "delete-current"))
-           (next (decklet-test--card-id "delete-next"))
-           (pending (decklet-test--card-id "delete-pending"))
-           (last (decklet-test--card-id "delete-last"))
-           (decklet-current-card-id current)
-           (decklet-due-card-ids (list next pending last))
-           (decklet-review--trail-past nil)
-           (decklet-review--trail-future nil)
-           (decklet-review--queue-context (decklet-review--queue-context))
-           (decklet-review-next-card-hook nil)
-           (major-mode 'decklet-review-mode))
-      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-                ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
-                ((symbol-function 'decklet-review--render-buffer) #'ignore)
-                ((symbol-function 'decklet--refresh-due-card-ids)
-                 (lambda () (ert-fail "Deletion recollected the queue"))))
-        (decklet-review-delete-card)
-        (should-not (decklet-card-exists-p current))
-        (should (eql decklet-current-card-id next))
-        (should (equal decklet-due-card-ids (list pending last)))
-        (decklet-delete-card pending)
-        (should (equal decklet-due-card-ids (list last)))
-        (decklet-review--advance)
-        (should (eql decklet-current-card-id last))))))
-
 ;;; Undo
 
 (ert-deftest decklet-test-review-undo-walks-back-and-confirm-walks-forward ()

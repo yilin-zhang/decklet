@@ -15,7 +15,10 @@
 
 ;;; Code:
 
+(require 'seq)
+
 (require 'decklet-core)
+(require 'decklet-db)
 (require 'decklet-scheduler)
 
 (defgroup decklet-review-log nil
@@ -114,20 +117,25 @@ Consumers skip any rated record whose `id' appears as a void's
          :new new-word
          :t (decklet--now))))
 
-;; Daily consumption accounting.  The queue reads today's ratings back
-;; to apply daily limits.  Only the tail covering today is parsed, and
-;; the result is cached by file size.  A missing or unreadable log
-;; counts as no ratings.
+;; Reading recent ratings back.  Only the tail after the cutoff is
+;; parsed, and the result is cached by file size.  A missing or
+;; unreadable log counts as no ratings.
 
 (defconst decklet-review-log--scan-chunk 65536
-  "Byte size of each backward read when locating today's records.")
+  "Byte size of each backward read when locating the records after a cutoff.")
 
 (defvar decklet-review-log--scan-cache nil
-  "Cached scan of the current review day's tail of the review log.
-A plist with keys `:file', `:day-start', `:size', `:records' and
-`:voided'.  `:records' holds (ID CARD-ID STATE) triples for rated
-events, in no particular order; `:voided' holds the ids retired by
-void events.")
+  "Cached scan of the review log tail after a cutoff.
+A plist with keys `:file', `:since', `:size' and `:records'.
+`:records' holds the rated records that no void event retired,
+newest first.")
+
+(defun decklet-review-log--clear-scan-cache ()
+  "Drop the scan cache.
+Runs when the DB disconnects, and after anything rewrites the log."
+  (setq decklet-review-log--scan-cache nil))
+
+(add-hook 'decklet-db-pre-disconnect-hook #'decklet-review-log--clear-scan-cache)
 
 (defun decklet-review-log--parse-line (line)
   "Return LINE parsed as a plist, or nil when it is not valid JSON."
@@ -146,11 +154,11 @@ START is not a line boundary."
     (let ((lines (split-string (buffer-string) "\n" t)))
       (if drop-first (cdr lines) lines))))
 
-(defun decklet-review-log--read-day-lines (day-start size)
-  "Return log lines covering DAY-START onwards within the first SIZE bytes.
+(defun decklet-review-log--read-lines-since (since size)
+  "Return log lines covering SINCE onwards within the first SIZE bytes.
 Reads backward in `decklet-review-log--scan-chunk' steps until a
-record older than DAY-START is in view, so the returned list is a
-superset of the day's lines."
+record older than SINCE is in view, so the returned list is a
+superset of the lines after SINCE."
   (let ((start size)
         (lines nil)
         (done nil))
@@ -162,29 +170,30 @@ superset of the day's lines."
                 (when-let* ((first (car lines))
                             (record (decklet-review-log--parse-line first))
                             (stamp (plist-get record :t)))
-                  (string< stamp day-start)))))
+                  (string< stamp since)))))
     lines))
 
-(defun decklet-review-log--collect (lines day-start records voided)
-  "Fold LINES at or after DAY-START into RECORDS and VOIDED.
-Return the cons of the extended (RECORDS . VOIDED) lists."
+(defun decklet-review-log--collect (lines since records)
+  "Fold the rated LINES at or after SINCE into RECORDS and return them.
+A void line drops the record it retires.  The log is append-only, so
+that record is already in RECORDS, or older than SINCE."
   (dolist (line lines)
     (when-let* ((record (decklet-review-log--parse-line line))
                 (stamp (plist-get record :t))
-                (_ (not (string< stamp day-start))))
+                (_ (not (string< stamp since))))
       (let ((kind (plist-get record :kind)))
         (cond
          ((equal kind "rated")
-          (push (list (plist-get record :id)
-                      (plist-get record :card_id)
-                      (plist-get record :pre_effective_state))
-                records))
+          (push record records))
          ((equal kind "void")
-          (push (plist-get record :voids) voided))))))
-  (cons records voided))
+          (let ((id (plist-get record :voids)))
+            (setq records (seq-remove (lambda (rated)
+                                        (eql (plist-get rated :id) id))
+                                      records))))))))
+  records)
 
-(defun decklet-review-log--refresh-scan (day-start)
-  "Return the scan cache for DAY-START, refreshing it when stale.
+(defun decklet-review-log--refresh-scan (since)
+  "Return the scan cache for SINCE, refreshing it when stale.
 Reuses the cached scan and parses only appended bytes when the log
 has merely grown; rescans the day from scratch otherwise.  Returns
 nil when the log file cannot be read."
@@ -195,7 +204,7 @@ nil when the log file cannot be read."
              (reusable (and cache
                             (equal (plist-get cache :file)
                                    decklet-review-log-file)
-                            (equal (plist-get cache :day-start) day-start)
+                            (equal (plist-get cache :since) since)
                             (<= (plist-get cache :size) size)))
              (from (if reusable (plist-get cache :size) nil))
              (lines (condition-case nil
@@ -203,39 +212,24 @@ nil when the log file cannot be read."
                             (if (= from size)
                                 nil
                               (decklet-review-log--read-lines from size nil))
-                          (decklet-review-log--read-day-lines day-start size))
+                          (decklet-review-log--read-lines-since since size))
                       (error 'unreadable))))
         (unless (eq lines 'unreadable)
-          (let ((folded (decklet-review-log--collect
-                         lines day-start
-                         (and reusable (plist-get cache :records))
-                         (and reusable (plist-get cache :voided)))))
-            (setq decklet-review-log--scan-cache
-                  (list :file decklet-review-log-file
-                        :day-start day-start
-                        :size size
-                        :records (car folded)
-                        :voided (cdr folded)))))))))
+          (setq decklet-review-log--scan-cache
+                (list :file decklet-review-log-file
+                      :since since
+                      :size size
+                      :records (decklet-review-log--collect
+                                lines since
+                                (and reusable (plist-get cache :records))))))))))
 
-(defun decklet-review-log-daily-card-states (&optional time)
-  "Return distinct (CARD-ID . STATE) pairs rated on the review day at TIME.
-STATE is the pre-rating effective FSRS keyword.  Voided ratings are
-excluded.  Missing or unreadable logs return nil.  Callers that
-need tags group these records by the cards' current tags."
-  (let* ((day-start (decklet--now (decklet-day-start-time time)))
-         (cache (decklet-review-log--refresh-scan day-start))
-         (voided (make-hash-table :test 'eql))
-         (seen (make-hash-table :test 'equal))
-         (pairs nil))
-    (dolist (id (plist-get cache :voided)) (puthash id t voided))
-    (dolist (record (plist-get cache :records))
-      (pcase-let ((`(,id ,card-id ,state) record))
-        (when (and state (not (gethash id voided)))
-          (let ((pair (cons card-id (decklet--normalize-fsrs-state state))))
-            (unless (gethash pair seen)
-              (puthash pair t seen)
-              (push pair pairs))))))
-    pairs))
+(defun decklet-review-log-ratings-since (cutoff)
+  "Return the rated records logged at or after the time CUTOFF.
+Each record is a plist with the keys of a `rated' log line, such as
+`:card_id' and `:pre_effective_state'.  Voided ratings are left out.
+The newest record comes first."
+  (plist-get (decklet-review-log--refresh-scan (decklet--now cutoff))
+             :records))
 
 (provide 'decklet-review-log)
 

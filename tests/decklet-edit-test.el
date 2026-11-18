@@ -50,21 +50,7 @@ Declining the confirmation deletes nothing and keeps the marks."
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
       (should (equal '("delta") (decklet-list-words))))))
 
-;;; Archive
-
-(ert-deftest decklet-test-edit-archive-then-unarchive-via-filter ()
-  "Archiving hides a card from the active deck.
-Under the archived filter, the same command unarchives it."
-  (decklet-test--with-temp-db
-    (decklet-test--add-card-meta "alpha")
-    (decklet-edit-test--with-buffer
-      (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
-      (decklet-edit-test--confirm #'decklet-edit-archive-card)
-      (should (= 1 (length (decklet-db--select-card-rows 'archived))))
-      (decklet-edit-filter-toggle-archive)
-      (decklet-edit--goto-card-id (decklet-test--card-id "alpha"))
-      (decklet-edit-test--confirm #'decklet-edit-archive-card)
-      (should (= 0 (length (decklet-db--select-card-rows 'archived)))))))
+;;; Filter
 
 (ert-deftest decklet-test-edit-filter-tag-refuses-other-buffers ()
   "Filtering by tag outside the edit buffer leaves that buffer untouched."

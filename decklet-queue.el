@@ -1,10 +1,10 @@
-;;; decklet-queue.el --- Review queue planning for Decklet -*- lexical-binding: t; -*-
+;;; decklet-queue.el --- Review queue for Decklet -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Yilin Zhang
 
 ;;; Commentary:
 
-;; Plans the review queue from `decklet-review-order'.  It assigns due
+;; Builds the review queue from `decklet-review-order'.  It assigns due
 ;; cards to order groups, applies daily limits from the review log, and
 ;; computes the review counters.
 
@@ -19,8 +19,14 @@
 (require 'decklet-db)
 (require 'decklet-review-log)
 
-(defvar decklet-queue--plan-cache nil
-  "Cached input and result of the most recent queue plan.")
+(defvar decklet-queue--cache nil
+  "Inputs and result of the most recent `decklet-queue--build'.")
+
+(defun decklet-queue--clear-cache ()
+  "Drop the cached queue when the DB disconnects."
+  (setq decklet-queue--cache nil))
+
+(add-hook 'decklet-db-pre-disconnect-hook #'decklet-queue--clear-cache)
 
 (defun decklet-queue--shuffle (lst)
   "Return a new randomly shuffled copy of LST.
@@ -156,65 +162,80 @@ they are appended.  See README for examples."
          (set-default symbol value))
   :group 'decklet-review)
 
-(defun decklet-queue--run (groups group-cards used)
-  "Run GROUPS on their GROUP-CARDS and return the queue plan.
-USED lists how many cards each group handed out today.  The plan is a
-plist with :items, the queue, and :limited, non-nil when a limit held
-cards back."
-  (let ((queue nil)
-        (limited nil))
-    (while groups
-      (let* ((group (pop groups))
-             (cards (pop group-cards))
-             (count (pop used))
-             (picked cards))
-        (dolist (op (plist-get group :ops))
-          (setq picked (funcall op picked count)))
-        (when (< (length picked) (length cards))
-          (setq limited t))
-        (setq queue (if (plist-get group :spread)
-                        (decklet-queue--interleave-evenly queue picked)
-                      (append queue picked)))))
-    (list :items queue :limited limited)))
-
-(defun decklet-queue--plan (&optional time)
-  "Return a queue plan for TIME, shared by drawing and counters.
-The result contains :due, every due card, :items, the queue, and
-:limited.  Current tags assign both due cards and today's ratings to
-groups.  Unchanged inputs reuse the queue so counter refreshes do not
-reshuffle cards."
+(defun decklet-queue--build (&optional time)
+  "Build the review queue for TIME, shared by drawing and counters.
+The result is a plist with :due, every due card, :queue, the queue,
+and :limited, non-nil when a limit held cards back.  Current tags
+assign both due cards and today's ratings to groups.  Unchanged inputs
+reuse the queue so counter refreshes do not reshuffle cards."
   (let* ((now (or time (current-time)))
-         (due (decklet-db--due-items now))
+         (day-start (decklet-day-start-time now))
+         ;; ((:card-id 7 :state :new :due "2026-11-18T08:00:00Z" ...) ...)
+         (due-cards (decklet-db--due-items now))
+         ;; ((:kind "rated" :card_id 7 :pre_effective_state "new" ...) ...)
+         (ratings-today (decklet-review-log-ratings-since day-start))
+         ;; ((:match FILTER-FN :ops (OP-FN ...) :spread nil) ...)
          (groups (decklet-queue--compile-order decklet-review-order))
-         (tags (decklet-db--tag-map))
-         (owner (lambda (state card-id)
-                  ;; Deleted cards have no tags, so only untagged filters match.
-                  (cl-position-if (lambda (group)
-                                    (funcall (plist-get group :match)
-                                             state (gethash card-id tags)))
-                                  groups)))
-         (by-owner (seq-group-by (lambda (item)
-                                   (funcall owner (plist-get item :state)
-                                            (plist-get item :card-id)))
-                                 due))
-         (group-cards (cl-loop for index below (length groups)
-                               collect (alist-get index by-owner)))
-         (ratings (decklet-review-log-daily-card-states now))
-         (used (cl-loop for index below (length groups)
-                        collect (seq-count (pcase-lambda (`(,card-id . ,state))
-                                             (eql index (funcall owner state card-id)))
-                                           ratings)))
-         (key (list decklet-db--conn (decklet-day-start-time now)
-                    (copy-tree decklet-review-order) group-cards used)))
-    (unless (equal key (car decklet-queue--plan-cache))
-      (setq decklet-queue--plan-cache
-            (cons key (decklet-queue--run groups group-cards used))))
-    (cl-list* :due due (cdr decklet-queue--plan-cache))))
+         ;; #s(hash-table data (7 ("botany") 8 nil ...))
+         (tags-by-card (decklet-db--tag-map))
+         ;; (funcall group-index :new 7) => 2, or nil when no group matches
+         (group-index
+          (lambda (state card-id)
+            ;; Deleted cards have no tags, so only untagged filters match.
+            (cl-position-if (lambda (group)
+                              (funcall (plist-get group :match)
+                                       state (gethash card-id tags-by-card)))
+                            groups)))
+         ;; One list of DUE-CARDS per group, in group order:
+         ;; (((:card-id 3 ...) (:card-id 9 ...)) nil ((:card-id 7 ...)) ...)
+         (due-by-group
+          (cl-loop for index below (length groups)
+                   collect (seq-filter
+                            (lambda (card)
+                              (eql index (funcall group-index
+                                                  (plist-get card :state)
+                                                  (plist-get card :card-id))))
+                            due-cards)))
+         ;; Distinct cards each group handed out today, in group order:
+         ;; (4 90 2 0).  Repeated ratings of a card count once.
+         (used-by-group
+          (cl-loop for index below (length groups)
+                   collect (length
+                            (seq-uniq
+                             (cl-loop for rating in ratings-today
+                                      for card-id = (plist-get rating :card_id)
+                                      for state = (decklet--normalize-fsrs-state
+                                                   (plist-get rating :pre_effective_state))
+                                      when (eql index (funcall group-index state card-id))
+                                      collect card-id)))))
+         ;; (DAY-START ORDER DUE-BY-GROUP USED-BY-GROUP), the cache key
+         (inputs (list day-start (copy-tree decklet-review-order)
+                       due-by-group used-by-group)))
+    (unless (equal inputs (car decklet-queue--cache))
+      ;; Each group runs its operations on its due cards, then appends
+      ;; them to the queue or, with spread, interleaves them into it.
+      (let ((queue nil)
+            (limited nil))
+        (cl-loop
+         for group in groups
+         for cards in due-by-group
+         for used in used-by-group
+         do (let ((picked cards))
+              (dolist (op (plist-get group :ops))
+                (setq picked (funcall op picked used)))
+              (when (< (length picked) (length cards))
+                (setq limited t))
+              (setq queue (if (plist-get group :spread)
+                              (decklet-queue--interleave-evenly queue picked)
+                            (append queue picked)))))
+        (setq decklet-queue--cache
+              (cons inputs (list :queue queue :limited limited)))))
+    `(:due ,due-cards ,@(cdr decklet-queue--cache))))
 
 (defun decklet-queue--due-card-ids ()
   "Return card ids due for review according to `decklet-review-order'."
-  (mapcar (lambda (item) (plist-get item :card-id))
-          (plist-get (decklet-queue--plan) :items)))
+  (mapcar (lambda (card) (plist-get card :card-id))
+          (plist-get (decklet-queue--build) :queue)))
 
 (defun decklet-queue--counts ()
   "Return counter plist from database state.
@@ -224,10 +245,10 @@ will still hand out, which is smaller whenever a group has a `limit'
 operation.  `:limited' is non-nil when such a limit is what is holding
 cards back."
   (let* ((now (current-time))
-         (plan (decklet-queue--plan now))
+         (built (decklet-queue--build now))
          (count (lambda (key &rest states)
-                  (cl-count-if (lambda (item) (memq (plist-get item :state) states))
-                               (plist-get plan key)))))
+                  (cl-count-if (lambda (card) (memq (plist-get card :state) states))
+                               (plist-get built key)))))
     (list :reviewed (caar (sqlite-select
                            (decklet-db--ensure)
                            "SELECT COUNT(*) FROM cards
@@ -240,10 +261,10 @@ cards back."
           :due-review (funcall count :due :review)
           :due-learning (funcall count :due :learning :relearning)
           :new (funcall count :due :new)
-          :due-review-remaining (funcall count :items :review)
-          :due-learning-remaining (funcall count :items :learning :relearning)
-          :new-remaining (funcall count :items :new)
-          :limited (plist-get plan :limited))))
+          :due-review-remaining (funcall count :queue :review)
+          :due-learning-remaining (funcall count :queue :learning :relearning)
+          :new-remaining (funcall count :queue :new)
+          :limited (plist-get built :limited))))
 
 (provide 'decklet-queue)
 ;;; decklet-queue.el ends here

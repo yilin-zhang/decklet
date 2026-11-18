@@ -52,24 +52,5 @@ next review starts from the memory state the first one produced."
         (should (equal "colour" (plist-get rec :old)))
         (should (equal "color" (plist-get rec :new)))))))
 
-;;; Daily consumption accounting
-
-(ert-deftest decklet-test-review-log-daily-card-states-count-cards-once ()
-  "Repeated ratings of one card from the same state consume one slot."
-  (decklet-test--with-temp-db
-    (dotimes (_ 3)
-      (decklet-review-log--append-line
-       (list :kind "rated"
-             :id (decklet--mint-monotonic-id 'decklet-review-log--next-record-id)
-             :card_id 1
-             :t (decklet--now)
-             :word "repeat"
-             :grade 3
-             :pre_state "learning"
-             :pre_effective_state "learning"
-             :pre_stability 1.0
-             :elapsed_days 0.0)))
-    (should (equal '((1 . :learning)) (decklet-review-log-daily-card-states)))))
-
 (provide 'decklet-review-log-test)
 ;;; decklet-review-log-test.el ends here

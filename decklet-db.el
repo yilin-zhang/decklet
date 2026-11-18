@@ -43,8 +43,8 @@ A function can refuse the connection by signaling an error, usually a
 
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
-Use this for last-chance cleanup of sidecar resources that depend
-on an open DB connection.")
+Use this to clean up what lives as long as the connection, such as
+sidecar processes or caches.")
 
 (defvar-local decklet-db--session-buffer nil
   "Non-nil when the current buffer holds the Decklet session.

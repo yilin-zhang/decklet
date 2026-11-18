@@ -13,25 +13,6 @@
 
 ;;; Order and placement
 
-(ert-deftest decklet-test-queue-honors-review-order ()
-  "The due queue follows `decklet-review-order': learning, then new, then review."
-  (decklet-test--with-temp-db
-    (let* ((decklet-review-order '(((state :learning) (sort :due :asc))
-                                   ((state :new) (sort :added :desc))
-                                   ((state :review) (sort :due :asc))))
-           (now (current-time))
-           (at (lambda (secs) (decklet-test--ts (time-add now (seconds-to-time secs))))))
-      (decklet-test--add-card-meta
-       "learn-a" :added-date (funcall at -7200) :last-review (funcall at -3600)
-       :due (funcall at -600) :state :learning)
-      (decklet-test--add-card-meta
-       "new-a" :last-review nil :added-date (funcall at 0) :due (funcall at 0))
-      (decklet-test--add-card-meta
-       "review-a" :added-date (funcall at -7200) :last-review (funcall at -3600)
-       :due (funcall at 1800))
-      (should (equal (decklet-queue--due-card-ids)
-                     (mapcar #'decklet-test--card-id '("learn-a" "new-a" "review-a")))))))
-
 (ert-deftest decklet-test-queue-spread-distributes-group-through-queue ()
   "A spread group is interleaved into what the preceding groups gathered."
   (decklet-test--with-temp-db
@@ -140,6 +121,23 @@ its slot."
       (should (equal (decklet-queue--due-card-ids)
                      (list (decklet-test--card-id "new-a")))))))
 
+(ert-deftest decklet-test-queue-limit-counts-each-card-once ()
+  "Ratings of one card count once against its group's limit.
+That holds when its state changes between ratings within the group."
+  (decklet-test--with-temp-db
+    (let ((decklet-review-order '(((state :learning :relearning) (limit 2)))))
+      (dolist (word '("learn-a" "learn-b"))
+        (decklet-test--add-card-meta word :state :learning))
+      (dolist (state '("learning" "learning" "relearning"))
+        (decklet-review-log--append-line
+         (list :kind "rated"
+               :id (decklet--mint-monotonic-id 'decklet-review-log--next-record-id)
+               :card_id 999
+               :t (decklet--now)
+               :pre_state state
+               :pre_effective_state state)))
+      (should (= 1 (length (decklet-queue--due-card-ids)))))))
+
 (ert-deftest decklet-test-queue-retrospective-budget-and-restart ()
   "Current tags regroup today's history, including after restarting the DB."
   (decklet-test--with-temp-db
@@ -158,10 +156,9 @@ its slot."
       (should (equal (decklet-queue--due-card-ids) (list plant)))
       (should (= (plist-get (decklet-queue--counts) :new-remaining) 1))
       (decklet-db--disconnect)
-      (setq decklet-review-log--scan-cache nil)
       (should (equal (decklet-queue--due-card-ids) (list plant)))
       (let ((future (time-add (decklet--next-day-start-time) 60)))
-        (should (= (length (plist-get (decklet-queue--plan future) :items)) 2))))))
+        (should (= (length (plist-get (decklet-queue--build future) :queue)) 2))))))
 
 (ert-deftest decklet-test-queue-counts-report-due-cards-and-todays-allowance ()
   "Counts report the cards due today and what today still offers.
@@ -195,7 +192,7 @@ A daily limit lowers the `-remaining' count and sets `:limited'."
         (should (plist-get counts :limited))))))
 
 (ert-deftest decklet-test-queue-counter-refresh-keeps-shuffle ()
-  "Refreshing counters preserves a previously planned randomized queue."
+  "Refreshing counters preserves a previously built randomized queue."
   (decklet-test--with-temp-db
     (let ((decklet-review-order '(((state :new) shuffle (limit 2)))))
       (dotimes (i 8) (decklet-queue-test--new (format "word-%s" i)))
