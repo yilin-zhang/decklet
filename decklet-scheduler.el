@@ -65,13 +65,8 @@ Set to nil to disable relearning steps."
   :group 'decklet-scheduler)
 
 (defcustom decklet-fsrs-parameters nil
-  "Optional override for the FSRS parameter weight vector.
-When non-nil, must be a vector of 21 floats passed as the
-`:parameters' argument to `fsrs-make-scheduler'.  When nil, the
-FSRS library's built-in defaults are used.
-
-Typically set by an external tuner after fine-tuning on the
-persistent review log."
+  "Vector of 21 FSRS weights, or nil for the FSRS library defaults.
+A tuner usually sets this after fitting the weights to the review log."
   :type '(choice (const :tag "FSRS library defaults" nil)
                  (restricted-sexp :tag "Custom 21-float parameter vector"
                                   :match-alternatives (vectorp)))
@@ -79,10 +74,8 @@ persistent review log."
   :group 'decklet-scheduler)
 
 (defun decklet-set-fsrs-parameters (params)
-  "Set `decklet-fsrs-parameters' to PARAMS at runtime.
-Goes through the option's `:set' handler so the cached scheduler
-is invalidated.  Public entry point for tuners that install a
-fine-tuned parameter vector."
+  "Set `decklet-fsrs-parameters' to PARAMS and drop the cached scheduler.
+Tuners call this to install fitted weights."
   (decklet--set-scheduler-option 'decklet-fsrs-parameters params))
 
 (cl-defstruct (decklet-card-meta)

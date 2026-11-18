@@ -122,7 +122,7 @@ Sidecar columns are inserted after the built-in `Back' column.")
   '("Added" "Last Review" "Due")
   "Columns that default to descending order when sorting.")
 
-;;; Helper functions: edit table formatting, sorting, point position
+;;; Table formatting, sorting and point position
 
 (defun decklet-edit--format-timestamp (timestamp)
   "Format TIMESTAMP for display in the edit table."
@@ -132,16 +132,9 @@ Sidecar columns are inserted after the built-in `Back' column.")
                         (parse-iso8601-time-string timestamp))))
 
 (defmacro decklet-edit--preserving-window-position (&rest body)
-  "Run BODY while keeping point on the same screen line in the edit window.
-Capture point's rendered screen row via `posn-at-point' before BODY,
-then `recenter' back to that row afterwards.  When the edit buffer
-has no live window, BODY still runs but no preservation is attempted.
-
-`posn-at-point' is preferred over `count-screen-lines', which overcounts
-by one for mid-line positions, and over `line-beginning-position', which
-is field-aware.  The rendered row already accounts for the header-line,
-wrapped display, and field boundaries, so it round-trips exactly with
-`recenter'."
+  "Run BODY, then scroll so point is back on the same screen row.
+The row comes from `posn-at-point', which already counts the header
+line and wrapped lines.  Without a live window, BODY just runs."
   (declare (indent 0) (debug t))
   (let ((win-sym (make-symbol "win"))
         (row-sym (make-symbol "row")))
@@ -618,10 +611,8 @@ card back into the active deck as a side effect."
     (switch-to-buffer buffer)))
 
 (defun decklet-edit--on-kill-buffer ()
-  "Cleanup handler for the edit buffer's `kill-buffer-hook'.
-Runs whether the session is ended via `decklet-edit-quit' or by
-killing the buffer directly (e.g. `C-x k'), so the two code paths
-always leave the same amount of state behind."
+  "Clear the edit session state when the edit buffer is killed.
+This runs for `decklet-edit-quit' and for a plain `kill-buffer' alike."
   (setq decklet-edit--marked (make-hash-table :test 'eql)
         decklet-edit--filter 'all
         decklet-edit--tag-filter nil)

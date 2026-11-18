@@ -390,13 +390,13 @@ order. Each entry is a group `(FILTER OP...)`. The filter picks cards, and
 the operations run on them from left to right.
 
 ```emacs-lisp
-;; Default: learning cards first, then reviews, then newest-added words.
+;; The default offers learning cards first, then reviews, then the newest words.
 (setopt decklet-review-order
         '(((state :learning :relearning) (sort :due :asc))
           ((state :review) shuffle)
           ((state :new) (sort :added :desc))))
 
-;; Steady general intake: at most 120 reviews and 10 new cards per day.
+;; For steady intake, allow at most 120 reviews and 10 new cards a day.
 (setopt decklet-review-order
         '(((state :learning :relearning) (sort :due :asc))
           ((state :review) shuffle (limit 120))

@@ -75,9 +75,8 @@ are snapshots of the same state."
     (make-directory backup-dir t)
     (condition-case err
         (progn
-          ;; Track only files this attempt creates, so the error
-          ;; cleanup never deletes a backup that already existed
-          ;; (e.g. the same-second pair being overwritten).
+          ;; On error, delete only the files this attempt created, never
+          ;; an existing backup it was overwriting.
           (unless (file-exists-p backup-file)
             (push backup-file created))
           (copy-file decklet-db-file backup-file t t t)

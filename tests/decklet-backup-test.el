@@ -34,7 +34,7 @@ limit disables pruning and keeps every file."
 (ert-deftest decklet-test-backup-skips-when-unchanged ()
   "A backup with no DB change since the last one adds no new file.
 Each backup gets its own timestamp, so a backup that was not skipped
-would show up as a new file instead of overwriting the last one."
+would show up as a second file."
   (decklet-test--with-temp-db
     (let ((stamps '("20260101T000001Z" "20260101T000002Z" "20260101T000003Z")))
       (cl-letf (((symbol-function 'decklet-backup--timestamp)

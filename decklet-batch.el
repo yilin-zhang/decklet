@@ -96,13 +96,8 @@ may be interleaved.  Validate the entire buffer before writing cards."
     (nreverse cards)))
 
 (defun decklet-add-card-batch-confirm ()
-  "Confirm batch import for the current buffer.
-Fires `decklet-cards-added-functions' and
-`decklet-cards-field-updated-functions' once each at the end of the
-import, carrying all events from this batch.
-
-Reports an `added/refreshed/exists' breakdown after import, matching
-the granularity of `decklet--add-card's status result."
+  "Add every card in the batch buffer and report what happened.
+Each lifecycle hook fires once with the events of the whole batch."
   (interactive)
   (let* ((cards (decklet--batch-collect-cards))
          (conn (decklet-db--ensure))

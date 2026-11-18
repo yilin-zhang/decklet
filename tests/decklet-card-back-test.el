@@ -45,7 +45,7 @@ the buffer and its edit."
           (decklet-card-back-test--kill buf))))))
 
 (ert-deftest decklet-test-card-back-reopen-keeps-unsaved-edits ()
-  "Reopening a modified card back shows the edits instead of reloading."
+  "Reopening a modified card back keeps its unsaved edits."
   (decklet-test--with-temp-db
     (decklet--add-card "glow")
     (let ((buf (decklet-card-back-test--open "glow")))

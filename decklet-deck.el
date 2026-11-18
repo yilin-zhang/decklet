@@ -51,11 +51,8 @@ ACTION is a verb phrase, as in \"No word to ACTION\"."
     (user-error "No word to %s" action))
   decklet-current-card-id)
 
-;; Public API: card accessors
-;;
-;; These are the stable entry points for extensions.  Internal identity
-;; is always `card_id'; callers that start from a word should resolve the
-;; card row first, then operate by id.
+;; Public API: card accessors.  Cards are identified by id; callers that
+;; start from a word look the id up first.
 
 (defun decklet-get-card (card-id)
   "Return card data for CARD-ID as a plist, or nil if not found."
@@ -102,12 +99,10 @@ or `archived'."
           (decklet-db--select-card-rows (or filter 'all))))
 
 (defun decklet-prompt-word (&optional prompt)
-  "Resolve a word from the current context or prompt for one.
-If a region is active, its trimmed text is returned.  In review mode,
-the current review word is used.  In edit mode, the word on the
-current line is used.  Otherwise the minibuffer is read with an
-optional PROMPT, with the word at point as initial input.  Empty text
-or input signals a `user-error'."
+  "Return the word in context, or read one with PROMPT.
+The active region wins, then the review card, then the edit row.
+Otherwise read from the minibuffer, starting from the word at point.
+Empty text is a `user-error'."
   (cond
    ((use-region-p)
     (let ((text (string-trim (buffer-substring-no-properties
@@ -178,13 +173,8 @@ Names are separated by whitespace; an empty response clears the list."
   "Prompt to replace CARD-ID's tags, returning the new list."
   (decklet-set-card-tags card-id (decklet-read-tags (decklet-get-card-tags card-id))))
 
-;; Public API: card mutations
-;;
-;; Each mutation broadcasts a lifecycle event so extensions can stay
-;; in sync without scanning state.  Rating and rename also append a
-;; record to the persistent review log.  UI refresh for field updates
-;; is handled by core subscribers registered in `decklet-review.el'
-;; and `decklet-edit.el'.
+;; Public API: card mutations.  Each fires a lifecycle event; rating
+;; and renaming also write to the review log.
 
 (defun decklet-rate-card (card-id grade &optional prior-grade)
   "Update CARD-ID with review GRADE (1-4).
@@ -301,23 +291,11 @@ Return the card's word."
     word))
 
 (defun decklet--add-card (word)
-  "Add WORD as a new card and return a result plist.
-Keys in the returned plist:
-  :card-id  id of the card touched (always set).
-  :status   one of the symbols `added', `exists', `refreshed':
-            - `added'     a brand-new row was created.
-            - `exists'    the word is already in the deck; nothing changed.
-            - `refreshed' the word was an existing new card whose
-                          added-date was refreshed in place.
-  :message  human-readable status string.
-
-Fires `decklet-cards-added-functions' only when status is `added'.
-Refreshing the added date of an existing new card does not fire the
-hook (the card's existence has not changed).
-
-A brand-new row is also assigned a fresh `card-id' via
-`decklet-db--mint-card-id'.  Refreshing an existing new card
-preserves its existing `card-id'."
+  "Add WORD as a new card and return a plist describing what happened.
+The plist has the touched card's :card-id, a :message for the user,
+and a :status of `added' for a new card, `refreshed' when an unreviewed
+card got a new added date, or `exists' when nothing changed.  Only an
+added card fires `decklet-cards-added-functions'."
   (setq word (decklet-db--normalize-word word))
   (let* ((row (decklet-db--select-card-row-by-word word))
          (meta (and row (decklet-db--row->card-meta row))))

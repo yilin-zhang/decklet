@@ -48,8 +48,8 @@
       (decklet-test--add-card-meta "new-a" :last-review nil
                                    :added-date (funcall at 0)
                                    :due (funcall at 0))
-      ;; Three review cards plus one new card: the new one lands at the
-      ;; half-stride offset rather than at either end.
+      ;; With three review cards, the one new card lands at the
+      ;; half-stride offset, away from both ends.
       (should (equal (decklet-queue--due-card-ids)
                      (mapcar #'decklet-test--card-id
                              '("review-a" "review-b" "new-a" "review-c")))))))

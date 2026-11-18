@@ -6,11 +6,8 @@
 (require 'cl-lib)
 (require 'decklet)
 
-;; `cl-letf' on C primitives triggers native-compilation of a
-;; trampoline on first use, which costs ~500 ms per primitive and
-;; dominates the entire test suite wall clock.  Disabling trampolines
-;; falls back to a cheap interpreted wrapper; this cuts the suite
-;; from ~5.6 s to ~0.65 s with no behavioral change.
+;; `cl-letf' on a C primitive compiles a trampoline on first use, about
+;; 500 ms each, which took the suite from 0.65 s to 5.6 s.
 (setq native-comp-enable-subr-trampolines nil)
 
 ;;; Database fixture
@@ -65,8 +62,8 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
                                               (last-review nil last-review-p)
                                               &allow-other-keys)
   "Return a `decklet-card-meta' in a state the real code can produce.
-By default the card has been reviewed: state `:review' with stability
-and difficulty.  Passing `:last-review nil' makes it a new card in the
+By default the card has been reviewed, so it is in state `:review'
+with stability and difficulty.  Passing `:last-review nil' makes it a new card in the
 learning state with no memory data.  TIMESTAMP, when given, replaces
 the current time for the added, last-review and due dates.  Any other
 keys in ARGS override these defaults."
@@ -132,7 +129,8 @@ Reads `decklet-review-log-file', one JSON object per line."
 (defmacro decklet-test--with-temp-buffers (names &rest body)
   "Bind each symbol in NAMES to a fresh buffer, run BODY, kill them on exit.
 Teardown clears `kill-buffer-query-functions' in each buffer first, so a
-buffer that installed a blocking query (e.g. a dirty card back) still dies."
+buffer that installed a blocking query, such as a dirty card back, still
+dies."
   (declare (indent 1) (debug t))
   `(let ,(mapcar (lambda (n) `(,n (generate-new-buffer ,(format " *%s*" n)))) names)
      (unwind-protect

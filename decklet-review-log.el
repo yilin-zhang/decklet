@@ -27,22 +27,16 @@
 ;;   "rename"
 ;;     Records that a card's word changed.  Consumers can use this to
 ;;     reconstruct the "word at the time of rating" history for a
-;;     card that has been renamed.  Identity across renames is
-;;     preserved by card_id, so consumers grouping by card_id (e.g.
-;;     FSRS optimizers) can safely ignore rename events.
+;;     card that has been renamed.  Consumers that group by card_id,
+;;     such as FSRS optimizers, can ignore them.
 ;;
 ;; Deletes are not logged; ratings of deleted cards stay in the log
 ;; for FSRS tuning.
 ;;
-;; The log writer is owned by Decklet core so every rating is
-;; captured transactionally with the card update.  External
-;; consumers (dashboards, optimizers, analytics) should read the
-;; file directly; core reads back today's ratings for the daily
-;; limits in `decklet-review-order', as described in the "Daily
-;; consumption accounting" section below.
+;; Other tools read the file directly.  Core itself reads back today's
+;; ratings for the daily limits of `decklet-review-order'.
 
 ;;; Code:
-
 
 (require 'decklet-core)
 (require 'decklet-scheduler)
@@ -143,16 +137,10 @@ Consumers skip any rated record whose `id' appears as a void's
          :new new-word
          :t (decklet--now))))
 
-;; Daily consumption accounting
-;;
-;; Decklet core reads its own log back to count how many cards each
-;; `decklet-review-order' group has handed out during the current review
-;; day.  Only the tail covering today is parsed, and the result is
-;; cached against the file size so repeated queue rebuilds within a
-;; session stay cheap.
-;;
-;; When the log is missing or unreadable, the count is zero and
-;; reviewing continues with full daily allowances.
+;; Daily consumption accounting.  The queue reads today's ratings back
+;; to apply daily limits.  Only the tail covering today is parsed, and
+;; the result is cached by file size.  A missing or unreadable log
+;; counts as no ratings.
 
 (defconst decklet-review-log--scan-chunk 65536
   "Byte size of each backward read when locating today's records.")

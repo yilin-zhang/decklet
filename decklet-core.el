@@ -21,17 +21,10 @@
   :type 'directory
   :group 'decklet)
 
-;; Shared colors
-;;
-;; These faces carry a foreground color and nothing else.  The color
-;; is inherited from the `ansi-color' palette (or `shadow'), which
-;; themes redefine, and `:inherit' is resolved at face-realization
-;; time, so these follow the active theme without any refresh
-;; machinery.  The `ansi-color' faces set `:background' to
-;; the same color as `:foreground', which would render as a solid
-;; block, so `:background reset' pins it back to the `default' face.
-;; Derived faces inherit from these and layer on whatever weight or
-;; height they need for their context.
+;; Shared colors.  Each face only sets a foreground, inherited from
+;; the theme's `ansi-color' palette, so it follows theme changes.  The
+;; `ansi-color' faces also paint the background in the same color, and
+;; `:background reset' undoes that.
 
 (defface decklet-color-word
   '((t :inherit ansi-color-red :background reset))
@@ -81,25 +74,10 @@ Names are case-sensitive, nonempty, and contain no whitespace or colon."
       (user-error "Invalid tag: %S" tag)))
   (sort (delete-dups (copy-sequence tags)) #'string<))
 
-;; Lifecycle hooks for extensions
-;;
-;; These abnormal hooks allow extensions to react to card mutations
-;; without touching Decklet internals.
-;;
-;; Every hook is an abnormal hook called with a single EVENTS argument:
-;; a non-empty list of per-card plists.  Bulk operations (imports, batch
-;; add) fire the hook once with all events; single-card operations fire
-;; it once with a one-element list.  Every event plist carries at least
-;; a `:card-id' key; richer events carry extra keys documented per hook.
-;;
-;; Consumers iterate:
-;;
-;;   (defun my/on-cards-deleted (events)
-;;     (dolist (event events)
-;;       (let ((card-id (plist-get event :card-id))
-;;             (card (plist-get event :card)))
-;;         ...)))
-;;   (add-hook \\='decklet-cards-deleted-functions #\\='my/on-cards-deleted)
+;; Lifecycle hooks for extensions.  Each is called with one argument,
+;; a non-empty list of per-card event plists.  A batch add fires it once
+;; for the whole batch.  Every event has a `:card-id'; each hook's
+;; docstring lists the other keys.
 
 (defvar decklet-cards-added-functions nil
   "Abnormal hook called with (EVENTS) after new cards are added.
@@ -119,8 +97,7 @@ Each event plist has keys:
   :card-id   id of the renamed card.
   :old-word  word before the rename.
   :new-word  word after the rename.
-Extensions that key sidecar data by word should migrate their
-files or records in this hook.")
+Extensions that key data by word must migrate it here.")
 
 (defvar decklet-cards-archived-functions nil
   "Abnormal hook called with (EVENTS) after cards are archived.
@@ -146,16 +123,10 @@ Each event plist has keys:
   :old-meta     card meta before this grading (the FSRS base state used).
   :grade        the grade (1=Again, 2=Hard, 3=Good, 4=Easy).
   :new-meta     card meta after FSRS scheduled the rating.
-  :prior-grade  nil for fresh ratings.  When the user undoes a rating
-                and re-rates within the same session, this is the grade
-                being replaced.  Extensions that track per-grade
-                statistics should decrement the prior-grade counter to
-                compensate for the original event.
-
-This hook does NOT fire on:
-  - undo (no DB change)
-  - confirming an undone rating (the original event already stands)
-  - skip (no rating given)")
+  :prior-grade  the grade being replaced when the user undoes a rating
+                and re-rates the card, or nil.  Per-grade counters
+                should take it back.
+Undo, confirming an undone rating and skipping a card fire nothing.")
 
 (defun decklet-run-hook-isolated (hook &rest args)
   "Run abnormal HOOK with ARGS, isolating subscriber failures.
@@ -181,14 +152,9 @@ since the core operation has already committed."
 Shorthand for `decklet-run-hook-isolated' with a single-card event."
   (decklet-run-hook-isolated hook (list plist)))
 
-;; Per-card files
-;;
-;; Extensions that keep files beside the deck (images, audio) key them
-;; by card id.  The id survives renames, so files need no migration
-;; when a word changes, and it never collides.  Words can collide on
-;; disk.  "Polish" and "polish" are two cards, but a case-insensitive
-;; file system such as macOS's default APFS folds their names into one
-;; file.
+;; Per-card files.  Extensions name them by card id, which survives
+;; renames.  Words make bad file names, since "Polish" and "polish"
+;; are two cards but one file on a case-insensitive file system.
 
 (defun decklet-card-sidecar-file (directory card-id extension)
   "Return CARD-ID's file with EXTENSION under DIRECTORY.
@@ -205,14 +171,10 @@ per-card files kept by extensions."
   (min max-val (max min-val value)))
 
 (defun decklet--mint-monotonic-id (counter-sym &optional seed-fn)
-  "Return the next strictly monotonic microsecond id stored in COUNTER-SYM.
-When the counter is nil, it is seeded from SEED-FN (a zero-arg
-function returning an integer) or from the current microsecond
-timestamp.  Each subsequent call returns
-\(max (1+ previous) current-microsecond) and stores it back.
-This yields ids that are dense in time, never collide even under
-sub-microsecond bursts, and remain monotonic across Emacs sessions
-as long as the system clock advances."
+  "Return the next id from the counter in COUNTER-SYM.
+The id is the current time in microseconds, or one more than the last
+id when the clock has not moved past it.  An empty counter starts from
+the value of SEED-FN, or 0."
   (unless (symbol-value counter-sym)
     (set counter-sym (if seed-fn (funcall seed-fn) 0)))
   (let ((now (truncate (* (float-time) 1e6))))

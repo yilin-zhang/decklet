@@ -18,7 +18,7 @@
 ;;; Grading
 
 (ert-deftest decklet-test-review-daily-goal-hook-fires-once ()
-  "The daily-goal hook fires on the rating that reaches the goal, not after."
+  "The daily-goal hook fires once, on the rating that reaches the goal."
   (decklet-test--with-temp-db
     (decklet--add-card "first")
     (decklet--add-card "second")
@@ -113,12 +113,9 @@ resumes with the card that was showing before the undo."
         (should (eql c decklet-current-card-id))))))
 
 (ert-deftest decklet-test-review-rerate-after-undo-recomputes-from-pre-meta ()
-  "Re-rating after undo restores the original pre-rating state.
-FSRS uses that original base rather than the undone rating, and Decklet voids
-the original log record.
-
-The proof is in the log: the re-rate's `pre_stability' is nil (the restored
-new-card base), not the stability left behind by the undone rating."
+  "Re-rating after undo starts from the card's state before the first rating.
+The log voids the first record, and the new record's `pre_stability' is
+nil, the state of a new card."
   (decklet-test--with-temp-db
     (decklet--add-card "w")
     (let ((decklet-current-card-id (decklet-test--card-id "w"))
@@ -134,7 +131,7 @@ new-card base), not the stability left behind by the undone rating."
       ;; The trail holds a single entry, now graded Good.
       (should (= 1 (length decklet-review--trail-past)))
       (should (= 3 (plist-get (car decklet-review--trail-past) :grade)))
-      ;; Log: rated(Again) -> rated(Good) -> void(the prior record).
+      ;; The log holds rated(Again), rated(Good), then a void of the first.
       (let* ((records (decklet-test--read-log))
              (again (nth 0 records))
              (good (nth 1 records)))
@@ -193,8 +190,7 @@ would leave a log rating the database no longer reflects."
 (ert-deftest decklet-test-review-undo-renders-from-pre-rating-meta ()
   "While undoing, the review buffer renders the card's pre-rating meta.
 Re-rating applies the new grade to the trail entry's `:pre-meta', so the
-predicted intervals must be computed from that same state rather than
-from the already-rated row in the DB."
+predicted intervals must come from that state too."
   (decklet-test--with-temp-db
     (let* ((id (plist-get (decklet--add-card "lucid") :card-id))
            ;; A second due card keeps the session open after the grade.

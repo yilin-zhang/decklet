@@ -37,12 +37,9 @@ then incremented monotonically with each mint.  Reset to nil each
 Emacs session so the seed is recomputed from the DB on startup.")
 
 (defvar decklet-db-pre-connect-hook nil
-  "Hook run immediately before the SQLite connection is opened.
-A function may signal an error, typically a `user-error', to refuse
-the connection.  The error reaches the command that needed the
-database, and no connection is opened.  Use this to guard the
-database file, for example against opening it while it is out of
-sync.")
+  "Hook run before the SQLite connection is opened.
+A function can refuse the connection by signaling an error, usually a
+`user-error', which reaches the command that needed the database.")
 
 (defvar decklet-db-pre-disconnect-hook nil
   "Hook run immediately before the SQLite connection is closed.
@@ -412,13 +409,9 @@ review day; anything further out belongs to a later day."
 ;; Calendar queries
 
 (defun decklet-db-due-counts-by-date (day-start cutoff)
-  "Return due-card counts grouped by date.
-
-DAY-START and CUTOFF are time values that bound the query.
-
-Return a plist with keys:
-- :rows    list of (DATE-STRING COUNT) rows
-- :overdue count of cards due before DAY-START."
+  "Return due-card counts between the times DAY-START and CUTOFF.
+The result is a plist of :rows, a list of (DATE-STRING COUNT), and
+:overdue, the number of cards due before DAY-START."
   (let* ((conn (decklet-db--ensure))
          (day-start-ts (decklet--now day-start))
          (cutoff-ts (decklet--now cutoff))

@@ -98,7 +98,7 @@ SQLite connection, once per connection. A function on it may signal an
 error (usually a `user-error`) to refuse the connection. The error
 reaches whichever command needed the database, and nothing is opened.
 This guards every entry point at once (review, edit, adding cards,
-import/export), so prefer it over advising individual commands.
+imports), so prefer it over advising individual commands.
 
 ### Faces
 
@@ -139,7 +139,7 @@ both sides have something to show:
 ```emacs-lisp
 (decklet-review-component-card-back-indicator
  decklet-review-component-space
- my/decket-custom-indicator)
+ my/decklet-custom-indicator)
 ```
 
 ### Edit-mode columns

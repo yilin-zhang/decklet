@@ -208,7 +208,7 @@ Entries take the same forms as in `decklet-review-fixed-components'."
   "Current separator width used by `decklet-review-component-separator'.")
 
 (defvar decklet-review--state-display-hint nil
-  "UI state: display hint.")
+  "Non-nil when the hint is shown in full.")
 
 (defvar decklet-review--hint-timer nil
   "Delay timer for hint display.")
@@ -629,12 +629,9 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
                            (let ((inhibit-read-only t))
                              (erase-buffer)
                              (insert (decklet-review--render-components))))))
-      ;; An undone card is re-rated from the state it had before the
-      ;; rating being replaced (`decklet-review--handle-grade' uses the
-      ;; trail entry's `:pre-meta'), while the DB already holds the
-      ;; rated state.  Render from the same base the re-rate will use,
-      ;; so the title and the predicted intervals describe what pressing
-      ;; a grade key actually does.
+      ;; An undone card is re-rated from its state before the rating,
+      ;; while the DB already holds the rated state.  Render from the
+      ;; earlier state, so the intervals shown match what a grade does.
       (when-let* ((entry (decklet-review--trail-current-entry))
                   (pre-meta (plist-get entry :pre-meta)))
         (setq decklet-review--render-meta pre-meta))
@@ -698,12 +695,9 @@ Void their log records and drop them, as if they never happened."
 
 (defun decklet-review--nothing-due-message ()
   "Return the message explaining why no card is on offer.
-The queue can be empty because a `limit' operation in
-`decklet-review-order' is spent, because cards are still in a
-learning step and come due later today, or because nothing is left.
-The first two can hold at once, since a spent limit on `:review'
-or `:new' says nothing about learning cards due in a few minutes.
-So mention the wait whenever there is one."
+A daily limit may be spent, learning cards may come due later today,
+or nothing is left.  The first two can both hold, so the wait is
+mentioned whenever there is one."
   (decklet--refresh-counter)
   (let* ((next-due (decklet-db--next-due-time))
          (wait (and next-due
@@ -775,10 +769,8 @@ When current list is empty, re-check for due cards and continue if any exist."
   (decklet-review--advance))
 
 (defun decklet-review--on-kill-buffer ()
-  "Cleanup handler for the review buffer's `kill-buffer-hook'.
-Runs whether the session is ended via `decklet-review-quit' or by
-killing the buffer directly (e.g. `C-x k'), so the two code paths
-always leave the same amount of state behind."
+  "Clear the review session state when the review buffer is killed.
+This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
   (setq decklet-current-card-id nil
         decklet-due-card-ids nil
         decklet-review--trail-past nil
