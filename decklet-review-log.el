@@ -4,37 +4,14 @@
 
 ;;; Commentary:
 
-;; Persistent per-review event log for Decklet, stored as JSONL at
-;; `decklet-review-log-file'.  Used by external tools to fine-tune FSRS
-;; parameters from the user's actual memory behaviour.
+;; Append-only JSONL log of review events at `decklet-review-log-file'.
+;; A rating appends a "rated" record, re-rating after an undo appends a
+;; "void" record for the replaced rating, and renaming a card appends a
+;; "rename" record.  Deletes are not logged.  docs/extensions.md
+;; describes the record format.
 ;;
-;; The log is append-only.  Three event kinds are written:
-;;
-;;   "rated"
-;;     A card was graded by the user.  Records the card's identity,
-;;     grade, pre- and post-scheduling state, and elapsed days since
-;;     the previous review.  "pre_state" is the card's stored FSRS
-;;     state, which cannot distinguish a brand-new card from one
-;;     already in learning; "pre_effective_state" resolves that and
-;;     is the field consumers should prefer.
-;;
-;;   "void"
-;;     Nullifies a previously-written rated record by its id.  Used
-;;     when the user undoes and re-rates within a single review
-;;     session.  Consumers should skip any rated record whose id
-;;     appears as the target of a void event.
-;;
-;;   "rename"
-;;     Records that a card's word changed.  Consumers can use this to
-;;     reconstruct the "word at the time of rating" history for a
-;;     card that has been renamed.  Consumers that group by card_id,
-;;     such as FSRS optimizers, can ignore them.
-;;
-;; Deletes are not logged; ratings of deleted cards stay in the log
-;; for FSRS tuning.
-;;
-;; Other tools read the file directly.  Core itself reads back today's
-;; ratings for the daily limits of `decklet-review-order'.
+;; Core reads back today's ratings for the daily limits of
+;; `decklet-review-order'.
 
 ;;; Code:
 

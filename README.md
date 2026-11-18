@@ -24,9 +24,6 @@ It is built differently from many SRS tools:
   - [Quick Start](#quick-start)
   - [Review Mode](#review-mode-1)
   - [Edit Mode](#edit-mode-1)
-- [Additional Setup](#additional-setup)
-  - [Refocus after Lookup](#refocus-after-lookup)
-  - [Hidden Cursor](#hidden-cursor)
 - [Features](#features)
   - [Browser Lookup](#browser-lookup)
   - [Hints](#hints)
@@ -39,16 +36,9 @@ It is built differently from many SRS tools:
   - [Data Location](#data-location)
 - [Customization](#customization)
   - [Review Order](#review-order)
-    - [Daily Limits](#daily-limits)
-  - [Interval Labels](#interval-labels)
-  - [Add and Refresh](#add-and-refresh)
   - [Scheduling](#scheduling)
-  - [Rollover Time](#rollover-time)
-  - [Database](#database)
-    - [Backup](#backup)
-  - [Review Log](#review-log)
   - [Hooks](#hooks)
-  - [Review UI Components](#review-ui-components)
+  - [Backup](#backup)
 - [Extensions](#extensions)
 - [License](#license)
 
@@ -75,10 +65,6 @@ It is built differently from many SRS tools:
 
                            [BACK]
 ```
-
-The counter line shows the cards rated so far today, then how many review,
-learning and new cards the queue will still hand out today, after any
-[daily limits](#daily-limits).
 
 ### Edit Mode
 
@@ -124,6 +110,44 @@ candor       /ˈkændər/             ♦     review     2025-04-05 11:07 2025-0
   (decklet-review-daily-goal 100))
 ```
 
+To bring Emacs back to the front after a browser lookup, add a function to
+`decklet-lookup-hook`. On another system than macOS, swap in the command from
+the comments.
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-lookup
+   . (lambda ()
+       (start-process
+        "decklet-refocus" nil
+        ;; Linux (X11, needs wmctrl):
+        ;; "wmctrl" "-a" "Emacs"
+        ;; Linux (Wayland, sway):
+        ;; "swaymsg" "[app_id=\"Emacs\"] focus"
+        ;; Windows:
+        ;; "powershell" "-Command" "(New-Object -ComObject WScript.Shell).AppActivate('Emacs')"
+        ;; macOS:
+        "osascript" "-e" "tell application \"Emacs\" to activate"))))
+```
+
+Review mode hides the cursor and turns off `hl-line-mode`. Modal editing
+packages can bring the cursor back:
+
+- With [Evil](https://github.com/emacs-evil/evil), turn off `evil-local-mode`
+  in `decklet-review-mode`.
+- With [Meow](https://github.com/meow-edit/meow), the cursor may blink the
+  first time the review buffer is shown. This buffer-local override stops
+  Meow from redrawing it there:
+
+```emacs-lisp
+(use-package decklet
+  :hook
+  (decklet-review-mode . (lambda ()
+                             (setq-local meow-update-cursor-functions-alist
+                                         '(((lambda () t) . ignore))))))
+```
+
 ### Quick Start
 
 1. Add cards:
@@ -160,200 +184,94 @@ Edit mode is for managing cards: filtering, sorting and batch operations. You
 can also rate cards here, which suits targeted learning. See
 [Edit Mode Workflow](#edit-mode-workflow) for ideas.
 
-| Key   | Action                                    |
-|-------|-------------------------------------------|
-| `m`   | Mark card at point                        |
-| `u`   | Unmark card at point                      |
-| `U`   | Clear all marks                           |
-| `R`   | Rate current card                         |
-| `A`   | Archive/Unarchive current or marked cards |
-| `D`   | Delete current or marked cards            |
-| `e`   | Edit word at point                        |
-| `H`   | Edit hint at point                        |
+| Key   | Action                                     |
+|-------|--------------------------------------------|
+| `m`   | Mark card at point                         |
+| `u`   | Unmark card at point                       |
+| `U`   | Clear all marks                            |
+| `R`   | Rate current card                          |
+| `A`   | Archive/Unarchive current or marked cards  |
+| `D`   | Delete current or marked cards             |
+| `e`   | Edit word at point                         |
+| `H`   | Edit hint at point                         |
 | `t`   | Edit tags; add/remove tags on marked cards |
 | `. t` | Filter by tag; empty input clears filter   |
-| `b`   | Show or edit card back                    |
-| `. r` | Filter review cards                       |
-| `. l` | Filter learning cards                     |
-| `. a` | Toggle archived/all cards                 |
-| `; w` | Sort by word                              |
-| `; a` | Sort by added time                        |
-| `; l` | Sort by last review time                  |
-| `; d` | Sort by due time                          |
-| `; s` | Sort by stability                         |
-| `; f` | Sort by difficulty                        |
-| `l`   | Look up word with default provider        |
-| `L`   | Look up word with selected provider       |
-| `g`   | Refresh edit buffer                       |
-| `q`   | Quit edit mode                            |
-
-## Additional Setup
-
-### Refocus after Lookup
-
-After a browser lookup, you can bring Emacs back to the front automatically,
-so you stay in the review flow. Add a function to `decklet-lookup-hook`,
-which runs after the browser opens. On macOS:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-lookup
-   . (lambda ()
-       (start-process-shell-command
-        "decklet-refocus" nil
-        "osascript -e 'tell application \"Emacs\" to activate'"))))
-```
-
-On other systems, replace the shell command:
-
-| System | Command |
-|---|---|
-| Linux (X11) | `wmctrl -a "Emacs"` |
-| Linux (Wayland, sway) | `swaymsg '[app_id="Emacs"] focus'` |
-| Windows (PowerShell) | `powershell -Command "(New-Object -ComObject WScript.Shell).AppActivate('Emacs')"` |
-
-### Hidden Cursor
-
-Review mode hides the cursor and turns off `hl-line-mode`. Set
-`decklet-review-hide-cursor` to nil to keep your usual cursor.
-
-Modal editing packages can bring the cursor back:
-
-- With [Evil](https://github.com/emacs-evil/evil), turn off `evil-local-mode`
-  in `decklet-review-mode`.
-- With [Meow](https://github.com/meow-edit/meow), the cursor may blink the
-  first time the review buffer is shown. This buffer-local override stops
-  Meow from redrawing it there:
-
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-review-mode . (lambda ()
-                             (setq-local meow-update-cursor-functions-alist
-                                         '(((lambda () t) . ignore))))))
-```
+| `b`   | Show or edit card back                     |
+| `. r` | Filter review cards                        |
+| `. l` | Filter learning cards                      |
+| `. a` | Toggle archived/all cards                  |
+| `; w` | Sort by word                               |
+| `; a` | Sort by added time                         |
+| `; l` | Sort by last review time                   |
+| `; d` | Sort by due time                           |
+| `; s` | Sort by stability                          |
+| `; f` | Sort by difficulty                         |
+| `l`   | Look up word with default provider         |
+| `L`   | Look up word with selected provider        |
+| `g`   | Refresh edit buffer                        |
+| `q`   | Quit edit mode                             |
 
 ## Features
 
 ### Browser Lookup
 
-In Decklet, browser-based lookup takes the place of flipping the card. The
-current word is inserted into a website URL template and opened in your
-default browser, letting you read meaning, pronunciation, usage, etymology,
-images, and related results from whichever sources you prefer.
-
-- `l` opens your default lookup provider in the browser.
-- `L` lets you pick a provider, then opens it.
-- `M-x decklet-switch-default-provider` changes the default used by `l`.
-
-Providers are set with `decklet-lookup-providers`, an alist of
-`(NAME . URL)` where `URL` contains one `%s` for the word, and
-`decklet-lookup-default-provider`. Both are nil until you set them; see the
-[Install](#install) example.
-
-For definitions or audio inside Emacs, see [Extensions](#extensions).
+Lookup takes the place of flipping the card. `l` opens the current word in
+your default provider, and `L` lets you pick one. Providers are URL templates
+in `decklet-lookup-providers` (see [Install](#install)), and
+`M-x decklet-switch-default-provider` changes the default.
 
 ### Hints
 
-A hint is short context for a word, such as an example sentence, IPA, a
-translation or a mnemonic.
-
-In review mode, a card's hint first shows as `[HINT]` and appears after
-`decklet-review-hint-delay` seconds, so your first recall attempt focuses on
-the word itself. Set the delay to nil to show hints right away.
-
-Press `H` to edit a hint in review mode, in edit mode, or at the prompt right
-after adding a word. In the hint prompt, `M-j` inserts a newline.
+A hint is short context for a word, such as an example sentence, IPA or a
+translation. In review it appears after a short delay, so you try to recall
+the word first. Press `H` to edit it, and `M-j` in the prompt for a newline.
 
 ### Tags
 
-Cards can have multiple tags, such as `botany`, `medicine`, `astronomy`,
-or `reading`. Tag names are case-sensitive and cannot contain whitespace or
-colons. Tags have no scheduling effect until a
-[review-order filter](#review-order) uses them.
-
-- Press `t` in review or edit mode to replace the current card's tags. Enter
-  space-separated names with completion; an empty response clears the tags.
-- After adding a single card, `H` edits its hint and `t` edits its tags,
-  before you answer `y`/Enter to add another card or `n` to finish.
-- In edit mode, with marked rows, `t` offers to add or remove tags on all of
-  them.
-- `. t` filters the edit list by one tag. Empty input clears the filter.
-- Batch add accepts `:tag` lines (see [Batch Add Buffer](#batch-add-buffer)).
-  Re-adding an existing word merges the new tags into its existing ones.
-
-Tags follow a card across renames and are included in backups.
+Tags group cards by topic, such as `botany` or `reading`. Press `t` to edit a
+card's tags, or the tags of all marked cards in edit mode, and `. t` to filter
+the edit list by tag. Tags affect scheduling only through a
+[review-order filter](docs/customization.md#review-order).
 
 ### Card Back
 
-The card back is an optional free-form note on a card. It stays out of the
-review flow until you press `b`, so it suits longer notes such as etymology,
-example sentences, mnemonics or grammar patterns.
-
-Press `b` in review or edit mode to open the card back. A new back opens
-ready to type, and an existing one opens read-only; press `C-x C-q` to edit
-it. Save with `C-x C-s`. If you close the popup with unsaved edits, Decklet
-asks whether to save, discard or cancel.
-
-The card back buffer uses `org-mode`. To use another mode:
-
-```emacs-lisp
-(setq decklet-card-back-buffer-major-mode 'markdown-mode)
-```
-
-In review mode, `[BACK]` below the hint area marks cards that have a back. In
-edit mode, the `Back` column shows `♦`. The two strings are set by
-`decklet-review-card-back-indicator` and `decklet-edit-card-back-indicator`.
+The card back is an optional note for longer content, such as etymology or
+grammar patterns. Press `b` to open it. An existing back opens read-only.
+Press `C-x C-q` to edit it and `C-x C-s` to save.
 
 ### Undo
 
-Press `u` during review to go back to a previously rated or skipped card.
-The previous rating is highlighted. Press `1`–`4` to re-rate, or `n` to
-keep the original rating and move on. Re-rating also discards any later
-reviews of that card in the same session, since they were based on the old
-rating.
-
-Edit-mode rating is disabled while a review session is active.
+Press `u` in review to go back to the previous card. Press `1`–`4` to re-rate
+it, or `n` to keep the original rating.
 
 ### Daily Goal
 
-Set `decklet-review-daily-goal` to a number to show a progress bar in review
-mode. The goal only paces you. You can keep reviewing after reaching it.
+```emacs-lisp
+;; Show a progress bar toward 100 reviews a day. nil (the default) hides it.
+(setopt decklet-review-daily-goal 100)
+```
 
-The goal is separate from `limit` in [Review Order](#review-order).
-The goal is a number you aim for, and the limit is a number the queue will not
-exceed, so limits that add up to less than your goal leave the goal out of
-reach.
-
-`decklet-review-daily-goal-reached-hook` runs when you reach the goal, for
-example to show a message or play a sound. See [Hooks](#hooks).
+The goal only paces you and does not cap the queue. To cap it, use a
+[daily limit](docs/customization.md#daily-limits).
 
 ### Edit Mode Workflow
 
-Edit mode lets you work outside the normal due queue. A few ideas:
+Edit mode works outside the due queue. A few ideas:
 
-1. **Re-check "well-known" words.** Filter or sort to find mature cards and
-   check whether you still know them. If not, press `R` and rate `1` (Again)
-   to send the card back to relearning.
-2. **Learn selectively from newer cards.** Use `. l` (learning filter), sort
-   by `Added`, and rate the cards that interest you with `R`.
-3. **Archive long-interval cards.** Sort by `Due` and look at cards scheduled
-   far ahead. If a word feels fully learned, archive it with `A`.
+- **Re-check mature cards.** Sort by stability, and press `R` then `1` on any
+  word you have forgotten.
+- **Learn selectively.** Filter learning cards with `. l`, sort by `Added`,
+  and rate the ones you want with `R`.
+- **Archive learned words.** Sort by `Due` and press `A` on words you know
+  for good.
 
-To archive, unarchive or delete several cards at once, mark them with `m`,
-then press `A` or `D`.
+Mark cards with `m` to archive or delete several at once.
 
 ### Batch Add Buffer
 
-`M-x decklet-add-card-batch` opens a buffer for adding many words.
-`C-c C-c` imports everything in one go, and `C-c C-k` cancels.
-
-- Each line that does not start with `#` or `:` is a word.
-- `#` lines add hint text to the word above.
-- `:` lines add `:tag` tokens to the word above. `:botany` is stored as
-  `botany`.
-- Hint and tag lines can come in any order. Empty lines are ignored.
+`M-x decklet-add-card-batch` opens a buffer with one word per line. `#` lines
+add a hint and `:` lines add tags to the word above. `C-c C-c` imports, and
+`C-c C-k` cancels.
 
 ```text
 rose
@@ -367,13 +285,8 @@ lily
 
 ### Data Location
 
-- Base directory: `decklet-directory` (defaults to `~/.emacs.d/decklet/`)
-- Database file: `decklet-db-file` (defaults to `decklet.sqlite` under the base directory)
-- Review log: `decklet-review-log-file` (defaults to `review-log.jsonl` under the base directory)
-- Backups: `decklet-backup-directory` (defaults to `backups/` under the base directory)
-
-To move everything, set `decklet-directory` before the package loads, for
-example under `:custom`:
+Decklet keeps its data in `decklet-directory` (`~/.emacs.d/decklet/` by
+default). To move it, set the option before the package loads:
 
 ```emacs-lisp
 (use-package decklet
@@ -382,6 +295,9 @@ example under `:custom`:
 ```
 
 ## Customization
+
+This section covers the options most people change. Every option is described
+in the [customization guide](docs/customization.md).
 
 ### Review Order
 
@@ -401,151 +317,28 @@ the operations run on them from left to right.
         '(((state :learning :relearning) (sort :due :asc))
           ((state :review) shuffle (limit 120))
           ((state :new) (sort :added :desc) (limit 10) spread)))
-
-;; Bulk-import topic vocabulary, but introduce only a few words each day.
-(setopt decklet-review-order
-        '(((state :learning :relearning) (sort :due :asc))
-          ((state :review) shuffle)
-          ((and (state :new) (tag "botany")) shuffle (limit 2) spread)
-          ((and (state :new) (tag "medicine")) shuffle (limit 1) spread)
-          ((and (state :new) (tag "astronomy")) shuffle (limit 1) spread)
-          ((state :new) (sort :added :desc) (limit 10) spread)))
 ```
 
-A card belongs to the first group whose filter matches it, and it stays there
-even when that group's limit is spent. The last example therefore offers at
-most 14 new cards per day: 2 botany, 1 medicine, 1 astronomy and 10 others.
-Importing 300 botany words still brings in only 2 a day, because the botany
-group claims them before the plain `new` group can. A card no group matches is
-not offered.
-
-Filters:
-
-```emacs-lisp
-(state :new)                            ; one state
-(state :learning :relearning)           ; any of several states
-(tag "botany")                          ; cards with this tag
-(and (state :new) (tag "botany"))       ; all of these
-(or (tag "botany") (tag "flower"))      ; any of these
-(not (tag "paused"))                    ; not this
-```
-
-Operations:
-
-- `shuffle` puts the cards in random order.
-- `(sort FIELD DIRECTION)` sorts them. `FIELD` is `:due`, `:added`,
-  `:last-review`, `:stability` or `:difficulty`, and `DIRECTION` is `:asc` or
-  `:desc`. Cards without a value, such as a new card's stability, sort first
-  in ascending order.
-- `(limit N)` keeps the first `N` cards, less those the group handed out today.
-  See [Daily Limits](#daily-limits).
-- `spread`, as the last operation, mixes the cards evenly into the queue built
-  by the groups before. Without it, the cards go after them.
-
-The full grammar and the exact rules are in
-[Writing Extensions](docs/writing-extensions.md#review-order-reference).
-
-#### Daily Limits
-
-`(limit N)` caps a group at `N` cards per review day. Ratings count toward the
-limit, while opening or skipping a card does not. Restarting Emacs does not
-reset it, and unused allowance does not carry over. `N = 0` pauses the group.
-
-Use limits mainly for `new` and, if you like, `review`. A limit on `learning`
-or `relearning` also holds back short-interval repeats once it is reached.
-
-When a limit holds cards back, an empty queue tells you the daily limit is
-reached.
-
-### Interval Labels
-
-By default, review mode shows projected FSRS intervals next to rating options,
-for example `Again (10m)` and `Good (1d)`. To hide them:
-
-```emacs-lisp
-(setq decklet-review-enable-interval-labels nil)
-```
-
-### Add and Refresh
-
-When you add a word that already exists but has never been reviewed, Decklet
-resets its added date and due time to now, so it counts as newly added. This
-brings a stale new card forward, which helps most when new cards are sorted
-newest first, as in `(new (sort :added :desc))`. To turn it off:
-
-```emacs-lisp
-(setq decklet-add-and-refresh nil)
-```
+Groups can also filter by tag, cap new cards per topic, and mix cards into the
+queue. See [Review Order](docs/customization.md#review-order) in the
+customization guide.
 
 ### Scheduling
 
-Decklet schedules cards with FSRS. These options change how often you see a
-card:
-
-| Variable | Default | Meaning |
-|---|---|---|
-| `decklet-desired-retention` | `0.9` | Target probability of recall at review time. Higher means shorter intervals and more reviews; lower means longer intervals and more forgetting. |
-| `decklet-learning-steps` | `((10 :minute) (1 :day))` | Short steps a new card walks through before graduating to review. Set to nil to skip the learning stage. |
-| `decklet-relearning-steps` | `((10 :minute))` | Steps a lapsed card walks through before returning to review. Set to nil to disable. |
-| `decklet-fsrs-parameters` | `nil` | Override for the FSRS weight vector (21 floats). Nil uses the FSRS library defaults. |
-
-Each step is `(AMOUNT UNIT)`, where `UNIT` is `:sec`, `:minute`, `:hour`, or
-`:day`. Change these with `setopt` or `:custom`, which rebuild the scheduler.
-Plain `setq` after load does not.
+Decklet schedules cards with FSRS. The desired retention sets how often you
+see a card:
 
 ```emacs-lisp
-;; Aim a little lower than the default to cut daily review load.
-(setopt decklet-desired-retention 0.85)
-
-;; A gentler three-step learning ramp.
-(setopt decklet-learning-steps '((5 :minute) (30 :minute) (1 :day)))
+;; Target probability of recall at review time.
+(setopt decklet-desired-retention 0.9)
 ```
 
-`decklet-fsrs-parameters` is usually filled in by an FSRS tuner trained on
-your [review log](#review-log).
-
-### Rollover Time
-
-A review day starts at the rollover hour (default 4am). Cards due before the
-rollover count toward today.
-
-```emacs-lisp
-;; Start a new review day at 2am.
-(setq decklet-day-rollover-hour 2)
-```
-
-### Database
-
-Decklet keeps all card data in one SQLite file (`decklet-db-file`).
-`M-x decklet-open-db-file` opens it in `sqlite-mode`. The connection opens
-when needed and closes when you quit the last review or edit buffer.
-`M-x decklet-disconnect` closes it by hand.
-
-#### Backup
-
-- Decklet backs up when a review or edit session starts and quits, and only
-  when the database has changed. Set `decklet-backup-automatic` to nil to
-  back up only by hand.
-- Each backup holds the database and the review log, so a restore brings back
-  both together.
-- Decklet keeps the newest `decklet-backup-prune-max-count` backups (default
-  20) and deletes older ones. Set it to nil to keep all of them.
-
-`M-x decklet-db-backup` makes a backup now, and `M-x decklet-db-restore`
-restores one you pick from a list, newest first.
-
-### Review Log
-
-Besides the database, Decklet keeps a log of every rating in
-`decklet-review-log-file` (`review-log.jsonl` in the [base directory](#data-location)). The
-database holds each card's current state, and the log holds how it got there.
-An FSRS tuner can fit parameters to your memory from this history. The log is
-included in every backup. Its format is described in
-[Writing Extensions](docs/writing-extensions.md#review-log).
+For learning steps and FSRS parameters, see
+[Scheduling](docs/customization.md#scheduling) in the customization guide.
 
 ### Hooks
 
-Decklet runs these hooks:
+Decklet runs these hooks. They take no arguments.
 
 - `decklet-review-start-hook`: runs when a review session starts.
 - `decklet-review-quit-hook`: runs when review mode exits.
@@ -569,39 +362,19 @@ For example, to add sound effects to review:
 ```
 
 Hooks for card events (added, deleted, renamed, rated) are described in
-[Writing Extensions](docs/writing-extensions.md#lifecycle-hooks).
+[Writing Extensions](docs/extensions.md#lifecycle-hooks).
 
-### Review UI Components
+### Backup
 
-The review screen is built from component functions in two lists.
-`decklet-review-fixed-components` holds the main centered block (title,
-counters, options, word), and `decklet-review-floating-components` holds what
-sits below it (the hint and the card back mark).
-`decklet-review-fill-column` sets the text width.
+- Decklet backs up when a review or edit session starts and quits, and only
+  when the database has changed.
+- Each backup holds the database and the review log, so a restore brings back
+  both together.
+- Decklet keeps the newest 20 backups and deletes older ones.
 
-To hide the counters:
-
-```emacs-lisp
-(setq decklet-review-fixed-components
-      '(decklet-review-component-title
-        decklet-review-component-separator
-        ;; decklet-review-component-counters
-        ;; decklet-review-component-separator
-        decklet-review-component-daily-goal
-        decklet-review-component-separator
-        decklet-review-component-rates
-        decklet-review-component-separator
-        decklet-review-component-linebreak
-        decklet-review-component-word
-        decklet-review-component-linebreak
-        decklet-review-component-separator))
-```
-
-To change the text width:
-
-```emacs-lisp
-(setq decklet-review-fill-column 56)
-```
+`M-x decklet-db-backup` makes a backup now, and `M-x decklet-db-restore`
+restores one you pick from a list, newest first. Backup options are in
+[Backup](docs/customization.md#backup) in the customization guide.
 
 ## Extensions
 
@@ -610,7 +383,7 @@ statistics, live in the separate
 [`decklet-extensions`](https://github.com/yilin-zhang/decklet-extensions)
 repo.
 
-To write your own, see [Writing Extensions](docs/writing-extensions.md).
+To write your own, see [Writing Extensions](docs/extensions.md).
 
 ## License
 
