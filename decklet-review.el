@@ -240,22 +240,11 @@ Non-empty iff an undo is in progress; the head is the card on
 screen.  Advancing (next-card or re-rating) moves the head back
 onto `decklet-review--trail-past'.")
 
-(defvar decklet-review-mode-map
-  (define-keymap
-    "1" #'decklet-review-rate-again
-    "2" #'decklet-review-rate-hard
-    "3" #'decklet-review-rate-good
-    "4" #'decklet-review-rate-easy
-    "q" #'decklet-review-quit
-    "n" #'decklet-review-next-card
-    "g" #'decklet-review-refresh
-    "D" #'decklet-review-delete-card
-    "e" #'decklet-review-set-word
-    "H" #'decklet-review-set-hint
-    "t" #'decklet-review-set-tags
-    "u" #'decklet-review-undo
-    "b" #'decklet-review-show-card-back)
-  "Keymap for `decklet-review-mode'.")
+(defvar decklet-review--queue-context nil
+  "Day and rule snapshot used to validate the pending queue.")
+
+(defvar decklet-review--grading nil
+  "Non-nil while the review UI is committing a grade.")
 
 ;; Format helpers
 
@@ -712,9 +701,6 @@ mentioned whenever there is one."
      (wait (format "Nothing due right now; %s" wait))
      (t "No words to review"))))
 
-(defvar decklet-review--queue-context nil
-  "Day and rule snapshot used to validate the pending queue.")
-
 (defun decklet-review--queue-context ()
   "Return the current learning day and a copy of the review rules."
   (list (decklet-day-start-time) (copy-tree decklet-review-order)))
@@ -785,9 +771,6 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
   (when-let* ((buffer (get-buffer decklet-review-buffer-name)))
     (when (kill-buffer buffer)
       (message "Review session finished"))))
-
-(defvar decklet-review--grading nil
-  "Non-nil while the review UI is committing a grade.")
 
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next card."
@@ -986,6 +969,23 @@ is needed here."
 (dolist (hook '(decklet-cards-added-functions
                 decklet-cards-archived-functions decklet-cards-unarchived-functions))
   (add-hook hook #'decklet-review--invalidate-queue))
+
+(defvar decklet-review-mode-map
+  (define-keymap
+    "1" #'decklet-review-rate-again
+    "2" #'decklet-review-rate-hard
+    "3" #'decklet-review-rate-good
+    "4" #'decklet-review-rate-easy
+    "q" #'decklet-review-quit
+    "n" #'decklet-review-next-card
+    "g" #'decklet-review-refresh
+    "D" #'decklet-review-delete-card
+    "e" #'decklet-review-set-word
+    "H" #'decklet-review-set-hint
+    "t" #'decklet-review-set-tags
+    "u" #'decklet-review-undo
+    "b" #'decklet-review-show-card-back)
+  "Keymap for `decklet-review-mode'.")
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."

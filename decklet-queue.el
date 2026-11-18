@@ -19,6 +19,9 @@
 (require 'decklet-db)
 (require 'decklet-review-log)
 
+(defvar decklet-queue--plan-cache nil
+  "Cached input and result of the most recent queue plan.")
+
 (defun decklet-queue--shuffle (lst)
   "Return a new randomly shuffled copy of LST.
 Fisher-Yates; Emacs has no built-in shuffle."
@@ -173,9 +176,6 @@ cards back."
                         (decklet-queue--interleave-evenly queue picked)
                       (append queue picked)))))
     (list :items queue :limited limited)))
-
-(defvar decklet-queue--plan-cache nil
-  "Cached input and result of the most recent queue plan.")
 
 (defun decklet-queue--plan (&optional time)
   "Return a queue plan for TIME, shared by drawing and counters.

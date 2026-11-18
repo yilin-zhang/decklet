@@ -109,6 +109,10 @@ One of: all, review, learning, archived.")
 (defvar decklet-edit--inhibit-callback-refresh nil
   "When it is non-nil, inhibit refresh during bulk processing.")
 
+(defvar-local decklet-edit--refresh-pending nil
+  "Non-nil when the edit buffer needs a refresh on next focus.
+Refreshing it while unselected would move point off the user's row.")
+
 (defvar decklet-edit-sidecar-columns nil
   "Additional sidecar column descriptors for the edit table.
 Each descriptor is a plist with keys:
@@ -630,14 +634,6 @@ This runs for `decklet-edit-quit' and for a plain `kill-buffer' alike."
 ;;; Backup (see `decklet-backup-automatic')
 (add-hook 'decklet-edit-start-hook #'decklet-backup-session)
 (add-hook 'decklet-edit-quit-hook #'decklet-backup-session)
-
-;; When the edit buffer isn't the selected window, refresh waits until
-;; it gets focus again.  `tabulated-list-print t' in an unfocused buffer
-;; falls back to `point-min', which would move point off the user's row.
-(defvar-local decklet-edit--refresh-pending nil
-  "Non-nil when the edit buffer needs a refresh on next focus.
-Set by `decklet-edit--on-card-change' when the buffer is not selected;
-cleared by `decklet-edit--flush-pending-refresh'.")
 
 (defun decklet-edit--on-card-change (&rest _)
   "Refresh the edit buffer after a card change, or defer if not focused.
