@@ -359,8 +359,8 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
 (defun decklet-db--due-items (now)
   "Return the cards due at NOW as plists, in card-id order.
 Learning and relearning cards are due by the minute, review and new
-cards by the review day.  Each item's :state is an FSRS keyword, or
-:new for a card never reviewed."
+cards by the review day.  Each item's :effective-state is an FSRS
+keyword, or :new for a card never reviewed."
   (let ((rows (sqlite-select
                (decklet-db--ensure)
                "SELECT card_id, word, due, added_date, last_review,
@@ -383,9 +383,9 @@ cards by the review day.  Each item's :state is an FSRS keyword, or
               (list :card-id card-id :word word :due due :added added
                     :last-review last-review :stability stability
                     :difficulty difficulty
-                    :state (if last-review
-                               (decklet--normalize-fsrs-state state)
-                             :new)))
+                    :effective-state (if last-review
+                                         (decklet--normalize-fsrs-state state)
+                                       :new)))
             rows)))
 
 (defun decklet-db--next-due-time ()

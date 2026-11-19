@@ -170,7 +170,7 @@ assign both due cards and today's ratings to groups.  Unchanged inputs
 reuse the queue so counter refreshes do not reshuffle cards."
   (let* ((now (or time (current-time)))
          (day-start (decklet-day-start-time now))
-         ;; ((:card-id 7 :state :new :due "2026-11-18T08:00:00Z" ...) ...)
+         ;; ((:card-id 7 :effective-state :new :added "..." ...) ...)
          (due-cards (decklet-db--due-items now))
          ;; ((:kind "rated" :card_id 7 :pre_effective_state "new" ...) ...)
          (ratings-today (decklet-review-log-ratings-since day-start))
@@ -192,9 +192,10 @@ reuse the queue so counter refreshes do not reshuffle cards."
           (cl-loop for index below (length groups)
                    collect (seq-filter
                             (lambda (card)
-                              (eql index (funcall group-index
-                                                  (plist-get card :state)
-                                                  (plist-get card :card-id))))
+                              (eql index (funcall
+                                          group-index
+                                          (plist-get card :effective-state)
+                                          (plist-get card :card-id))))
                             due-cards)))
          ;; Distinct cards each group handed out today, in group order:
          ;; (4 90 2 0).  Repeated ratings of a card count once.
@@ -247,7 +248,8 @@ cards back."
   (let* ((now (current-time))
          (built (decklet-queue--build now))
          (count (lambda (key &rest states)
-                  (cl-count-if (lambda (card) (memq (plist-get card :state) states))
+                  (cl-count-if (lambda (card)
+                                 (memq (plist-get card :effective-state) states))
                                (plist-get built key)))))
     (list :reviewed (caar (sqlite-select
                            (decklet-db--ensure)
