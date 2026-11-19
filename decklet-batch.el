@@ -65,10 +65,9 @@ Word lines are emphasized; only the hint prefix is subdued."
   (font-lock-refresh-defaults))
 
 (defun decklet--batch-collect-cards ()
-  "Parse the batch buffer into word, hint and optional tags plists.
-Lines starting with # add hint text; lines starting with : contain
-space-separated :tag tokens.  Both attach to the preceding word and
-may be interleaved.  Validate the entire buffer before writing cards."
+  "Parse the batch buffer into plists of :word, :hint and :tags.
+The Commentary describes the line format.  A malformed line signals a
+`user-error' before any card is written."
   (let ((cards nil) (current nil))
     (dolist (line (split-string (buffer-string) "\n" t "[ \t\r]+"))
       (cond
@@ -106,11 +105,8 @@ Each lifecycle hook fires once with the events of the whole batch."
          (added 0)
          (refreshed 0)
          (exists 0))
-    ;; `with-sqlite-transaction' rolls back on any non-local exit,
-    ;; including a `quit', so no transaction is left open behind us.
     (with-sqlite-transaction conn
-      ;; Suppress per-card hook fires inside the loop; we fire one
-      ;; batch event for each hook after COMMIT.
+      ;; Each hook fires once for the whole batch, after the commit.
       (let ((decklet-cards-added-functions nil)
             (decklet-cards-field-updated-functions nil))
         (dolist (card cards)

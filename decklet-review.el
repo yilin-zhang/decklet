@@ -214,31 +214,26 @@ Entries take the same forms as in `decklet-review-fixed-components'."
   "Delay timer for hint display.")
 
 (defvar decklet-review--render-meta nil
-  "Card meta for the current word; bound for the duration of a render cycle.")
+  "Card meta of the word being rendered.")
 
 (defvar decklet-review--render-word nil
-  "Word for the current render cycle.")
+  "Word being rendered.")
 
 (defvar decklet-review--render-has-back nil
-  "Non-nil when the current word has a card back; bound during a render cycle.")
+  "Non-nil when the word being rendered has a card back.")
 
 (defvar decklet-review--render-hint nil
-  "Hint text for the current word; bound for the duration of a render cycle.
-Scoped to `decklet-review--render-buffer' so both the component and the
-post-render hint-timer decision share the same value.")
+  "Hint of the word being rendered, or nil.")
 
 (defvar decklet-review--trail-past nil
-  "Completed trail entries, most-recent first.
-Each entry is a plist (:card-id :grade :pre-meta :log-id).
-During normal forward review every rated or skipped card pushes
-onto this list.  Undo migrates entries onto
-`decklet-review--trail-future' one at a time.")
+  "Completed trail entries, newest first.
+Each entry is a plist (:card-id :grade :pre-meta :log-id).  Rating or
+skipping a card pushes one here, and undo moves them to
+`decklet-review--trail-future'.")
 
 (defvar decklet-review--trail-future nil
-  "Entries currently being revisited, head-first.
-Non-empty iff an undo is in progress; the head is the card on
-screen.  Advancing (next-card or re-rating) moves the head back
-onto `decklet-review--trail-past'.")
+  "Entries being revisited by undo, with the card on screen at the head.
+Non-nil exactly while an undo is in progress.")
 
 (defvar decklet-review--queue-context nil
   "Day and rule snapshot used to validate the pending queue.")
@@ -483,10 +478,8 @@ FIXED-OUTPUTS is centered vertically in the window."
      (propertize "REVIEWING" 'face 'decklet-review-state-review-face))))
 
 (defun decklet-review-component-counters ()
-  "Return the counter block for the instructions.
-The due and new figures are what is left to hand out today, so a
-`limit' operation in `decklet-review-order' shows up here as a smaller
-number than the deck actually holds."
+  "Return the counter line.
+The due and new figures count what is left to hand out today."
   (let* ((n-reviewed (plist-get decklet--counter :reviewed))
          (n-due-review (plist-get decklet--counter :due-review-remaining))
          (n-due-learning (plist-get decklet--counter :due-learning-remaining))
@@ -515,11 +508,9 @@ number than the deck actually holds."
               (propertize progress-bar 'face 'decklet-review-state-progress-face))))))
 
 (defun decklet-review--make-rating-option (command label meta grade undo-grade)
-  "Build a single rating option string for COMMAND with LABEL.
-The option shows COMMAND's key, LABEL, and, when
-`decklet-review-enable-interval-labels' is on, the interval FSRS
-predicts for card META at GRADE, such as (10m).  When UNDO-GRADE
-matches GRADE, LABEL gets `decklet-review-undo-highlight-face'."
+  "Return the option string for COMMAND, labeled LABEL.
+It shows COMMAND's key and, if enabled, the interval FSRS predicts for
+META at GRADE.  LABEL is highlighted when UNDO-GRADE equals GRADE."
   (concat (if (where-is-internal command (list decklet-review-mode-map))
               (substitute-command-keys
                (format "\\<decklet-review-mode-map>\\[%s]" command))
@@ -537,10 +528,8 @@ matches GRADE, LABEL gets `decklet-review-undo-highlight-face'."
             "")))
 
 (defun decklet-review-component-rates ()
-  "Return the options block for review ratings and commands.
-Interval labels are included when
-`decklet-review-enable-interval-labels' is non-nil.
-When reviewing an undone card, the previous rating is highlighted."
+  "Return the rating options line.
+On an undone card, the previous rating is highlighted."
   (let* ((meta decklet-review--render-meta)
          (undo-entry (decklet-review--trail-current-entry))
          (undo-grade (and undo-entry (plist-get undo-entry :grade)))
@@ -590,9 +579,7 @@ returned something."
 (defun decklet-review--hide-cursor ()
   "Hide the cursor and hl-line in the review buffer window."
   (when (eq major-mode 'decklet-review-mode)
-    ;; Hide cursor
     (setq-local cursor-type nil)
-    ;; Disable hl-line-mode for a cleaner UI
     (when (boundp 'hl-line-mode)
       (hl-line-mode -1))
     (when (boundp 'global-hl-line-mode)
@@ -649,19 +636,16 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 
 (defun decklet-review--trail-drop-dead (entries)
   "Return ENTRIES without leading entries whose card no longer exists.
-The delete hook removes a deleted card's entries from the trail,
-so dead entries only appear when a card vanished behind Decklet's
-back.  Discard them."
+The delete hook covers deletes made through Decklet, so this only
+catches rows removed elsewhere."
   (seq-drop-while
    (lambda (entry)
      (not (decklet-card-exists-p (plist-get entry :card-id))))
    entries))
 
 (defun decklet-review--trail-drop-later-entries (card-id)
-  "Retire CARD-ID's entries after the one currently being revisited.
-Each later entry was rated from a state the re-rate just replaced, so
-its pre-meta is stale and its rating no longer matches the database.
-Void their log records and drop them, as if they never happened."
+  "Void and drop CARD-ID's entries after the one being revisited.
+They were rated from the state the re-rate just replaced."
   (let ((dropped 0))
     (setcdr decklet-review--trail-future
             (seq-remove (lambda (entry)
@@ -684,9 +668,7 @@ Void their log records and drop them, as if they never happened."
 
 (defun decklet-review--nothing-due-message ()
   "Return the message explaining why no card is on offer.
-A daily limit may be spent, learning cards may come due later today,
-or nothing is left.  The first two can both hold, so the wait is
-mentioned whenever there is one."
+It names a spent daily limit and the wait for the next learning card."
   (decklet--refresh-counter)
   (let* ((next-due (decklet-db--next-due-time))
          (wait (and next-due
@@ -795,7 +777,6 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
           (decklet-review--trail-drop-later-entries card-id)
           (plist-put entry :grade grade)
           (push (pop decklet-review--trail-future) decklet-review--trail-past))
-      ;; Normal rating.  Snapshot pre-meta, rate, then append to the trail.
       (let* ((old-meta (decklet-db--row->card-meta row))
              (pre-meta (copy-decklet-card-meta old-meta))
              (new-log-id (decklet--rate-card-state card-id word old-meta grade)))
@@ -807,8 +788,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
       (run-hooks 'decklet-review-daily-goal-reached-hook))
     (message "Rated \"%s\" as (%s)" word
              (pcase grade (1 "Again") (2 "Hard") (3 "Good") (4 "Easy")))
-    ;; Advance to the next card.  Do not go through `next-card' since
-    ;; that would record a spurious skip on the trail for the word we just rated.
+    ;; `decklet-review-next-card' would record a skip for this card.
     (decklet-review--advance)))
 
 (defun decklet-review-undo ()
@@ -863,9 +843,7 @@ Trail entries whose card no longer exists are discarded."
       (decklet-review--render-buffer))))
 
 (defun decklet-review-set-word ()
-  "Prompt to rename the current word.
-The review buffer re-renders via the `decklet-cards-renamed-functions'
-hook; no explicit refresh is needed here."
+  "Prompt to rename the current word."
   (interactive)
   (let ((card-id (decklet--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-word card-id))))
@@ -876,10 +854,7 @@ hook; no explicit refresh is needed here."
   (decklet-prompt-set-tags (decklet--require-current-card-id "tag")))
 
 (defun decklet-review-set-hint ()
-  "Prompt to update the current card's hint.
-The review buffer re-renders via the
-`decklet-cards-field-updated-functions' hook; no explicit refresh
-is needed here."
+  "Prompt to update the current card's hint."
   (interactive)
   (let ((card-id (decklet--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-hint card-id))))
@@ -915,10 +890,8 @@ is needed here."
         ;; No session buffer will hold the connection opened above.
         (decklet-db--disconnect-if-idle)
         (message "%s" reason))
-    ;; Only fire start-hook once we know a real session will open.
-    ;; Otherwise `decklet-review-quit-hook' (fired from the review buffer's
-    ;; `kill-buffer-hook') would never run, leaving start-hook setup like
-    ;; `decklet-review--enable-resize-refresh' dangling.
+    ;; Only a session buffer's kill runs the quit hook, so the start hook
+    ;; runs only when that buffer opens.
     (run-hooks 'decklet-review-start-hook)
     (setq decklet-review--trail-past nil
           decklet-review--trail-future nil)

@@ -137,8 +137,7 @@ Sidecar columns are inserted after the built-in `Back' column.")
 
 (defmacro decklet-edit--preserving-window-position (&rest body)
   "Run BODY, then scroll so point is back on the same screen row.
-The row comes from `posn-at-point', which already counts the header
-line and wrapped lines.  Without a live window, BODY just runs."
+Without a live window, BODY just runs."
   (declare (indent 0) (debug t))
   (let ((win-sym (make-symbol "win"))
         (row-sym (make-symbol "row")))
@@ -194,11 +193,8 @@ Return point on success, or nil when CARD-ID is nil or not found."
         (goto-char target)))))
 
 (defun decklet-edit--execute-mutation (action card-ids)
-  "Apply ACTION to each of CARD-IDS, preserving the edit window position.
-Per-card refresh callbacks are suppressed while ACTION runs, so a
-single refresh fires once at the end via `unwind-protect'.  Point
-lands back on its original row when that row survived, or on the
-nearest surviving card otherwise."
+  "Apply ACTION to each of CARD-IDS, then refresh the table once.
+Point stays on its row, or moves to the nearest surviving card."
   (let ((origin-card-id (tabulated-list-get-id))
         (target-card-id (decklet-edit--nearest-surviving-card-id card-ids)))
     (decklet-edit--preserving-window-position
@@ -236,19 +232,13 @@ numerically when it is a number."
   (lambda ()
     (interactive)
     ;; `tabulated-list-sort-key' is (COLUMN . DESC), where DESC is t/nil.
+    ;; The same column toggles; another starts in its default direction.
     (let* ((current (car tabulated-list-sort-key))
-           ;; When sorting the same column, toggle direction.
-           ;; Otherwise use the column's default direction.
-           ;; Force DESC to be a strict boolean so sort key cdr is t/nil.
            (descending (if (equal current column)
                            (not (cdr tabulated-list-sort-key))
                          (not (null (member column decklet-edit--time-sort-columns))))))
-      ;; Update the global sort key and immediately redraw the table.
-      (setq tabulated-list-sort-key
-            (cons column
-                  descending))
+      (setq tabulated-list-sort-key (cons column descending))
       (decklet-edit-refresh)
-      ;; Report the selected column and direction for quick feedback.
       (message "Sort: %s (%s)"
                column
                (if descending "descending" "ascending")))))
@@ -425,10 +415,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
   (decklet-edit--apply-marks))
 
 (defun decklet-edit-refresh ()
-  "Refresh the card list buffer.
-Point is kept on the same screen line via
-`decklet-edit--preserving-window-position', so hook- and
-command-driven refreshes do not scroll the edit window."
+  "Refresh the card list buffer, keeping point on its screen line."
   (interactive)
   (decklet-edit--preserving-window-position
     (decklet-edit--refresh-table)))
@@ -489,10 +476,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (message "Filter: %s" decklet-edit--filter))
 
 (defun decklet-edit-set-word ()
-  "Rename the card at point.
-The current review card can be renamed too.
-`decklet-cards-renamed-functions' carries the change to the review
-buffer, which refreshes if the card is on screen."
+  "Rename the card at point, which may be the current review card."
   (interactive)
   (message "Updated \"%s\""
            (decklet-prompt-set-word (decklet-edit--card-id-at-point))))
@@ -524,9 +508,7 @@ buffer, which refreshes if the card is on screen."
   (decklet-edit-refresh))
 
 (defun decklet-edit-set-hint ()
-  "Set the hint for the card at point.
-`decklet-cards-field-updated-functions' carries the change to the
-review buffer, which refreshes if the updated card is on screen."
+  "Set the hint for the card at point."
   (interactive)
   (message "Updated \"%s\""
            (decklet-prompt-set-hint (decklet-edit--card-id-at-point))))
@@ -576,9 +558,7 @@ Under the `archived' filter, the action is unarchive instead."
 
 (defun decklet-edit-rate-card ()
   "Rate the card at point, regardless of its current state.
-When the current filter is `archived', the card is unarchived
-first and then rated, so rating from the archived view brings the
-card back into the active deck as a side effect."
+Under the `archived' filter, the card is unarchived first."
   (interactive)
   (when decklet-current-card-id
     (user-error "Rating is disabled while a review session is active"))
@@ -647,9 +627,7 @@ Accepts any hook signature; arguments are ignored."
             (setq decklet-edit--refresh-pending t)))))))
 
 (defun decklet-edit--flush-pending-refresh (&rest _)
-  "Flush a pending refresh when the edit buffer becomes selected.
-Installed on `window-selection-change-functions' by `decklet-edit-mode'
-and removed again when the edit buffer is killed."
+  "Flush a pending refresh when the edit buffer becomes selected."
   (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
     (when (and (eq buffer (window-buffer (selected-window)))
                (buffer-local-value 'decklet-edit--refresh-pending buffer))

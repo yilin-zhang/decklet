@@ -23,10 +23,8 @@
   :group 'decklet-db)
 
 (defcustom decklet-backup-automatic t
-  "Whether Decklet backs up the database around review and edit sessions.
-When non-nil, `decklet-db-backup' runs from the review and edit
-start and quit hooks, so every session begins and ends with a current
-snapshot pair.  Set to nil to back up only by hand."
+  "Whether to back up the database as review and edit sessions start and end.
+Set to nil to back up only by hand."
   :type 'boolean
   :group 'decklet-db)
 
@@ -163,9 +161,7 @@ chronological order."
       (sort (directory-files backup-dir t pattern) #'string>))))
 
 (defun decklet-backup--read-backup-choice (choices default)
-  "Read backup choice from CHOICES with DEFAULT using completion.
-CHOICES arrive newest-first; `display-sort-function' metadata keeps
-the completion UI from re-sorting them."
+  "Read a backup from CHOICES with DEFAULT, keeping their newest-first order."
   (let ((table (lambda (string pred action)
                  (if (eq action 'metadata)
                      '(metadata (display-sort-function . identity)
@@ -238,9 +234,7 @@ Registered by the review and edit modules on their session hooks."
       (when (yes-or-no-p (format "Restore %s to %s? "
                                  (file-name-nondirectory backup-file)
                                  decklet-db-file))
-        ;; Replacing the DB file is only unsafe when a live SQLite connection
-        ;; still holds the file handle.  If no session buffers are open, we
-        ;; can drop the handle internally and proceed.
+        ;; Release the file before replacing it.
         (when decklet-db--conn
           (decklet-db--disconnect))
         (decklet-backup--replace-db-and-log backup-file review-log-backup)

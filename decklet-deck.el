@@ -197,8 +197,7 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
     (condition-case err
         (decklet-db--upsert-card word new-meta)
       (error
-       ;; Retire the orphaned log record, then re-signal.  If the void
-       ;; fails, the log writer reports it.
+       ;; The rating never reached the DB, so void its log record.
        (decklet-review-log-append-void log-id)
        (signal (car err) (cdr err))))
     (decklet--refresh-counter)

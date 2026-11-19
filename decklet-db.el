@@ -31,10 +31,7 @@
   "SQLite connection for Decklet.")
 
 (defvar decklet-db--last-card-id nil
-  "In-memory monotonic counter for `cards.card_id' values.
-Seeded lazily from the current `MAX(card_id)' on first call,
-then incremented monotonically with each mint.  Reset to nil each
-Emacs session so the seed is recomputed from the DB on startup.")
+  "Last minted card id, seeded from `MAX(card_id)' on first use.")
 
 (defvar decklet-db-pre-connect-hook nil
   "Hook run before the SQLite connection is opened.
@@ -47,10 +44,8 @@ Use this to clean up what lives as long as the connection, such as
 sidecar processes or caches.")
 
 (defvar-local decklet-db--session-buffer nil
-  "Non-nil when the current buffer holds the Decklet session.
-Set by `decklet-db--acquire-session-buffer' in the review and edit
-buffers.  Session buffers keep the connection open while they live,
-are closed by `decklet-disconnect', and block `decklet-db-restore'.")
+  "Non-nil in the review and edit buffers, which hold the Decklet session.
+The DB connection stays open while any of them lives.")
 
 (defconst decklet-db--card-columns
   "card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty, tags"
@@ -214,12 +209,9 @@ FIELD is interpolated into SQL; only `hint' and `back' are accepted."
                     (list archived-at card-id))))
 
 (defun decklet-db--upsert-card (word card-meta)
-  "Insert or update WORD with CARD-META in the database.
-WORD is already normalized by the caller.  Only scheduling fields are
-written; content fields (hint, back) are left unchanged on conflict.
-`card_id' is inserted for new rows but intentionally excluded from the
-ON CONFLICT UPDATE clause, so a card's stable identity is preserved
-across rating updates."
+  "Insert or update WORD, already normalized, with CARD-META.
+Only scheduling fields are written.  An existing row keeps its
+`card_id', hint and back."
   (let ((conn (decklet-db--ensure)))
     (sqlite-execute
      conn

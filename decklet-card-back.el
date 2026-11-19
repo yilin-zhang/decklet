@@ -48,9 +48,7 @@ the buffer has been written."
 
 (defun decklet-card-back--kill-buffer-query ()
   "`kill-buffer-query-functions' handler for `decklet-card-back-mode'.
-Prompts to save before killing a modified card-back buffer so edits
-aren't silently lost; returns nil to cancel the kill if the user
-declines both save and discard."
+Offer to save a modified buffer, and return nil if the user cancels."
   (if (not (buffer-modified-p))
       t
     (pcase (read-char-choice
@@ -113,11 +111,9 @@ Review and edit call this while their buffer is being killed."
       (when back
         (insert back))
       (goto-char (point-min)))
-    ;; read-only by default
+    ;; An existing back opens read-only.
     (setq buffer-read-only (and back t))
-    ;; Loading content from the DB isn't a user edit; clear the modified
-    ;; flag so `decklet-card-back--kill-buffer-query' doesn't prompt on a
-    ;; buffer the user hasn't actually touched.
+    ;; Loading is not an edit, so killing the buffer must not prompt.
     (set-buffer-modified-p nil)
     (decklet-card-back-mode 1)))
 

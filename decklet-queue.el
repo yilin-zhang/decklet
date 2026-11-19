@@ -239,12 +239,10 @@ reuse the queue so counter refreshes do not reshuffle cards."
           (plist-get (decklet-queue--build) :queue)))
 
 (defun decklet-queue--counts ()
-  "Return counter plist from database state.
-The `:due-review', `:due-learning' and `:new' keys count the cards due
-today.  Their `-remaining' companions count what `decklet-review-order'
-will still hand out, which is smaller whenever a group has a `limit'
-operation.  `:limited' is non-nil when such a limit is what is holding
-cards back."
+  "Return the review counter plist.
+`:due-review', `:due-learning' and `:new' count the cards due today.
+Their `-remaining' companions count what the queue still hands out,
+and `:limited' is non-nil when a daily limit holds cards back."
   (let* ((now (current-time))
          (built (decklet-queue--build now))
          (count (lambda (key &rest states)

@@ -25,8 +25,6 @@
   (set-default symbol value)
   (setq decklet--fsrs-scheduler nil))
 
-;; Shared configuration is defined in decklet.el.
-
 (defcustom decklet-desired-retention 0.9
   "Desired retention (between 0.0 and 1.0) for scheduling reviews.
 Higher values (closer to 1.0) mean more frequent reviews.
@@ -213,9 +211,7 @@ Simulates one FSRS review without mutating META."
     (fsrs-timestamp-difference (fsrs-card-due new-card) review-time)))
 
 (defun decklet--update-meta-with-grade (meta grade)
-  "Return a new card META with GRADE applied via FSRS.
-Does not mutate META; the returned value is a fresh copy with the
-scheduling fields updated."
+  "Return a copy of card META with GRADE applied via FSRS."
   (let ((new-card (car (decklet--simulate-fsrs-review meta grade))))
     (decklet--apply-fsrs-card (copy-decklet-card-meta meta) new-card)))
 

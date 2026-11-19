@@ -34,17 +34,14 @@ treat the file as append-only and parse it one JSON object per line."
   :group 'decklet-review-log)
 
 (defvar decklet-review-log--next-record-id nil
-  "In-memory monotonic counter for review log record ids.
-Seeded lazily on the first mint; cross-session monotonicity holds
-as long as the system clock advances.")
+  "Last minted review log record id, or nil before the first mint.")
 
 ;; Low-level writer
 
 (defun decklet-review-log--append-line (record)
   "Append RECORD plist as one JSONL line to `decklet-review-log-file'.
-RECORD nil values are serialised as JSON null.  Errors are caught
-and reported via `message'; the function returns non-nil on a
-successful write, nil on failure."
+Return non-nil on success.  A failed write is reported with `message'
+and returns nil."
   (condition-case err
       (progn
         (when-let* ((dir (file-name-directory decklet-review-log-file)))
@@ -64,12 +61,10 @@ successful write, nil on failure."
 ;; Public append API
 
 (defun decklet-review-log-append-rated (word card-id grade old-meta new-meta)
-  "Append a rated event to the review log.
-WORD is the card's word at the time of rating.  CARD-ID is its
-stable card id (`decklet-card-meta-card-id').  GRADE is the rating,
-1-4.  OLD-META is the card meta before this rating; NEW-META is the
-meta after FSRS scheduled the rating.  Returns the new record id on
-success, nil on write failure."
+  "Append a rated event to the review log and return its record id.
+WORD and CARD-ID identify the card, GRADE is 1-4, and OLD-META and
+NEW-META are the card meta before and after the rating.  Return nil
+if the write fails."
   (let* ((now-str (decklet--now))
          (record-id (decklet--mint-monotonic-id
                      'decklet-review-log--next-record-id))
