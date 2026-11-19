@@ -74,6 +74,21 @@ Names are case-sensitive, nonempty, and contain no whitespace or colon."
       (user-error "Invalid tag: %S" tag)))
   (sort (delete-dups (copy-sequence tags)) #'string<))
 
+(defun decklet--normalize-word (word)
+  "Normalize WORD and signal an error if empty."
+  (let* ((trimmed (string-trim (or word "")))
+         (single-line (replace-regexp-in-string "[\r\n]+" " " trimmed)))
+    (if (string-empty-p single-line)
+        (user-error "Word cannot be empty")
+      single-line)))
+
+(defun decklet--normalize-optional-text (text)
+  "Trim TEXT and return nil if blank."
+  (when text
+    (let ((trimmed (string-trim text)))
+      (unless (string-empty-p trimmed)
+        trimmed))))
+
 ;; Lifecycle hooks for extensions.  Each is called with one argument,
 ;; a non-empty list of per-card event plists.  A batch add fires it once
 ;; for the whole batch.  Every event has a `:card-id'; each hook's

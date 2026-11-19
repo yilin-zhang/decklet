@@ -212,8 +212,9 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
 
 (defun decklet-set-card-word (card-id new-word)
   "Rename CARD-ID to NEW-WORD and return the normalized new value."
-  (let* ((old-word (decklet-get-card-word card-id))
-         (normalized (decklet-db--update-word card-id new-word)))
+  (let ((old-word (decklet-get-card-word card-id))
+        (normalized (decklet--normalize-word new-word)))
+    (decklet-db--update-word card-id normalized)
     (unless (string-equal old-word normalized)
       (decklet-review-log-append-rename card-id old-word normalized)
       (decklet-fire-one-card-event 'decklet-cards-renamed-functions
@@ -226,7 +227,7 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
   "Update CARD-ID's card hint to HINT.
 Return non-nil when the stored value changed."
   (let* ((row (decklet-db--require-card-row card-id))
-         (normalized (decklet-db--normalize-optional-text hint)))
+         (normalized (decklet--normalize-optional-text hint)))
     (unless (equal (plist-get row :hint) normalized)
       (decklet-db--update-card-text-field card-id 'hint normalized)
       (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
@@ -237,7 +238,7 @@ Return non-nil when the stored value changed."
   "Update CARD-ID's card back to CONTENT.
 Return non-nil when the stored value changed."
   (let* ((row (decklet-db--require-card-row card-id))
-         (normalized (decklet-db--normalize-optional-text content)))
+         (normalized (decklet--normalize-optional-text content)))
     (unless (equal (plist-get row :back) normalized)
       (decklet-db--update-card-text-field card-id 'back normalized)
       (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
@@ -296,7 +297,7 @@ The plist has the touched card's :card-id, a :message for the user,
 and a :status of `added' for a new card, `refreshed' when an unreviewed
 card got a new added date, or `exists' when nothing changed.  Only an
 added card fires `decklet-cards-added-functions'."
-  (setq word (decklet-db--normalize-word word))
+  (setq word (decklet--normalize-word word))
   (let* ((row (decklet-db--select-card-row-by-word word))
          (meta (and row (decklet-db--row->card-meta row))))
     (cond

@@ -57,21 +57,6 @@ are closed by `decklet-disconnect', and block `decklet-db-restore'.")
   "Column list shared by card SELECTs that feed `decklet-db--normalize-row'.
 Column order must match `decklet-db--normalize-row's `pcase-let'.")
 
-(defun decklet-db--normalize-word (word)
-  "Normalize WORD and signal an error if empty."
-  (let* ((trimmed (string-trim (or word "")))
-         (single-line (replace-regexp-in-string "[\r\n]+" " " trimmed)))
-    (if (string-empty-p single-line)
-        (user-error "Word cannot be empty")
-      single-line)))
-
-(defun decklet-db--normalize-optional-text (text)
-  "Trim TEXT and return nil if blank."
-  (when text
-    (let ((trimmed (string-trim text)))
-      (unless (string-empty-p trimmed)
-        trimmed))))
-
 (defun decklet-db--normalize-row (row)
   "Turn ROW, selected with `decklet-db--card-columns', into a card plist.
 Text is normalized when written, so it is taken as stored."
@@ -230,12 +215,12 @@ FIELD is interpolated into SQL; only `hint' and `back' are accepted."
 
 (defun decklet-db--upsert-card (word card-meta)
   "Insert or update WORD with CARD-META in the database.
-Only scheduling fields are written; content fields (hint, back) are
-left unchanged on conflict.  `card_id' is inserted for new rows but
-intentionally excluded from the ON CONFLICT UPDATE clause, so a
-card's stable identity is preserved across rating updates."
-  (let* ((word (decklet-db--normalize-word word))
-         (conn (decklet-db--ensure)))
+WORD is already normalized by the caller.  Only scheduling fields are
+written; content fields (hint, back) are left unchanged on conflict.
+`card_id' is inserted for new rows but intentionally excluded from the
+ON CONFLICT UPDATE clause, so a card's stable identity is preserved
+across rating updates."
+  (let ((conn (decklet-db--ensure)))
     (sqlite-execute
      conn
      "INSERT INTO cards (card_id, word, added_date, last_review, due, state, step, stability, difficulty)
@@ -289,19 +274,14 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
             "SELECT COALESCE(MAX(card_id), 0) FROM cards;")))))
 
 (defun decklet-db--update-word (card-id new-word)
-  "Rename CARD-ID to NEW-WORD in the database, return normalized new word."
-  (let* ((conn (decklet-db--ensure))
-         (row (or (decklet-db--select-card-row card-id)
-                  (user-error "No card found for id %s" card-id)))
-         (old-word (plist-get row :word))
-         (new-word (decklet-db--normalize-word new-word)))
-    (if (string-equal old-word new-word)
-        old-word
+  "Rename CARD-ID to NEW-WORD, already normalized by the caller."
+  (let ((old-word (plist-get (decklet-db--require-card-row card-id) :word)))
+    (unless (string-equal old-word new-word)
       (when (decklet-db--select-card-row-by-word new-word)
         (user-error "Word \"%s\" already exists in the deck" new-word))
-      (sqlite-execute conn "UPDATE cards SET word = ? WHERE card_id = ?;"
-                      (list new-word card-id))
-      new-word)))
+      (sqlite-execute (decklet-db--ensure)
+                      "UPDATE cards SET word = ? WHERE card_id = ?;"
+                      (list new-word card-id)))))
 
 (defun decklet-db--filter-sql (filter)
   "Return (SQL . PARAMS) for FILTER."
