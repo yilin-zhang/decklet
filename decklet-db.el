@@ -259,13 +259,10 @@ card's stable identity is preserved across rating updates."
            (decklet-card-meta-difficulty card-meta)))))
 
 (defun decklet-db--update-tags (card-id tags)
-  "Replace CARD-ID's TAGS and return the normalized list."
-  (let ((tags (decklet-normalize-tags tags)))
-    (decklet-db--require-card-row card-id)
-    (sqlite-execute (decklet-db--ensure)
-                    "UPDATE cards SET tags = ? WHERE card_id = ?;"
-                    (list (json-serialize (vconcat tags)) card-id))
-    tags))
+  "Set CARD-ID's TAGS, already normalized by the caller."
+  (sqlite-execute (decklet-db--ensure)
+                  "UPDATE cards SET tags = ? WHERE card_id = ?;"
+                  (list (json-serialize (vconcat tags)) card-id)))
 
 (defun decklet-db--tag-map ()
   "Return a hash table mapping every existing card id to its current tags."
@@ -306,7 +303,7 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
                       (list new-word card-id))
       new-word)))
 
-(defun decklet-db--edit-filter-sql (filter)
+(defun decklet-db--filter-sql (filter)
   "Return (SQL . PARAMS) for FILTER."
   (let ((s-review (decklet-fsrs-state-string :review))
         (s-learning (decklet-fsrs-state-string :learning))
@@ -323,7 +320,7 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
 (defun decklet-db--select-card-rows (&optional filter)
   "Return cards filtered by FILTER, ordered by word."
   (let ((conn (decklet-db--ensure)))
-    (pcase-let ((`(,where . ,params) (decklet-db--edit-filter-sql filter)))
+    (pcase-let ((`(,where . ,params) (decklet-db--filter-sql filter)))
       (mapcar
        #'decklet-db--normalize-row
        (sqlite-select conn

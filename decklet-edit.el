@@ -420,7 +420,7 @@ When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
   "Rebuild and reprint the edit table without touching window position."
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (tabulated-list-init-header)
-  (setq tabulated-list-entries (delq nil (decklet-edit--entries)))
+  (setq tabulated-list-entries (decklet-edit--entries))
   (tabulated-list-print t)
   (decklet-edit--apply-marks))
 
