@@ -96,13 +96,22 @@ The Commentary describes the line format.  A malformed line signals a
     (when current (push current cards))
     (nreverse cards)))
 
+(defun decklet-batch--close-buffer (buffer)
+  "Close BUFFER's window and kill BUFFER, or kill BUFFER directly."
+  (when (buffer-live-p buffer)
+    (if-let* ((window (get-buffer-window buffer 0)))
+        (quit-window t window)
+      (kill-buffer buffer))))
+
 (defun decklet-add-card-batch-confirm ()
   "Add every card in the batch buffer and report what happened.
 Each lifecycle hook fires once with the events of the whole batch."
   (interactive nil decklet-add-card-batch-mode)
   (unless (derived-mode-p 'decklet-add-card-batch-mode)
     (user-error "Not in a Decklet batch buffer"))
-  (let ((batch-buffer (current-buffer)))
+  (let* ((batch-buffer (current-buffer))
+         (narrowed (buffer-narrowed-p))
+         (done t))
     (decklet-with-db
       (let* ((cards (decklet--batch-collect-cards))
              (conn (decklet-db--ensure))
@@ -143,7 +152,15 @@ Each lifecycle hook fires once with the events of the whole batch."
         (when field-events
           (decklet-run-hook-isolated 'decklet-cards-field-updated-functions
                                      (nreverse field-events)))
-        (when (functionp decklet-add-card-batch--on-confirm)
+        ;; When narrowed, remove only the imported region and keep the buffer
+        ;; open (skipping `:on-confirm') if other entries remain outside it.
+        (when (and narrowed (buffer-live-p batch-buffer))
+          (with-current-buffer batch-buffer
+            (let ((inhibit-read-only t))
+              (delete-region (point-min) (point-max))
+              (widen))
+            (setq done (string-blank-p (buffer-string)))))
+        (when (and done (functionp decklet-add-card-batch--on-confirm))
           (condition-case err
               (funcall decklet-add-card-batch--on-confirm
                        (mapcar (lambda (card) (plist-get card :word)) cards))
@@ -153,12 +170,11 @@ Each lifecycle hook fires once with the events of the whole batch."
               (format "Batch confirmation callback failed: %s"
                       (error-message-string err))
               :error))))
-        (message "Imported %d: %d added, %d refreshed, %d already existed"
-                 (length cards) added refreshed exists)))
-    (when (buffer-live-p batch-buffer)
-      (if-let* ((window (get-buffer-window batch-buffer 0)))
-          (quit-window t window)
-        (kill-buffer batch-buffer)))))
+        (message "Imported %d: %d added, %d refreshed, %d already existed%s"
+                 (length cards) added refreshed exists
+                 (if done "" " (remaining entries kept)"))))
+    (when done
+      (decklet-batch--close-buffer batch-buffer))))
 
 (defun decklet-add-card-batch-cancel ()
   "Cancel batch import and close the buffer."
@@ -166,7 +182,7 @@ Each lifecycle hook fires once with the events of the whole batch."
   (unless (derived-mode-p 'decklet-add-card-batch-mode)
     (user-error "Not in a Decklet batch buffer"))
   (message "Batch import canceled")
-  (quit-window t))
+  (decklet-batch--close-buffer (current-buffer)))
 
 (defun decklet-add-card-batch (&optional words &rest options)
   "Open a buffer for batch word entry.
@@ -184,10 +200,11 @@ OPTIONS is a plist supporting :buffer-name, :title, :on-confirm and
             (replace-regexp-in-string
              "%" "%%" (or (plist-get options :title) "Decklet Batch Add"))
             decklet-add-card-batch--on-confirm (plist-get options :on-confirm))
-      (when words
+      (when (or words options)
         (let ((inhibit-read-only t))
           (erase-buffer)
-          (insert (string-join words "\n") "\n"))
+          (when words
+            (insert (string-join words "\n") "\n")))
         (goto-char (point-min))))
     (pop-to-buffer buffer)
     (message "%sType %s to confirm, %s to cancel."
