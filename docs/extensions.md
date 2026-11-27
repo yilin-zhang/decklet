@@ -60,7 +60,7 @@ The review and edit buffers refresh themselves through the field-updated hook.
 Paths are resolved against `decklet-directory` at call time, so changing
 `decklet-directory` (for example in a multi-deck switcher) moves every file
 together. Store relative paths in extension `defcustom` options (such as
-`"images"` or `"audio-cache/my-tts"`) and resolve them with
+`"images"` or `"audio/my-tts"`) and resolve them with
 `(expand-file-name my-dir decklet-directory)` on use.
 
 Core exposes `(decklet-db-file)` and `(decklet-review-log-file)` for the
