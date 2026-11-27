@@ -278,76 +278,91 @@ CARD-IDS can be a single card id or a list of card ids."
 
 (defun decklet-edit--entries ()
   "Return tabulated list entries for the edit buffer."
-  (mapcar
-   (lambda (row)
-     (pcase-let* (((map :card-id :word :hint :tags :back :added :last-review :due
-                        :state :stability :difficulty)
-                   row)
-                  (state (decklet--normalize-fsrs-state state))
-                  (effective-state (decklet-card-effective-state state last-review))
-                  (word-face (if (eq decklet-edit--filter 'archived)
-                                 'decklet-edit-word-archived-face
-                               'decklet-edit-word-face))
-                  (state-face (pcase effective-state
-                                (:new 'decklet-edit-state-new-face)
-                                (:review 'decklet-edit-state-review-face)
-                                (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
-                  (state-text (decklet-fsrs-state-string effective-state))
-                  (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
-                  (hint (if hint
-                            (replace-regexp-in-string
-                             "[\r\n]+"
-                             (lambda (_line-break)
-                               (propertize "↵" 'face 'decklet-edit-metadata-face))
-                             hint)
-                          "")))
-       (list card-id
-             (vconcat
-              (vector
-               (propertize display-word 'face word-face 'decklet-sort word)
-               hint
-               (propertize (string-join tags " ") 'face 'decklet-color-tags
-                           'help-echo (string-join tags " "))
-               (if back
-                   (propertize decklet-edit-card-back-indicator
-                               'face 'decklet-edit-card-back-indicator-face)
-                 ""))
-              (apply #'vector
-                     (mapcar (lambda (column)
-                               (or (funcall (plist-get column :value) row) ""))
-                             decklet-edit-sidecar-columns))
-              (vector
-               (propertize state-text 'face state-face)
-               (propertize (decklet-edit--format-timestamp added)
-                           'face 'decklet-edit-metadata-face
-                           'decklet-sort added)
-               (propertize (decklet-edit--format-timestamp last-review)
-                           'face 'decklet-edit-metadata-face
-                           'decklet-sort last-review)
-               (propertize (decklet-edit--format-timestamp due)
-                           'face 'decklet-edit-metadata-face
-                           'decklet-sort due)
-               (propertize (if stability (format "%.3f" stability) "")
-                           'face 'decklet-edit-metadata-face
-                           'decklet-sort stability)
-               (propertize (if difficulty (format "%.3f" difficulty) "")
-                           'face 'decklet-edit-metadata-face
-                           'decklet-sort difficulty))))))
-   (seq-filter
-    (lambda (row) (or (null decklet-edit--tag-filter)
-                      (member decklet-edit--tag-filter (plist-get row :tags))))
-    (decklet-db--select-card-rows decklet-edit--filter))))
+  (let ((entries
+         (mapcar
+          (lambda (row)
+            (pcase-let* (((map :card-id :word :hint :tags :back :added :last-review :due
+                               :state :stability :difficulty)
+                          row)
+                         (state (decklet--normalize-fsrs-state state))
+                         (effective-state (decklet-card-effective-state state last-review))
+                         (word-face (if (eq decklet-edit--filter 'archived)
+                                        'decklet-edit-word-archived-face
+                                      'decklet-edit-word-face))
+                         (state-face (pcase effective-state
+                                       (:new 'decklet-edit-state-new-face)
+                                       (:review 'decklet-edit-state-review-face)
+                                       (_ 'decklet-edit-state-learning-face))) ; :learning or :relearning
+                         (state-text (decklet-fsrs-state-string effective-state))
+                         (display-word (replace-regexp-in-string "[\r\n]+" "↵" word nil 'literal))
+                         (hint (if hint
+                                   (replace-regexp-in-string
+                                    "[\r\n]+"
+                                    (lambda (_line-break)
+                                      (propertize "↵" 'face 'decklet-edit-metadata-face))
+                                    hint)
+                                 "")))
+              (list card-id
+                    (vconcat
+                     (vector
+                      (propertize display-word 'face word-face 'decklet-sort word)
+                      hint
+                      (propertize (string-join tags " ") 'face 'decklet-color-tags
+                                  'help-echo (string-join tags " "))
+                      (if back
+                          (propertize decklet-edit-card-back-indicator
+                                      'face 'decklet-edit-card-back-indicator-face)
+                        ""))
+                     (apply #'vector
+                            (mapcar (lambda (column)
+                                      (or (funcall (plist-get column :value) row) ""))
+                                    decklet-edit-sidecar-columns))
+                     (vector
+                      (propertize state-text 'face state-face)
+                      (propertize (decklet-edit--format-timestamp added)
+                                  'face 'decklet-edit-metadata-face
+                                  'decklet-sort added)
+                      (propertize (decklet-edit--format-timestamp last-review)
+                                  'face 'decklet-edit-metadata-face
+                                  'decklet-sort last-review)
+                      (propertize (decklet-edit--format-timestamp due)
+                                  'face 'decklet-edit-metadata-face
+                                  'decklet-sort due)
+                      (propertize (if stability (format "%.3f" stability) "")
+                                  'face 'decklet-edit-metadata-face
+                                  'decklet-sort stability)
+                      (propertize (if difficulty (format "%.3f" difficulty) "")
+                                  'face 'decklet-edit-metadata-face
+                                  'decklet-sort difficulty))))))
+          (seq-filter
+           (lambda (row) (or (null decklet-edit--tag-filter)
+                             (member decklet-edit--tag-filter (plist-get row :tags))))
+           (decklet-db--select-card-rows decklet-edit--filter)))))
+    (decklet-edit--prune-marks entries)
+    entries))
 
-(defun decklet-edit--apply-marks ()
-  "Apply mark overlays to all currently-marked rows."
-  (remove-overlays (point-min) (point-max) 'decklet-mark t)
-  (save-excursion
-    (goto-char (point-min))
-    (while (< (point) (point-max))
-      (when-let* ((card-id (tabulated-list-get-id)))
-        (when (gethash card-id decklet-edit--marked)
-          (decklet-edit--add-mark-overlay)))
-      (forward-line 1))))
+(defun decklet-edit--prune-marks (entries)
+  "Drop marks whose card id is no longer present in ENTRIES."
+  (when (and decklet-edit--marked (> (hash-table-count decklet-edit--marked) 0))
+    (let ((visible (make-hash-table :test 'eql :size (length entries)))
+          (stale nil))
+      (dolist (entry entries)
+        (puthash (car entry) t visible))
+      (maphash (lambda (id _value)
+                 (unless (gethash id visible)
+                   (push id stale)))
+               decklet-edit--marked)
+      (dolist (id stale)
+        (remhash id decklet-edit--marked)))))
+
+(defun decklet-edit--print-entry (id cols)
+  "Insert tabulated-list entry ID with COLS and draw mark overlays if marked."
+  (let ((beg (point)))
+    (tabulated-list-print-entry id cols)
+    (when (and decklet-edit--marked (gethash id decklet-edit--marked))
+      (save-excursion
+        (goto-char beg)
+        (decklet-edit--add-mark-overlay)))))
 
 (defun decklet-edit--marked-card-ids ()
   "Return a list of marked card ids."
@@ -364,8 +379,10 @@ CARD-IDS can be a single card id or a list of card ids."
     (let ((row-ov (make-overlay bol eol))
           (ind-ov (make-overlay bol (1+ bol))))
       (overlay-put row-ov 'decklet-mark t)
+      (overlay-put row-ov 'evaporate t)
       (overlay-put row-ov 'face 'decklet-edit-mark-face)
       (overlay-put ind-ov 'decklet-mark t)
+      (overlay-put ind-ov 'evaporate t)
       (overlay-put ind-ov 'display
                    (propertize "*" 'face 'decklet-edit-mark-indicator-face)))))
 
@@ -400,9 +417,7 @@ CARD-IDS can be a single card id or a list of card ids."
   "Rebuild and reprint the edit table without touching window position."
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (tabulated-list-init-header)
-  (setq tabulated-list-entries (decklet-edit--entries))
-  (tabulated-list-print t)
-  (decklet-edit--apply-marks))
+  (tabulated-list-print t))
 
 (defun decklet-edit-refresh ()
   "Refresh the card list buffer, keeping point on its screen line."
@@ -691,6 +706,8 @@ Accepts any hook signature; arguments are ignored."
   (decklet-db--acquire-session-buffer)
   (setq decklet-edit--marked (make-hash-table :test 'eql))
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
+  (setq tabulated-list-entries #'decklet-edit--entries)
+  (setq tabulated-list-printer #'decklet-edit--print-entry)
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)
   ;; Global, so it is installed only while an edit buffer exists and

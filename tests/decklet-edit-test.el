@@ -54,8 +54,21 @@ clears marks so hidden cards cannot be deleted."
       (should-error (decklet-edit-test--confirm #'decklet-edit-delete-card)
                     :type 'user-error)
       (should (equal '("delta" "gamma") (sort (decklet-list-words) #'string<)))
-      ;; With no marks left, delete removes the card at point.
+      ;; Removing a filtered tag drops the disappeared row's mark too.
       (decklet-edit-filter-toggle-archive)
+      (decklet-set-card-tags (decklet-test--card-id "delta") '("x"))
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "x")))
+        (decklet-edit-filter-tag))
+      (decklet-edit--goto-card-id (decklet-test--card-id "delta"))
+      (decklet-edit-mark-at-point)
+      (decklet-remove-card-tags (decklet-test--card-id "delta") '("x"))
+      (decklet-edit-refresh)
+      (should-error (decklet-edit-test--confirm #'decklet-edit-delete-card)
+                    :type 'user-error)
+      (should (equal '("delta" "gamma") (sort (decklet-list-words) #'string<)))
+      ;; With no marks left, delete removes the card at point.
+      (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "")))
+        (decklet-edit-filter-tag))
       (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
       (should (equal '("delta") (decklet-list-words))))))
