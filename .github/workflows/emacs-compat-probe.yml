@@ -1,0 +1,30 @@
+name: Emacs Compatibility Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        emacs-version: ["29.1", "29.4", "30.1", "30.2", "31.1"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Emacs ${{ matrix.emacs-version }}
+        uses: purcell/setup-emacs@master
+        with:
+          version: ${{ matrix.emacs-version }}
+
+      - name: Byte-compile and run ERT tests
+        run: |
+          emacs --version
+          FSRS_DIR="$(./scripts/check-deps.sh)"
+          emacs --batch -Q -L "$FSRS_DIR" -L . \
+            --eval '(setq byte-compile-error-on-warn t)' \
+            -f batch-byte-compile decklet*.el
+          find . -name '*.elc' ! -path './scripts/.cache/*' -delete
+          ./scripts/check-ert.sh
