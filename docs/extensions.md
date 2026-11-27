@@ -28,7 +28,7 @@ worked examples.
 | `(decklet-get-card-meta CARD-ID)` | `decklet-card-meta` struct or nil |
 | `(decklet-get-card-word CARD-ID)` | current word string or nil |
 | `(decklet-get-card-id-by-word WORD)` | card id or nil |
-| `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all` (default), `review`, `learning`, or `archived` |
+| `(decklet-list-words &optional FILTER)` | list of words; FILTER is `all` (default, active non-archived cards), `review`, `learning`, or `archived` |
 | `(decklet-db-due-counts-by-date DAY-START CUTOFF)` | plist `(:rows :overdue)`; `:rows` is a list of `(DATE-STRING COUNT)` between the two time values, `:overdue` counts cards due before `DAY-START` |
 | `(decklet-review-log-ratings-since CUTOFF)` | `rated` log records at or after the time `CUTOFF`, newest first, without voided ones; each is a plist with the fields listed under [Review log](#review-log) |
 
@@ -43,7 +43,7 @@ worked examples.
 | `(decklet-remove-card-tags CARD-ID TAGS)` | remove only the specified tags |
 | `(decklet-set-card-word CARD-ID NEW-WORD)` | rename a card's word; fires renamed hook |
 | `(decklet-delete-card CARD-ID)` | delete a card; fires deleted hook |
-| `(decklet-archive-card CARD-ID)` / `(decklet-unarchive-card CARD-ID)` | fire archived/unarchived hooks |
+| `(decklet-archive-card CARD-ID)` / `(decklet-unarchive-card CARD-ID)` | archive or unarchive; fire hooks when state changes |
 | `(decklet-rate-card CARD-ID GRADE &optional PRIOR-GRADE)` | grade a card; fires rated hook |
 | `(decklet-set-fsrs-parameters PARAMS)` | install FSRS weights and drop the cached scheduler |
 
@@ -68,13 +68,22 @@ case-insensitive file system.
 The review and edit buffers hold the SQLite connection while they live. Other
 code that calls the API opens it when needed. Wrap one-shot commands outside a
 session in `(decklet-with-db BODY...)`, which disconnects afterward when no
-session buffer is open (and shares the connection across nested calls).
+session buffer is open and shares the connection across nested calls:
+
+```emacs-lisp
+(decklet-with-db
+  (when-let* ((card-id (decklet-get-card-id-by-word word)))
+    (decklet-get-card-hint card-id)))
+```
 
 - `decklet-db-pre-connect-hook` runs before each connection opens. Signal an
   error, usually a `user-error`, to refuse it. This guards every command that
   needs the database.
-- `decklet-db-pre-disconnect-hook` runs before the connection closes, for
-  cleaning up sidecar resources.
+- `decklet-db-pre-disconnect-hook` runs before the connection closes, including
+  at the end of a one-shot `decklet-with-db` outside a session. Use it for
+  locks or DB caches. Long-lived helper processes that should stay warm across
+  one-shot commands should stop on `decklet-review-quit-hook` /
+  `decklet-edit-quit-hook` and an idle timer.
 
 ### Faces
 
@@ -126,9 +135,10 @@ Each entry of `decklet-edit-sidecar-columns` adds a column after `Back`:
 
 ## Lifecycle hooks
 
-Each hook takes one argument, a list of per-card event plists. Bulk operations
-such as batch add fire once with all events. Every event has `:card-id`, plus
-the keys below. UI hooks are listed in the [README](../README.md#hooks).
+Each hook takes one argument, a list of per-card event plists. Batch add fires
+once with all events; edit-mode bulk actions fire per card. Every event has
+`:card-id`, plus the keys below. Subscriber errors are caught and reported as
+warnings. UI hooks are listed in the [README](../README.md#hooks).
 
 | Hook | Extra keys | Fires when |
 |---|---|---|
@@ -137,8 +147,11 @@ the keys below. UI hooks are listed in the [README](../README.md#hooks).
 | `decklet-cards-renamed-functions` | `:old-word`, `:new-word` | a card's word changes |
 | `decklet-cards-archived-functions` | | a card is archived |
 | `decklet-cards-unarchived-functions` | | a card is unarchived |
-| `decklet-cards-field-updated-functions` | `:field` (`hint`, `back`, `tags`, or your own symbol such as `image`) | a field or sidecar changes |
+| `decklet-cards-field-updated-functions` | `:field` (`hint`, `back`, `tags`, `added-date`, or your own symbol such as `image`) | a field or sidecar changes |
 | `decklet-cards-rated-functions` | `:old-meta`, `:grade`, `:new-meta`, `:prior-grade` | a card is rated in review or edit mode |
+
+To notify review and edit buffers when an extension updates its own sidecar,
+call `(decklet-fire-one-card-event 'decklet-cards-field-updated-functions :card-id card-id :field 'image)`.
 
 ```emacs-lisp
 (defun my/on-cards-deleted (events)

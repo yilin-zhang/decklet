@@ -172,7 +172,7 @@ To write your own component, see
 
 Adding a word that exists but was never reviewed resets its added and due time
 to now. This brings a stale new card forward when new cards are sorted newest
-first. To turn it off:
+first. Archived cards stay archived. To turn this off:
 
 ```emacs-lisp
 (setopt decklet-add-and-refresh nil)

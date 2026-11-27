@@ -69,11 +69,11 @@ It is built differently from many SRS tools:
 ### Edit Mode
 
 ```text
-Word         Hint                  Back  State      Added            Last Review       Due               Stability Difficulty
-----------------------------------------------------------------------------------------------------------------------------
-lucid        /ˈluːsɪd/             ♦     review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
-zephyr       /ˈzefər/                    learning   2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  12.220    4.050
-candor       /ˈkændər/             ♦     review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
+Word         Hint                  Tags            Back  State      Added            Last Review       Due               Stability Difficulty
+---------------------------------------------------------------------------------------------------------------------------------------------
+lucid        /ˈluːsɪd/             reading         ♦     review     2025-04-12 09:18 2025-04-20 08:02  2025-05-18 04:00  32.410    3.120
+zephyr       /ˈzefər/              nature                learning   2025-04-03 10:31 2025-04-16 07:54  2025-04-28 04:00  12.220    4.050
+candor       /ˈkændər/             reading         ♦     review     2025-04-05 11:07 2025-04-19 21:45  2025-05-10 04:00  28.905    3.480
 ```
 
 ## Get Started
@@ -242,7 +242,8 @@ Press `C-x C-q` to edit it and `C-x C-s` to save.
 ### Undo
 
 Press `u` in review to go back to the previous card. Press `1`–`4` to re-rate
-it, or `n` to keep the original rating.
+it, or `n` to keep the original rating. After rating the last due card, Decklet
+asks before quitting so you can stay on that card and re-rate it if needed.
 
 ### Daily Goal
 
@@ -270,8 +271,8 @@ Mark cards with `m` to archive or delete several at once.
 ### Batch Add Buffer
 
 `M-x decklet-add-card-batch` opens a buffer with one word per line. `#` lines
-add a hint and `:` lines add tags to the word above. `C-c C-c` imports, and
-`C-c C-k` cancels.
+add a hint and `:` lines add tags to the word above. Existing words keep their
+hint and merge new tags. `C-c C-c` imports, and `C-c C-k` cancels.
 
 ```text
 rose
@@ -342,7 +343,7 @@ Decklet runs these hooks. They take no arguments.
 
 - `decklet-review-start-hook`: runs when a review session starts.
 - `decklet-review-quit-hook`: runs when review mode exits.
-- `decklet-review-next-card-hook`: runs after moving to the next card.
+- `decklet-review-next-card-hook`: runs after selecting the next card and before rendering the review buffer.
 - `decklet-review-daily-goal-reached-hook`: runs when a rating completes the daily goal.
 - `decklet-edit-start-hook`: runs when the edit buffer opens.
 - `decklet-edit-quit-hook`: runs when the edit buffer exits.
