@@ -3,8 +3,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CACHE_DIR="$REPO_ROOT/scripts/.cache"
-FSRS_COMMIT="3260544388b9239dc3710eb16ff202a279391260"
-CACHE_FSRS_DIR="$CACHE_DIR/fsrs/$FSRS_COMMIT"
+FSRS_BRANCH="fix/learning-relearning-again-stability"
+CACHE_FSRS_DIR="$CACHE_DIR/fsrs/${FSRS_BRANCH//\//-}"
 CACHE_FSRS="$CACHE_FSRS_DIR/fsrs.el"
 LOCAL_FSRS="$REPO_ROOT/fsrs.el"
 
@@ -20,7 +20,7 @@ fi
 
 mkdir -p "$CACHE_FSRS_DIR"
 FSRS_URLS=(
-  "https://raw.githubusercontent.com/open-spaced-repetition/lisp-fsrs/$FSRS_COMMIT/fsrs.el"
+  "https://raw.githubusercontent.com/yilin-zhang/lisp-fsrs/refs/heads/$FSRS_BRANCH/fsrs.el"
 )
 
 for url in "${FSRS_URLS[@]}"; do
