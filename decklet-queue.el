@@ -175,15 +175,19 @@ reuse the queue so counter refreshes do not reshuffle cards."
          (ratings-today (decklet-review-log-ratings-since day-start))
          ;; ((:match FILTER-FN :ops (OP-FN ...) :spread nil) ...)
          (groups (decklet-queue--compile-order decklet-review-order))
-         ;; #s(hash-table data (7 ("botany") 8 nil ...))
-         (tags-by-card (decklet-db--tag-map))
+         ;; #s(hash-table data (7 ("botany") 8 nil ...)), or nil if no rule checks tags
+         (tags-by-card
+          (when (memq 'tag (flatten-tree (mapcar #'car decklet-review-order)))
+            (decklet-db--tag-map)))
          ;; (funcall group-index :new 7) => 2, or nil when no group matches
          (group-index
           (lambda (state card-id)
             ;; Deleted cards have no tags, so only untagged filters match.
             (cl-position-if (lambda (group)
                               (funcall (plist-get group :match)
-                                       state (gethash card-id tags-by-card)))
+                                       state
+                                       (and tags-by-card
+                                            (gethash card-id tags-by-card))))
                             groups)))
          (bucket
           (lambda (items state-fn id-fn)
