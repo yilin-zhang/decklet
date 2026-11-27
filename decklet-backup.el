@@ -19,7 +19,7 @@
 (defcustom decklet-backup-directory
   (expand-file-name "backups" decklet-directory)
   "Directory for Decklet database backups."
-  :type 'file
+  :type 'directory
   :group 'decklet-db)
 
 (defcustom decklet-backup-automatic t

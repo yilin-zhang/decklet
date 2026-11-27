@@ -68,7 +68,7 @@ Only a failed DB write retires the freshly written log record."
   (decklet-test--with-temp-db
     (decklet--add-card "w")
     (let ((id (decklet-test--card-id "w")))
-      (cl-letf (((symbol-function 'decklet-db--upsert-card)
+      (cl-letf (((symbol-function 'decklet-db--update-card-meta)
                  (lambda (&rest _) (error "Disk full"))))
         (should-error (decklet-rate-card id 3)))
       (should-not (decklet-card-meta-last-review (decklet-get-card-meta id)))

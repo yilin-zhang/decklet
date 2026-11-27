@@ -12,7 +12,6 @@
 
 (require 'cl-lib)
 (require 'seq)
-(require 'sqlite)
 
 (require 'decklet-core)
 (require 'decklet-scheduler)
@@ -250,15 +249,9 @@ and `:limited' is non-nil when a daily limit holds cards back."
                   (cl-count-if (lambda (card)
                                  (memq (plist-get card :effective-state) states))
                                (plist-get built key)))))
-    (list :reviewed (caar (sqlite-select
-                           (decklet-db--ensure)
-                           "SELECT COUNT(*) FROM cards
-                             WHERE archived_at IS NULL
-                               AND last_review >= ? AND last_review < ?;"
-                           (list (decklet--now
-                                  (decklet-day-start-time now))
-                                 (decklet--now
-                                  (decklet--next-day-start-time now)))))
+    (list :reviewed (decklet-db--reviewed-count
+                     (decklet-day-start-time now)
+                     (decklet--next-day-start-time now))
           :due-review (funcall count :due :review)
           :due-learning (funcall count :due :learning :relearning)
           :new (funcall count :due :new)

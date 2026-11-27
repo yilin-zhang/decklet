@@ -163,7 +163,9 @@ OPTIONS is a plist supporting :buffer-name, :title, :on-confirm and
                      decklet-add-card-batch-buffer-name))))
     (with-current-buffer buffer
       (decklet-add-card-batch-mode)
-      (setq header-line-format (or (plist-get options :title) "Decklet Batch Add")
+      (setq header-line-format
+            (replace-regexp-in-string
+             "%" "%%" (or (plist-get options :title) "Decklet Batch Add"))
             decklet-add-card-batch--on-confirm (plist-get options :on-confirm))
       (let ((inhibit-read-only t))
         (erase-buffer)

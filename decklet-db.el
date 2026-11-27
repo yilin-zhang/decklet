@@ -224,32 +224,44 @@ FIELD is interpolated into SQL; only `hint' and `back' are accepted."
     (sqlite-execute conn "UPDATE cards SET archived_at = ? WHERE card_id = ?;"
                     (list archived-at card-id))))
 
-(defun decklet-db--upsert-card (word card-meta)
-  "Insert or update WORD, already normalized, with CARD-META.
-Only scheduling fields are written.  An existing row keeps its
-`card_id', hint and back."
-  (let ((conn (decklet-db--ensure)))
-    (sqlite-execute
-     conn
-     "INSERT INTO cards (card_id, word, added_date, last_review, due, state, step, stability, difficulty)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(word) DO UPDATE SET
-        added_date = excluded.added_date,
-        last_review = excluded.last_review,
-        due = excluded.due,
-        state = excluded.state,
-        step = excluded.step,
-        stability = excluded.stability,
-        difficulty = excluded.difficulty;"
-     (list (decklet-card-meta-card-id card-meta)
-           word
-           (decklet-card-meta-added-date card-meta)
-           (decklet-card-meta-last-review card-meta)
-           (decklet-card-meta-due card-meta)
-           (decklet-fsrs-state-string (decklet-card-meta-state card-meta))
-           (decklet-card-meta-step card-meta)
-           (decklet-card-meta-stability card-meta)
-           (decklet-card-meta-difficulty card-meta)))))
+(defun decklet-db--insert-card (word card-meta)
+  "Insert WORD, already normalized, with scheduling fields from CARD-META."
+  (sqlite-execute
+   (decklet-db--ensure)
+   "INSERT INTO cards (card_id, word, added_date, last_review, due, state, step, stability, difficulty)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);"
+   (list (decklet-card-meta-card-id card-meta)
+         word
+         (decklet-card-meta-added-date card-meta)
+         (decklet-card-meta-last-review card-meta)
+         (decklet-card-meta-due card-meta)
+         (decklet-fsrs-state-string (decklet-card-meta-state card-meta))
+         (decklet-card-meta-step card-meta)
+         (decklet-card-meta-stability card-meta)
+         (decklet-card-meta-difficulty card-meta))))
+
+(defun decklet-db--update-card-meta (card-id card-meta)
+  "Update CARD-ID's scheduling fields from CARD-META.
+The row's word, hint, back and tags are left alone."
+  (sqlite-execute
+   (decklet-db--ensure)
+   "UPDATE cards
+       SET added_date = ?,
+           last_review = ?,
+           due = ?,
+           state = ?,
+           step = ?,
+           stability = ?,
+           difficulty = ?
+     WHERE card_id = ?;"
+   (list (decklet-card-meta-added-date card-meta)
+         (decklet-card-meta-last-review card-meta)
+         (decklet-card-meta-due card-meta)
+         (decklet-fsrs-state-string (decklet-card-meta-state card-meta))
+         (decklet-card-meta-step card-meta)
+         (decklet-card-meta-stability card-meta)
+         (decklet-card-meta-difficulty card-meta)
+         card-id)))
 
 (defun decklet-db--update-tags (card-id tags)
   "Set CARD-ID's TAGS, already normalized by the caller."
@@ -391,6 +403,15 @@ review day; anything further out belongs to a later day."
                  (decklet--now now)
                  (decklet--now
                   (decklet--next-day-start-time now)))))))
+
+(defun decklet-db--reviewed-count (start end)
+  "Return the number of active cards last reviewed between START and END."
+  (caar (sqlite-select
+         (decklet-db--ensure)
+         "SELECT COUNT(*) FROM cards
+           WHERE archived_at IS NULL
+             AND last_review >= ? AND last_review < ?;"
+         (list (decklet--now start) (decklet--now end)))))
 
 ;; Calendar queries
 

@@ -88,10 +88,16 @@ keys in ARGS override these defaults."
   (plist-get (decklet-db--select-card-row-by-word word) :card-id))
 
 (defun decklet-test--add-card-meta (word &rest keys)
-  "Upsert WORD with a scheduled card-meta built from KEYS, return its card id.
+  "Insert or update WORD with a card-meta built from KEYS, return its card id.
 KEYS are forwarded to `decklet-test--make-card-meta'."
-  (decklet-db--upsert-card word (apply #'decklet-test--make-card-meta keys))
-  (decklet-test--card-id word))
+  (let ((meta (apply #'decklet-test--make-card-meta keys))
+        (id (decklet-test--card-id word)))
+    (if id
+        (progn
+          (decklet-db--update-card-meta id meta)
+          id)
+      (decklet-db--insert-card word meta)
+      (decklet-test--card-id word))))
 
 ;;; Review-log readback
 

@@ -169,7 +169,7 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
     ;; Only a failed DB write voids the log record.  Once the write has
     ;; landed the rating stands, even if a later step fails.
     (condition-case err
-        (decklet-db--upsert-card word new-meta)
+        (decklet-db--update-card-meta card-id new-meta)
       (error
        ;; The rating never reached the DB, so void its log record.
        (decklet-review-log-append-void log-id)
@@ -273,7 +273,7 @@ added card fires `decklet-cards-added-functions'."
         (setq meta (make-decklet-card-meta :card-id (decklet-db--mint-card-id)))
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
-        (decklet-db--upsert-card word meta)
+        (decklet-db--insert-card word meta)
         (let ((card-id (decklet-card-meta-card-id meta)))
           (decklet-fire-one-card-event 'decklet-cards-added-functions
                                        :card-id card-id)
@@ -289,11 +289,12 @@ added card fires `decklet-cards-added-functions'."
             :message (format "Word \"%s\" already exists in the deck. " word)))
      ;; Refresh the existing new card in place and keep its card-id.
      (t
-      (let ((now (decklet--now)))
+      (let ((now (decklet--now))
+            (card-id (decklet-card-meta-card-id meta)))
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
-        (decklet-db--upsert-card word meta)
-        (list :card-id (decklet-card-meta-card-id meta)
+        (decklet-db--update-card-meta card-id meta)
+        (list :card-id card-id
               :status 'refreshed
               :message (format "Refreshed the added date of existing new word \"%s\". " word)))))))
 
