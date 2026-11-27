@@ -16,9 +16,9 @@
 
 ;; Backups
 
-(defcustom decklet-backup-directory
-  (expand-file-name "backups" decklet-directory)
-  "Directory for Decklet database backups."
+(defcustom decklet-backup-directory "backups"
+  "Directory for Decklet database backups.
+A relative name is resolved against `decklet-directory'."
   :type 'directory
   :group 'decklet-db)
 
@@ -49,20 +49,27 @@ Set to nil to disable pruning."
   "Return the backup file name for BASE.EXT at TIMESTAMP."
   (format "%s-%s.%s" base timestamp ext))
 
+(defun decklet-backup--directory ()
+  "Return the resolved backup directory path."
+  (file-name-as-directory
+   (expand-file-name decklet-backup-directory decklet-directory)))
+
 (defun decklet-backup--backup ()
   "Create a paired database/review-log backup and prune old backup pairs.
 A second backup within the same second overwrites the first; both
 are snapshots of the same state."
-  (let* ((backup-dir (file-name-as-directory decklet-backup-directory))
-         (base (file-name-base decklet-db-file))
+  (let* ((backup-dir (decklet-backup--directory))
+         (db-file (decklet-db-file))
+         (log-file (decklet-review-log-file))
+         (base (file-name-base db-file))
          (timestamp (decklet-backup--timestamp))
          (backup-file (expand-file-name
                        (decklet-backup--backup-name base "sqlite" timestamp)
                        backup-dir))
          (log-backup (expand-file-name
                       (decklet-backup--backup-name
-                       (file-name-base decklet-review-log-file)
-                       (file-name-extension decklet-review-log-file)
+                       (file-name-base log-file)
+                       (file-name-extension log-file)
                        timestamp)
                       backup-dir))
          (created nil))
@@ -75,11 +82,11 @@ are snapshots of the same state."
             (push backup-file created))
           ;; Copying the live database file is safe because `decklet-db.el'
           ;; uses TRUNCATE journal mode and Emacs runs single-threaded.
-          (copy-file decklet-db-file backup-file t t t)
+          (copy-file db-file backup-file t t t)
           (unless (file-exists-p log-backup)
             (push log-backup created))
-          (if (file-exists-p decklet-review-log-file)
-              (copy-file decklet-review-log-file log-backup t t t)
+          (if (file-exists-p log-file)
+              (copy-file log-file log-backup t t t)
             (let ((coding-system-for-write 'utf-8-unix))
               (with-temp-file log-backup))))
       (error
@@ -90,18 +97,20 @@ are snapshots of the same state."
 
 (defun decklet-backup--matching-review-log-backup (database-backup)
   "Return the review-log backup paired with DATABASE-BACKUP, or nil."
-  (let* ((name (file-name-nondirectory database-backup))
+  (let* ((db-file (decklet-db-file))
+         (log-file (decklet-review-log-file))
+         (name (file-name-nondirectory database-backup))
          (token (and (string-match (decklet-backup--backup-file-pattern
-                                    (file-name-base decklet-db-file) "sqlite")
+                                    (file-name-base db-file) "sqlite")
                                    name)
                      (match-string 1 name)))
          (candidate (and token
                          (expand-file-name
                           (decklet-backup--backup-name
-                           (file-name-base decklet-review-log-file)
-                           (file-name-extension decklet-review-log-file)
+                           (file-name-base log-file)
+                           (file-name-extension log-file)
                            token)
-                          decklet-backup-directory))))
+                          (decklet-backup--directory)))))
     (and candidate (file-exists-p candidate) candidate)))
 
 (defun decklet-backup--prune-pairs ()
@@ -132,8 +141,8 @@ are snapshots of the same state."
 (defun decklet-backup--replace-db-and-log (db-backup log-backup)
   "Replace the database and review log with DB-BACKUP and LOG-BACKUP.
 If either copy fails, neither file is changed."
-  (let* ((db-target (file-truename decklet-db-file))
-         (log-target (file-truename decklet-review-log-file))
+  (let* ((db-target (file-truename (decklet-db-file)))
+         (log-target (file-truename (decklet-review-log-file)))
          (db-tmp (decklet-backup--temp-file-beside db-target))
          (log-tmp (decklet-backup--temp-file-beside log-target)))
     (unwind-protect
@@ -159,9 +168,9 @@ If either copy fails, neither file is changed."
   "Return backup files sorted by newest first.
 Filenames embed a UTC timestamp, so lexicographic order is
 chronological order."
-  (let ((backup-dir (file-name-as-directory decklet-backup-directory))
+  (let ((backup-dir (decklet-backup--directory))
         (pattern (decklet-backup--backup-file-pattern
-                  (file-name-base decklet-db-file) "sqlite")))
+                  (file-name-base (decklet-db-file)) "sqlite")))
     (when (file-directory-p backup-dir)
       (sort (directory-files backup-dir t pattern) #'string>))))
 
@@ -177,22 +186,23 @@ chronological order."
 (defun decklet-db-backup ()
   "Create a database backup if the DB has changed since the last backup."
   (interactive)
-  (if (not (file-exists-p decklet-db-file))
-      (when (called-interactively-p 'any)
-        (message "No database file found; skipping backup"))
-    (let* ((attrs (file-attributes (file-truename decklet-db-file)))
-           (mtime (file-attribute-modification-time attrs))
-           (latest-backup (car (decklet-backup--backup-files)))
-           (latest-mtime (when latest-backup
-                           (file-attribute-modification-time
-                            (file-attributes (file-truename latest-backup))))))
-      (if (and (equal mtime latest-mtime)
-               (decklet-backup--matching-review-log-backup latest-backup))
-          (when (called-interactively-p 'any)
-            (message "Backup not needed; database unchanged"))
-        (decklet-backup--backup)
+  (let ((db-file (decklet-db-file)))
+    (if (not (file-exists-p db-file))
         (when (called-interactively-p 'any)
-          (message "Backup created"))))))
+          (message "No database file found; skipping backup"))
+      (let* ((attrs (file-attributes (file-truename db-file)))
+             (mtime (file-attribute-modification-time attrs))
+             (latest-backup (car (decklet-backup--backup-files)))
+             (latest-mtime (when latest-backup
+                             (file-attribute-modification-time
+                              (file-attributes (file-truename latest-backup))))))
+        (if (and (equal mtime latest-mtime)
+                 (decklet-backup--matching-review-log-backup latest-backup))
+            (when (called-interactively-p 'any)
+              (message "Backup not needed; database unchanged"))
+          (decklet-backup--backup)
+          (when (called-interactively-p 'any)
+            (message "Backup created")))))))
 
 (defun decklet-backup-session ()
   "Back up the database when `decklet-backup-automatic' is non-nil.
@@ -209,9 +219,10 @@ Registered by the review and edit modules on their session hooks."
 (defun decklet-db-restore ()
   "Restore the database from a selected backup file."
   (interactive)
-  (let* ((files (decklet-backup--backup-files)))
+  (let* ((files (decklet-backup--backup-files))
+         (db-file (decklet-db-file)))
     (unless files
-      (user-error "No backups found in %s" decklet-backup-directory))
+      (user-error "No backups found in %s" (decklet-backup--directory)))
     (let* ((choices (mapcar (lambda (file)
                               (cons (format-time-string
                                      "%Y-%m-%d %H:%M:%S"
@@ -242,7 +253,7 @@ Registered by the review and edit modules on their session hooks."
         (user-error "Save or discard the modified card backs before restore"))
       (when (yes-or-no-p (format "Restore %s to %s? "
                                  (file-name-nondirectory backup-file)
-                                 decklet-db-file))
+                                 db-file))
         ;; Release the file before replacing it.
         (when decklet-db--conn
           (decklet-db--disconnect))
@@ -254,7 +265,7 @@ Registered by the review and edit modules on their session hooks."
               ;; skipping if a same-second write would overwrite it.
               (unless (equal (file-name-nondirectory backup-file)
                              (decklet-backup--backup-name
-                              (file-name-base decklet-db-file)
+                              (file-name-base db-file)
                               "sqlite"
                               (decklet-backup--timestamp)))
                 (let ((decklet-backup-prune-max-count nil))

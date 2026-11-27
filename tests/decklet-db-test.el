@@ -70,7 +70,7 @@ runs `pre-disconnect-hook' so lock holders clean up."
     (let ((decklet-db-pre-connect-hook (list (lambda () (user-error "Refused")))))
       (should-error (decklet-db--ensure) :type 'user-error)
       (should-not decklet-db--conn)
-      (should-not (file-exists-p decklet-db-file)))
+      (should-not (file-exists-p (decklet-db-file))))
     (let* ((disconnects 0)
            (decklet-db-pre-connect-hook (list #'ignore))
            (decklet-db-pre-disconnect-hook
@@ -114,7 +114,22 @@ disconnects when the body signals an error."
       (with-current-buffer session (decklet-db--acquire-session-buffer))
       (decklet-with-db
         (decklet-db--ensure))
-      (should decklet-db--conn))))
+      (should (decklet-session-active-p))
+      (should decklet-db--conn))
+    ;; Disconnecting resets the card-id counter so switching directories
+    ;; mints ids from the new database's own max id.
+    (should-not (decklet-session-active-p))
+    (let ((other-dir (expand-file-name "other/" tmp-dir)))
+      (decklet-with-db
+        (decklet--add-card "a")
+        (decklet--add-card "b"))
+      (let ((decklet-directory other-dir))
+        (decklet-with-db
+          (decklet--add-card "x")
+          (should (equal '("x") (decklet-list-words)))))
+      (decklet-with-db
+        (decklet--add-card "c")
+        (should (= 3 (length (decklet-list-words))))))))
 
 ;;; Calendar due counts
 

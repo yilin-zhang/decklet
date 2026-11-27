@@ -20,10 +20,7 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
   (declare (indent 0) (debug t))
   `(let* ((tmp-dir (make-temp-file "decklet-test-" t))
           (decklet-directory (file-name-as-directory tmp-dir))
-          (decklet-db-file (expand-file-name "decklet.sqlite" tmp-dir))
-          (decklet-backup-directory (expand-file-name "backups" tmp-dir))
-          (decklet-review-log-file
-           (expand-file-name "review-log.jsonl" tmp-dir))
+          (decklet-backup-directory "backups")
           (decklet-db--conn nil)
           (decklet-db--in-operation nil)
           (decklet--fsrs-scheduler nil)
@@ -118,20 +115,21 @@ STAMP defaults to now.  Returns the record id."
 (defun decklet-test--read-log ()
   "Return the review-log records as plists, or nil when the file is empty.
 Reads `decklet-review-log-file', one JSON object per line."
-  (when (file-exists-p decklet-review-log-file)
-    (with-temp-buffer
-      (insert-file-contents decklet-review-log-file)
-      (let (records)
-        (goto-char (point-min))
-        (while (not (eobp))
-          (let ((line (buffer-substring-no-properties
-                       (line-beginning-position) (line-end-position))))
-            (unless (string-empty-p line)
-              (push (json-parse-string line :object-type 'plist
-                                       :null-object nil :false-object nil)
-                    records)))
-          (forward-line 1))
-        (nreverse records)))))
+  (let ((log-file (decklet-review-log-file)))
+    (when (file-exists-p log-file)
+      (with-temp-buffer
+        (insert-file-contents log-file)
+        (let (records)
+          (goto-char (point-min))
+          (while (not (eobp))
+            (let ((line (buffer-substring-no-properties
+                         (line-beginning-position) (line-end-position))))
+              (unless (string-empty-p line)
+                (push (json-parse-string line :object-type 'plist
+                                         :null-object nil :false-object nil)
+                      records)))
+            (forward-line 1))
+          (nreverse records))))))
 
 ;;; Buffers and files
 

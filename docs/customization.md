@@ -182,13 +182,9 @@ first. Archived cards stay archived. To turn this off:
 
 ### Data Location
 
-All files live under `decklet-directory` by default:
-
-- `decklet-db-file`: the SQLite database, `decklet.sqlite`
-- `decklet-review-log-file`: the review log, `review-log.jsonl`
-- `decklet-backup-directory`: backups, `backups/`
-
-To move everything, set `decklet-directory` before the package loads:
+All files live under `decklet-directory` by default (`decklet.sqlite`,
+`review-log.jsonl`, and `decklet-backup-directory`, which defaults to
+`"backups"` and resolves relative paths against `decklet-directory`):
 
 ```emacs-lisp
 (use-package decklet

@@ -287,7 +287,8 @@ lily
 ### Data Location
 
 Decklet keeps its data in `decklet-directory` (`~/.emacs.d/decklet/` by
-default). To move it, set the option before the package loads:
+default). Paths are resolved against `decklet-directory` on use, so changing
+it takes effect without reloading the package:
 
 ```emacs-lisp
 (use-package decklet

@@ -25,13 +25,11 @@
   "Persistent review history log for Decklet."
   :group 'decklet)
 
-(defcustom decklet-review-log-file
-  (expand-file-name "review-log.jsonl" decklet-directory)
-  "Path to the Decklet review log JSONL file.
+(defun decklet-review-log-file ()
+  "Return the path to the Decklet review log JSONL file.
 Every completed rating is appended to this file.  Consumers should
 treat the file as append-only and parse it one JSON object per line."
-  :type 'file
-  :group 'decklet-review-log)
+  (expand-file-name "review-log.jsonl" decklet-directory))
 
 (defvar decklet-review-log--next-record-id nil
   "Last minted review log record id, or nil before the first mint.")
@@ -43,10 +41,10 @@ treat the file as append-only and parse it one JSON object per line."
 Return non-nil on success.  A failed write is reported with `message'
 and returns nil."
   (condition-case err
-      (progn
-        (when-let* ((dir (file-name-directory decklet-review-log-file)))
+      (let ((log-file (decklet-review-log-file)))
+        (when-let* ((dir (file-name-directory log-file)))
           (make-directory dir t))
-        (let* ((file (file-truename decklet-review-log-file))
+        (let* ((file (file-truename log-file))
                (size (file-attribute-size (file-attributes file)))
                ;; Guard against a prior truncated line swallowing the next record.
                (needs-newline
@@ -61,7 +59,7 @@ and returns nil."
             (insert json "\n")
             (let ((coding-system-for-write 'utf-8-unix))
               (write-region (point-min) (point-max)
-                            decklet-review-log-file t 'no-message))))
+                            log-file t 'no-message))))
         t)
     (error
      (message "Decklet: failed to write review log: %s"
@@ -157,7 +155,7 @@ DROP-FIRST discards the leading line, which is truncated whenever
 START is not a line boundary."
   (with-temp-buffer
     (let ((coding-system-for-read 'utf-8-unix))
-      (insert-file-contents decklet-review-log-file nil start end))
+      (insert-file-contents (decklet-review-log-file) nil start end))
     (let ((lines (split-string (buffer-string) "\n" t)))
       (if drop-first (cdr lines) lines))))
 
@@ -204,7 +202,7 @@ that record is already in RECORDS, or older than SINCE."
 Reuses the cached scan and parses only appended bytes when the log
 has merely grown; rescans the day from scratch otherwise.  Returns
 nil when the log file cannot be read."
-  (let* ((file (file-truename decklet-review-log-file))
+  (let* ((file (file-truename (decklet-review-log-file)))
          (size (file-attribute-size (file-attributes file))))
     (when size
       (let* ((cache decklet-review-log--scan-cache)

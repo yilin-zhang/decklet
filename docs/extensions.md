@@ -55,7 +55,17 @@ The review and edit buffers refresh themselves through the field-updated hook.
 - `(decklet-prompt-word &optional PROMPT)` takes the word from the region, the
   review card, the edit line or the minibuffer.
 
-### Per-card files
+### Per-card files and data paths
+
+Paths are resolved against `decklet-directory` at call time, so changing
+`decklet-directory` (for example in a multi-deck switcher) moves every file
+together. Store relative paths in extension `defcustom` options (such as
+`"images"` or `"audio-cache/my-tts"`) and resolve them with
+`(expand-file-name my-dir decklet-directory)` on use.
+
+Core exposes `(decklet-db-file)` and `(decklet-review-log-file)` for the
+active database and review-log paths, and `(decklet-session-active-p)` to test
+whether a session buffer or DB connection is currently open.
 
 Name per-card files by card id with
 `(decklet-card-sidecar-file DIRECTORY CARD-ID EXTENSION)`, which returns
@@ -202,10 +212,10 @@ also needs `decklet-cards-renamed-functions`.
 
 ## Review Log
 
-`decklet-review-log-file` is an append-only JSONL file, one event per line.
-Read it directly. A rating is logged before the card is updated in SQLite, and
-a failed update appends a `void`, so the database never holds a rating the log
-lacks.
+`(decklet-review-log-file)` returns the path to the append-only JSONL file,
+one event per line. Read it directly. A rating is logged before the card is
+updated in SQLite, and a failed update appends a `void`, so the database never
+holds a rating the log lacks.
 
 | `kind` | Fields | Meaning |
 |---|---|---|

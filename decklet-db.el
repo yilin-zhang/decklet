@@ -20,11 +20,9 @@
   "Database for Decklet."
   :group 'decklet)
 
-(defcustom decklet-db-file
-  (expand-file-name "decklet.sqlite" decklet-directory)
-  "Path to the SQLite database file."
-  :type 'file
-  :group 'decklet-db)
+(defun decklet-db-file ()
+  "Return the path to the SQLite database file."
+  (expand-file-name "decklet.sqlite" decklet-directory))
 
 
 (defvar decklet-db--conn nil
@@ -82,9 +80,10 @@ Text is normalized when written, so it is taken as stored."
           (ok nil))
       (unwind-protect
           (progn
-            (when-let* ((dir (file-name-directory decklet-db-file)))
-              (make-directory dir t))
-            (setq conn (sqlite-open decklet-db-file))
+            (let ((db-file (decklet-db-file)))
+              (when-let* ((dir (file-name-directory db-file)))
+                (make-directory dir t))
+              (setq conn (sqlite-open db-file)))
             (sqlite-execute conn "PRAGMA journal_mode = TRUNCATE;")
             (sqlite-execute conn "PRAGMA foreign_keys = ON;")
             (sqlite-execute conn
@@ -119,8 +118,13 @@ Text is normalized when written, so it is taken as stored."
   (when-let* ((conn decklet-db--conn))
     ;; A failing extension must not keep the connection open.
     (decklet-run-hook-isolated 'decklet-db-pre-disconnect-hook)
-    (setq decklet-db--conn nil)
+    (setq decklet-db--conn nil
+          decklet-db--last-card-id nil)
     (sqlite-close conn)))
+
+(defun decklet-session-active-p ()
+  "Return non-nil when a Decklet session buffer or DB connection is live."
+  (and (or decklet-db--conn (decklet-db--session-buffers)) t))
 
 (defun decklet-db--acquire-session-buffer ()
   "Mark the current buffer as holding the Decklet session.
@@ -470,7 +474,7 @@ The result is a plist of :rows, a list of (DATE-STRING COUNT), and
   (interactive)
   (decklet-with-db
     (decklet-db--ensure)
-    (sqlite-mode-open-file decklet-db-file)
+    (sqlite-mode-open-file (decklet-db-file))
     (decklet-db--acquire-session-buffer)))
 
 (provide 'decklet-db)

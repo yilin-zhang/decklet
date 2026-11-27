@@ -11,23 +11,23 @@
 Each pruned database backup takes its review-log backup with it.  A nil
 limit disables pruning and keeps every file."
   (decklet-test--with-temp-db
-    (make-directory decklet-backup-directory t)
-    (dolist (day '("01" "02" "03"))
-      (dolist (name '("decklet-202501%sT010101Z.sqlite"
-                      "review-log-202501%sT010101Z.jsonl"))
-        (decklet-test--touch
-         (expand-file-name (format name day) decklet-backup-directory))))
-    (let ((decklet-backup-prune-max-count nil))
-      (decklet-backup--prune-pairs)
-      (should (= 6 (length (directory-files decklet-backup-directory nil
-                                            "\\`[^.]")))))
-    (let ((decklet-backup-prune-max-count 2))
-      (decklet-backup--prune-pairs)
-      (should (equal (directory-files decklet-backup-directory nil "\\`[^.]")
-                     '("decklet-20250102T010101Z.sqlite"
-                       "decklet-20250103T010101Z.sqlite"
-                       "review-log-20250102T010101Z.jsonl"
-                       "review-log-20250103T010101Z.jsonl"))))))
+    (let ((backup-dir (decklet-backup--directory)))
+      (make-directory backup-dir t)
+      (dolist (day '("01" "02" "03"))
+        (dolist (name '("decklet-202501%sT010101Z.sqlite"
+                        "review-log-202501%sT010101Z.jsonl"))
+          (decklet-test--touch
+           (expand-file-name (format name day) backup-dir))))
+      (let ((decklet-backup-prune-max-count nil))
+        (decklet-backup--prune-pairs)
+        (should (= 6 (length (directory-files backup-dir nil "\\`[^.]")))))
+      (let ((decklet-backup-prune-max-count 2))
+        (decklet-backup--prune-pairs)
+        (should (equal (directory-files backup-dir nil "\\`[^.]")
+                       '("decklet-20250102T010101Z.sqlite"
+                         "decklet-20250103T010101Z.sqlite"
+                         "review-log-20250102T010101Z.jsonl"
+                         "review-log-20250103T010101Z.jsonl")))))))
 
 ;;; Backup
 
@@ -63,7 +63,7 @@ backup can be restored."
     (should (string= (decklet-test--file-string
                       (decklet-backup--matching-review-log-backup
                        (car (decklet-backup--backup-files))))
-                     (decklet-test--file-string decklet-review-log-file)))))
+                     (decklet-test--file-string (decklet-review-log-file))))))
 
 ;;; Restore
 
@@ -86,18 +86,21 @@ backup can be restored."
   "Restore respects pre-connect guards, backs up live data, and drops journals."
   (decklet-test--with-temp-db
     (decklet--add-card "live-word")
-    (let* ((database-payload "backup-payload")
+    (let* ((backup-dir (decklet-backup--directory))
+           (db-file (decklet-db-file))
+           (log-file (decklet-review-log-file))
+           (database-payload "backup-payload")
            (log-payload "log-payload")
            (backup-file (expand-file-name
                          "decklet-20260101T010101Z.sqlite"
-                         decklet-backup-directory))
+                         backup-dir))
            (log-backup (expand-file-name
                         "review-log-20260101T010101Z.jsonl"
-                        decklet-backup-directory))
-           (journal-file (concat decklet-db-file "-journal"))
-           (live-before (decklet-test--file-string decklet-db-file))
+                        backup-dir))
+           (journal-file (concat db-file "-journal"))
+           (live-before (decklet-test--file-string db-file))
            (decklet-backup-prune-max-count 1))
-      (make-directory decklet-backup-directory t)
+      (make-directory backup-dir t)
       (decklet-test--touch backup-file database-payload)
       (set-file-times backup-file (date-to-time "2026-01-01T01:01:01Z"))
       (decklet-test--touch log-backup log-payload)
@@ -109,7 +112,7 @@ backup can be restored."
                    (lambda (_choices default) default))
                   ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
           (should-error (decklet-db-restore) :type 'user-error)))
-      (should (string= live-before (decklet-test--file-string decklet-db-file)))
+      (should (string= live-before (decklet-test--file-string db-file)))
       ;; With the guard passing, restore backs up the live DB without pruning
       ;; the chosen backup, clears stale journal sidecars, and pairs disconnect.
       (let* ((connects 0)
@@ -125,9 +128,9 @@ backup can be restored."
       (should-not decklet-db--conn)
       (should-not (file-exists-p journal-file))
       (should (= 2 (length (decklet-backup--backup-files))))
-      (should (string= (decklet-test--file-string decklet-db-file)
+      (should (string= (decklet-test--file-string db-file)
                        database-payload))
-      (should (string= (decklet-test--file-string decklet-review-log-file)
+      (should (string= (decklet-test--file-string log-file)
                        log-payload)))))
 
 (ert-deftest decklet-test-backup-restore-refuses-with-modified-card-back ()
@@ -136,13 +139,15 @@ Saving that edit later would write it into the restored database."
   (decklet-test--with-temp-db
     (decklet--add-card "kept")
     (decklet-db--disconnect)
-    (let ((backup-file (expand-file-name "decklet-20260101T010101Z.sqlite"
-                                         decklet-backup-directory))
-          (before (decklet-test--file-string decklet-db-file)))
-      (make-directory decklet-backup-directory t)
+    (let* ((backup-dir (decklet-backup--directory))
+           (db-file (decklet-db-file))
+           (backup-file (expand-file-name "decklet-20260101T010101Z.sqlite"
+                                          backup-dir))
+           (before (decklet-test--file-string db-file)))
+      (make-directory backup-dir t)
       (decklet-test--touch backup-file "backup-payload")
       (decklet-test--touch (expand-file-name "review-log-20260101T010101Z.jsonl"
-                                             decklet-backup-directory))
+                                             backup-dir))
       (decklet-test--with-temp-buffers (popup)
         (with-current-buffer popup
           (decklet-card-back-mode 1)
@@ -153,36 +158,39 @@ Saving that edit later would write it into the restored database."
                    (lambda (_choices default) default))
                   ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
           (should-error (decklet-db-restore) :type 'user-error)))
-      (should (string= before (decklet-test--file-string decklet-db-file))))))
+      (should (string= before (decklet-test--file-string db-file))))))
 
 (ert-deftest decklet-test-backup-restore-requires-matching-review-log ()
   "Restore refuses a database backup whose paired review log is missing."
   (decklet-test--with-temp-db
-    (let ((backup-file (expand-file-name
-                        "decklet-20260101T010101Z.sqlite"
-                        decklet-backup-directory)))
-      (make-directory decklet-backup-directory t)
+    (let* ((backup-dir (decklet-backup--directory))
+           (backup-file (expand-file-name
+                         "decklet-20260101T010101Z.sqlite"
+                         backup-dir)))
+      (make-directory backup-dir t)
       (decklet-test--touch backup-file "backup-payload")
       (cl-letf (((symbol-function 'decklet-backup--backup-files)
                  (lambda () (list backup-file)))
                 ((symbol-function 'decklet-backup--read-backup-choice)
                  (lambda (_choices default) default)))
         (should-error (decklet-db-restore) :type 'user-error))
-      (should-not (file-exists-p decklet-db-file)))))
+      (should-not (file-exists-p (decklet-db-file))))))
 
 (ert-deftest decklet-test-backup-restore-failure-keeps-current-files ()
   "If the review log cannot be restored, the database is not restored either."
   (decklet-test--with-temp-db
-    (let ((db-backup (expand-file-name "db-backup" tmp-dir)))
-      (decklet-test--touch decklet-db-file "current-db")
-      (decklet-test--touch decklet-review-log-file "current-log")
+    (let ((db-backup (expand-file-name "db-backup" tmp-dir))
+          (db-file (decklet-db-file))
+          (log-file (decklet-review-log-file)))
+      (decklet-test--touch db-file "current-db")
+      (decklet-test--touch log-file "current-log")
       (decklet-test--touch db-backup "backup-db")
       (should-error (decklet-backup--replace-db-and-log
                      db-backup (expand-file-name "no-such-log" tmp-dir))
                     :type 'file-missing)
-      (should (string= "current-db" (decklet-test--file-string decklet-db-file)))
+      (should (string= "current-db" (decklet-test--file-string db-file)))
       (should (string= "current-log"
-                       (decklet-test--file-string decklet-review-log-file))))))
+                       (decklet-test--file-string log-file))))))
 
 (provide 'decklet-backup-test)
 ;;; decklet-backup-test.el ends here
