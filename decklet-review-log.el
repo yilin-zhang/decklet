@@ -185,7 +185,7 @@ that record is already in RECORDS, or older than SINCE."
   (dolist (line lines)
     (when-let* ((record (decklet-review-log--parse-line line))
                 (stamp (plist-get record :t))
-                (_ (not (string< stamp since))))
+                ((not (string< stamp since))))
       (let ((kind (plist-get record :kind)))
         (cond
          ((equal kind "rated")
