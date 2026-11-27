@@ -45,9 +45,6 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           (decklet-review--trail-future nil)
           (decklet-queue--cache nil)
           (decklet-review--queue-context nil)
-          (decklet-edit--marked (make-hash-table :test 'eql))
-          (decklet-edit--filter 'all)
-          (decklet-edit--tag-filter nil)
           (decklet-review--counter
            (copy-sequence (default-value 'decklet-review--counter))))
      (unwind-protect

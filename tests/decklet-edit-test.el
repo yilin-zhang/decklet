@@ -8,7 +8,8 @@
   "Run BODY inside a live `decklet-edit-mode' buffer backed by the test DB.
 The buffer is killed on exit.  BODY can refer to `buf', the edit buffer."
   (declare (indent 0) (debug t))
-  `(let ((buf (get-buffer-create "*decklet-edit-test*")))
+  `(let* ((decklet-edit-buffer-name "*decklet-edit-test*")
+          (buf (get-buffer-create decklet-edit-buffer-name)))
      (unwind-protect
          (with-current-buffer buf
            (decklet-edit-mode)

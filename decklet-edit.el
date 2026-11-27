@@ -95,13 +95,13 @@
 (defvar decklet-edit-buffer-name "*Decklet Edit*"
   "Name of the buffer used for card editing.")
 
-(defvar decklet-edit--marked (make-hash-table :test 'eql)
+(defvar-local decklet-edit--marked nil
   "Hash table of marked card ids in the edit view.")
 
-(defvar decklet-edit--tag-filter nil
+(defvar-local decklet-edit--tag-filter nil
   "Tag required by the edit view, or nil to show all tags.")
 
-(defvar decklet-edit--filter 'all
+(defvar-local decklet-edit--filter 'all
   "Current filter for the edit table.
 One of all, review, learning or archived.")
 
@@ -600,11 +600,8 @@ Under the `archived' filter, the card is unarchived first."
           (kill-buffer buffer))))))
 
 (defun decklet-edit--on-kill-buffer ()
-  "Clear the edit session state when the edit buffer is killed.
+  "Run edit session teardown when the edit buffer is killed.
 This runs for `decklet-edit-quit' and for a plain `kill-buffer' alike."
-  (setq decklet-edit--marked (make-hash-table :test 'eql)
-        decklet-edit--filter 'all
-        decklet-edit--tag-filter nil)
   (remove-hook 'window-selection-change-functions
                #'decklet-edit--flush-pending-refresh)
   (decklet-card-back--close-at-session-end)
@@ -642,8 +639,12 @@ Accepts any hook signature; arguments are ignored."
 
 (defun decklet-edit--on-cards-deleted (events)
   "Drop deleted cards in EVENTS from marks and refresh the edit buffer."
-  (dolist (event events)
-    (remhash (plist-get event :card-id) decklet-edit--marked))
+  (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
+    (with-current-buffer buffer
+      (when (and (derived-mode-p 'decklet-edit-mode)
+                 decklet-edit--marked)
+        (dolist (event events)
+          (remhash (plist-get event :card-id) decklet-edit--marked)))))
   (decklet-edit--on-card-change))
 
 (add-hook 'decklet-cards-deleted-functions #'decklet-edit--on-cards-deleted)
@@ -688,6 +689,7 @@ Accepts any hook signature; arguments are ignored."
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
   (decklet-db--acquire-session-buffer)
+  (setq decklet-edit--marked (make-hash-table :test 'eql))
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)
