@@ -478,8 +478,11 @@ FIXED-OUTPUTS is centered vertically in the window."
           (run-at-time decklet-review-hint-delay
                        nil
                        (lambda ()
-                         (setq decklet-review--state-display-hint t)
-                         (decklet-review--render-buffer t))))))
+                         (setq decklet-review--hint-timer nil
+                               decklet-review--state-display-hint t)
+                         (when (and decklet-current-card-id
+                                    (get-buffer decklet-review-buffer-name))
+                           (decklet-review--render-buffer t)))))))
 
 (defun decklet-review-component-title ()
   "Return the title line for the review header."
@@ -729,6 +732,7 @@ It names a spent daily limit and the wait for the next learning card."
       (if decklet-review--due-card-ids
           (decklet-review--present-card (pop decklet-review--due-card-ids))
         (let ((reason (decklet-review--nothing-due-message)))
+          (decklet-review--cancel-hint-timer)
           (setq decklet-current-card-id nil
                 decklet-review--trail-past
                 (decklet-review--trail-drop-dead decklet-review--trail-past))
@@ -796,6 +800,8 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
                (pre-meta (plist-get entry :pre-meta))
                (prior-grade (plist-get entry :grade))
                (prior-log-id (plist-get entry :log-id)))
+          (unless (eql card-id (plist-get entry :card-id))
+            (user-error "Review undo state no longer matches the current card"))
           (let ((new-log-id (decklet--rate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
@@ -992,14 +998,23 @@ Trail entries whose card no longer exists are discarded."
       (decklet-review--sync-counter))))
 
 (defun decklet-review--on-cards-archived (events)
-  "Drop archived cards in EVENTS from the review trail and pending queue."
-  (let ((archived (mapcar (lambda (event) (plist-get event :card-id)) events)))
+  "Drop archived cards in EVENTS from the review session and pending queue."
+  (let* ((archived (mapcar (lambda (event) (plist-get event :card-id)) events))
+         (current-archived (memql decklet-current-card-id archived)))
+    (when current-archived
+      (decklet-review--cancel-hint-timer)
+      (setq decklet-current-card-id nil))
     (cl-flet ((keep (entries)
                 (seq-remove (lambda (entry) (memql (plist-get entry :card-id) archived))
                             entries)))
       (setq decklet-review--trail-past (keep decklet-review--trail-past)
-            decklet-review--trail-future (keep decklet-review--trail-future))))
-  (decklet-review--on-queue-changed))
+            decklet-review--trail-future (keep decklet-review--trail-future)))
+    (setq decklet-review--due-card-ids nil)
+    (if (and current-archived (get-buffer decklet-review-buffer-name))
+        (progn
+          (decklet-review--refresh-counter)
+          (decklet-review--advance))
+      (decklet-review--sync-counter))))
 
 (defun decklet-review--on-external-rating (_events)
   "Sync queue after ratings made outside the review UI."
