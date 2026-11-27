@@ -14,6 +14,7 @@
 
 (require 'decklet-core)
 (require 'decklet-db)
+(require 'decklet-queue)
 (require 'decklet-deck)
 (require 'decklet-card-back)
 (require 'decklet-review-log)
@@ -241,6 +242,13 @@ Non-nil exactly while an undo is in progress.")
 (defvar decklet-review--grading nil
   "Non-nil while the review UI is committing a grade.")
 
+(defvar decklet-review--counter
+  '(:reviewed 0 :due-review 0 :due-learning 0 :new 0
+              :due-review-remaining 0 :due-learning-remaining 0 :new-remaining 0
+              :limited nil)
+  "Review counters, refreshed by `decklet-review--refresh-counter'.
+See `decklet-queue--counts' for the keys.")
+
 ;; Format helpers
 
 (defun decklet--string-max-line-width (text)
@@ -415,9 +423,14 @@ FIXED-OUTPUTS is centered vertically in the window."
   (setq decklet-review--state-display-hint
         (not (and decklet-review-hint-delay (> decklet-review-hint-delay 0)))))
 
+(defun decklet-review--refresh-counter ()
+  "Refresh review counters from database state."
+  (setq decklet-review--counter (decklet-queue--counts)))
+
 (defun decklet-review--refresh-visible (&rest _args)
   "Refresh the review buffer if it is visible in a window."
-  (when (get-buffer-window decklet-review-buffer-name 'visible)
+  (when (and decklet-current-card-id
+             (get-buffer-window decklet-review-buffer-name 'visible))
     (decklet-review--render-buffer t)))
 
 (defun decklet-review--enable-resize-refresh ()
@@ -437,12 +450,12 @@ FIXED-OUTPUTS is centered vertically in the window."
 (defun decklet-review--daily-goal-reached-p ()
   "Check if the daily review goal has been reached."
   (when decklet-review-daily-goal
-    (or (>= (plist-get decklet--counter :reviewed)
+    (or (>= (plist-get decklet-review--counter :reviewed)
             decklet-review-daily-goal)
-        (and (<= (+ (plist-get decklet--counter :due-review)
-                    (plist-get decklet--counter :due-learning))
+        (and (<= (+ (plist-get decklet-review--counter :due-review)
+                    (plist-get decklet-review--counter :due-learning))
                  0)
-             (<= (plist-get decklet--counter :new) 0)))))
+             (<= (plist-get decklet-review--counter :new) 0)))))
 
 (defun decklet-review--cancel-hint-timer ()
   "Cancel `decklet-review--hint-timer'."
@@ -480,10 +493,10 @@ FIXED-OUTPUTS is centered vertically in the window."
 (defun decklet-review-component-counters ()
   "Return the counter line.
 The due and new figures count what is left to hand out today."
-  (let* ((n-reviewed (plist-get decklet--counter :reviewed))
-         (n-due-review (plist-get decklet--counter :due-review-remaining))
-         (n-due-learning (plist-get decklet--counter :due-learning-remaining))
-         (n-new (plist-get decklet--counter :new-remaining)))
+  (let* ((n-reviewed (plist-get decklet-review--counter :reviewed))
+         (n-due-review (plist-get decklet-review--counter :due-review-remaining))
+         (n-due-learning (plist-get decklet-review--counter :due-learning-remaining))
+         (n-new (plist-get decklet-review--counter :new-remaining)))
     (format "%s reviewed / %s review due / %s learning due / %s new"
             (propertize (number-to-string n-reviewed)
                         'face 'decklet-review-counter-reviewed-face)
@@ -496,7 +509,7 @@ The due and new figures count what is left to hand out today."
   (when (and decklet-review-daily-goal (> decklet-review-daily-goal 0))
     (if (decklet-review--daily-goal-reached-p)
         (propertize "DAILY GOAL REACHED" 'face 'decklet-review-state-goal-face)
-      (let* ((n-reviewed (plist-get decklet--counter :reviewed))
+      (let* ((n-reviewed (plist-get decklet-review--counter :reviewed))
              (goal-progress (/ (float n-reviewed) decklet-review-daily-goal))
              (steps (max 0 decklet-review-daily-goal-progress-steps))
              (n-clicks-completed (decklet--clamp (round (* goal-progress steps)) 0 steps))
@@ -669,16 +682,16 @@ They were rated from the state the re-rate just replaced."
 (defun decklet-review--nothing-due-message ()
   "Return the message explaining why no card is on offer.
 It names a spent daily limit and the wait for the next learning card."
-  (decklet--refresh-counter)
+  (decklet-review--refresh-counter)
   (let* ((next-due (decklet-db--next-due-time))
          (wait (and next-due
                     (format "next card in %s"
                             (decklet--format-interval
                              (fsrs-timestamp-difference next-due (decklet--now)))))))
     (cond
-     ((and (plist-get decklet--counter :limited) wait)
+     ((and (plist-get decklet-review--counter :limited) wait)
       (format "Daily limit reached; %s" wait))
-     ((plist-get decklet--counter :limited)
+     ((plist-get decklet-review--counter :limited)
       "Daily limit reached; the rest of the deck waits until tomorrow")
      (wait (format "Nothing due right now; %s" wait))
      (t "No words to review"))))
@@ -687,23 +700,11 @@ It names a spent daily limit and the wait for the next learning card."
   "Return the current learning day and a copy of the review rules."
   (list (decklet-day-start-time) (copy-tree decklet-review-order)))
 
-(defun decklet-review--invalidate-queue (&optional _events)
-  "Discard pending cards after mutations described by _EVENTS.
-The visible card and undo history remain in place."
-  (setq decklet-due-card-ids nil))
-
-(defun decklet-review--on-fields-changed (events)
-  "Invalidate pending cards when EVENTS change tags."
-  (when (cl-some (lambda (event) (eq (plist-get event :field) 'tags)) events)
-    (decklet-review--invalidate-queue)
-    (when (get-buffer decklet-review-buffer-name)
-      (decklet--refresh-counter)
-      (decklet-review--refresh-visible))))
-
 (defun decklet-review--advance ()
   "Show the next card from the trail or the due queue, or quit."
   (unless (equal decklet-review--queue-context (decklet-review--queue-context))
-    (when decklet-review--queue-context (decklet-review--invalidate-queue))
+    (when decklet-review--queue-context
+      (setq decklet-due-card-ids nil))
     (setq decklet-review--queue-context (decklet-review--queue-context)))
   (setq decklet-review--trail-future
         (decklet-review--trail-drop-dead decklet-review--trail-future))
@@ -783,6 +784,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
         (push (list :card-id card-id :grade grade :pre-meta pre-meta
                     :log-id new-log-id)
               decklet-review--trail-past)))
+    (decklet-review--refresh-counter)
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
       (run-hooks 'decklet-review-daily-goal-reached-hook))
@@ -840,6 +842,7 @@ Trail entries whose card no longer exists are discarded."
   (when decklet-current-card-id
     (let ((buffer (decklet-review--setup-buffer)))
       (switch-to-buffer buffer)
+      (decklet-review--refresh-counter)
       (decklet-review--render-buffer))))
 
 (defun decklet-review-set-word ()
@@ -895,7 +898,7 @@ Trail entries whose card no longer exists are discarded."
             decklet-review--trail-future nil)
       (let ((buffer (decklet-review--setup-buffer)))
         (switch-to-buffer buffer)
-        (decklet--refresh-counter)
+        (decklet-review--refresh-counter)
         (decklet-review-next-card)))))
 
 ;; Backup (see `decklet-backup-automatic')
@@ -905,41 +908,55 @@ Trail entries whose card no longer exists are discarded."
 (add-hook 'decklet-review-start-hook #'decklet-review--enable-resize-refresh)
 (add-hook 'decklet-review-quit-hook #'decklet-review--disable-resize-refresh)
 
-;; Handles both field updates and renames.
-(defun decklet-review--on-current-card-changed (events)
-  "Refresh the visible review buffer when the current card is in EVENTS."
+;; Card lifecycle handlers
+
+(defun decklet-review--sync-counter ()
+  "Refresh counters and redraw when a review session buffer is open."
+  (when (get-buffer decklet-review-buffer-name)
+    (decklet-review--refresh-counter)
+    (decklet-review--refresh-visible)))
+
+(defun decklet-review--on-queue-changed (&optional _events)
+  "Drop pending cards and sync counters when queue membership changes."
+  (setq decklet-due-card-ids nil)
+  (decklet-review--sync-counter))
+
+(defun decklet-review--redraw-if-current (events)
+  "Redraw the review buffer if the current card appears in EVENTS."
   (when (cl-some (lambda (ev) (eql (plist-get ev :card-id)
                                    decklet-current-card-id))
                  events)
     (decklet-review--refresh-visible)))
 
-(add-hook 'decklet-cards-field-updated-functions
-          #'decklet-review--on-current-card-changed)
-(add-hook 'decklet-cards-renamed-functions
-          #'decklet-review--on-current-card-changed)
+(defun decklet-review--on-field-updated (events)
+  "Sync queue on tag changes in EVENTS, or redraw if the current card changed."
+  (if (cl-some (lambda (ev) (eq (plist-get ev :field) 'tags)) events)
+      (decklet-review--on-queue-changed)
+    (decklet-review--redraw-if-current events)))
 
 (defun decklet-review--on-cards-deleted (events)
-  "Drop trail entries for every deleted card in EVENTS."
+  "Drop trail entries for deleted cards in EVENTS and sync counters."
   (let ((deleted (mapcar (lambda (event) (plist-get event :card-id)) events)))
     (cl-flet ((keep (entries)
                 (seq-remove (lambda (entry) (memql (plist-get entry :card-id) deleted))
                             entries)))
       (setq decklet-review--trail-past (keep decklet-review--trail-past)
-            decklet-review--trail-future (keep decklet-review--trail-future)))))
-
-(add-hook 'decklet-cards-deleted-functions
-          #'decklet-review--on-cards-deleted)
+            decklet-review--trail-future (keep decklet-review--trail-future))))
+  (decklet-review--sync-counter))
 
 (defun decklet-review--on-external-rating (_events)
-  "Invalidate pending cards after external rating _EVENTS."
+  "Sync queue after ratings made outside the review UI."
   (unless decklet-review--grading
-    (decklet-review--invalidate-queue)))
+    (decklet-review--on-queue-changed)))
 
+(add-hook 'decklet-cards-renamed-functions #'decklet-review--redraw-if-current)
+(add-hook 'decklet-cards-field-updated-functions #'decklet-review--on-field-updated)
+(add-hook 'decklet-cards-deleted-functions #'decklet-review--on-cards-deleted)
 (add-hook 'decklet-cards-rated-functions #'decklet-review--on-external-rating)
-(add-hook 'decklet-cards-field-updated-functions #'decklet-review--on-fields-changed)
 (dolist (hook '(decklet-cards-added-functions
-                decklet-cards-archived-functions decklet-cards-unarchived-functions))
-  (add-hook hook #'decklet-review--invalidate-queue))
+                decklet-cards-archived-functions
+                decklet-cards-unarchived-functions))
+  (add-hook hook #'decklet-review--on-queue-changed))
 
 (defvar decklet-review-mode-map
   (define-keymap

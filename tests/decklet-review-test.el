@@ -28,7 +28,7 @@
            (hook-count 0)
            (decklet-review-daily-goal-reached-hook
             (list (lambda () (cl-incf hook-count)))))
-      (decklet--refresh-counter)
+      (decklet-review--refresh-counter)
       (cl-letf (((symbol-function 'decklet-review--advance) #'ignore))
         (dolist (word '("first" "second"))
           (setq decklet-current-card-id (decklet-test--card-id word))
@@ -201,6 +201,30 @@ predicted intervals must come from that state too."
            (decklet-due-card-ids (list id)))
       (decklet-set-card-tags id '("medicine"))
       (should-not decklet-due-card-ids))))
+
+(ert-deftest decklet-test-review-counter-refreshes-only-with-review-buffer ()
+  "Deck mutations skip counter recomputation unless a review buffer is open.
+When a review session is open, deleting, archiving and adding cards
+keep `decklet-review--counter' up to date."
+  (decklet-test--with-temp-db
+    (let ((a (plist-get (decklet--add-card "alpha") :card-id))
+          (b (plist-get (decklet--add-card "beta") :card-id)))
+      ;; Outside review, mutations never touch the queue counters.
+      (cl-letf (((symbol-function 'decklet-queue--counts)
+                 (lambda () (error "Unexpected counter refresh"))))
+        (decklet-archive-card a)
+        (decklet-unarchive-card a)
+        (decklet-delete-card b))
+      ;; Inside a review session, mutations refresh the counters.
+      (decklet-test-review--in-session
+        (let ((c (plist-get (decklet--add-card "gamma") :card-id)))
+          (should (= 2 (plist-get decklet-review--counter :new)))
+          (decklet-archive-card c)
+          (should (= 1 (plist-get decklet-review--counter :new)))
+          (decklet-unarchive-card c)
+          (should (= 2 (plist-get decklet-review--counter :new)))
+          (decklet-delete-card a)
+          (should (= 1 (plist-get decklet-review--counter :new))))))))
 
 (provide 'decklet-review-test)
 ;;; decklet-review-test.el ends here

@@ -55,8 +55,8 @@ Only a failed DB write retires the freshly written log record."
   (decklet-test--with-temp-db
     (decklet--add-card "w")
     (let ((id (decklet-test--card-id "w")))
-      (cl-letf (((symbol-function 'decklet--refresh-counter)
-                 (lambda () (error "Counter refresh failed"))))
+      (cl-letf (((symbol-function 'decklet-fire-one-card-event)
+                 (lambda (&rest _) (error "Hook dispatch failed"))))
         (should-error (decklet-rate-card id 3)))
       (should (decklet-card-meta-last-review (decklet-get-card-meta id)))
       (should (equal (list "rated")

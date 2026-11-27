@@ -29,17 +29,6 @@
 (defvar decklet-due-card-ids nil
   "List of card ids that are due for review.")
 
-(defvar decklet--counter
-  '(:reviewed 0 :due-review 0 :due-learning 0 :new 0
-              :due-review-remaining 0 :due-learning-remaining 0 :new-remaining 0
-              :limited nil)
-  "Review counters, refreshed by `decklet--refresh-counter'.
-See `decklet-queue--counts' for the keys.")
-
-(defun decklet--refresh-counter ()
-  "Refresh counters from database state."
-  (setq decklet--counter (decklet-queue--counts)))
-
 (defun decklet--refresh-due-card-ids ()
   "Refresh the due card-id list from the database."
   (setq decklet-due-card-ids (decklet-queue--due-card-ids)))
@@ -200,7 +189,6 @@ PRIOR-GRADE, when non-nil, is the rating being replaced."
        ;; The rating never reached the DB, so void its log record.
        (decklet-review-log-append-void log-id)
        (signal (car err) (cdr err))))
-    (decklet--refresh-counter)
     (decklet-fire-one-card-event 'decklet-cards-rated-functions
                                  :card-id card-id
                                  :old-meta old-meta
@@ -251,7 +239,6 @@ Return non-nil when the stored value changed."
     (when (eql decklet-current-card-id card-id)
       (setq decklet-current-card-id nil))
     (setq decklet-due-card-ids (delete card-id decklet-due-card-ids))
-    (decklet--refresh-counter)
     (decklet-fire-one-card-event 'decklet-cards-deleted-functions
                                  :card-id card-id :card card)))
 
@@ -259,7 +246,6 @@ Return non-nil when the stored value changed."
   "Archive CARD-ID without deleting it."
   (decklet-db--require-card-row card-id)
   (decklet-db--set-card-archived-at card-id (decklet--now))
-  (decklet--refresh-counter)
   (decklet-fire-one-card-event 'decklet-cards-archived-functions
                                :card-id card-id))
 
@@ -267,7 +253,6 @@ Return non-nil when the stored value changed."
   "Unarchive CARD-ID and return it to the active deck."
   (decklet-db--require-card-row card-id)
   (decklet-db--set-card-archived-at card-id nil)
-  (decklet--refresh-counter)
   (decklet-fire-one-card-event 'decklet-cards-unarchived-functions
                                :card-id card-id))
 
