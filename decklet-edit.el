@@ -574,16 +574,25 @@ Under the `archived' filter, the card is unarchived first."
 
 ;;;###autoload
 (defun decklet-edit ()
-  "Open the card list for editing."
+  "Open the card list for editing, restarting if one is already open."
   (interactive)
+  (when-let* ((existing (get-buffer decklet-edit-buffer-name)))
+    (kill-buffer existing))
   (decklet-with-db
     (decklet-db--ensure)
-    (run-hooks 'decklet-edit-start-hook)
-    (let ((buffer (get-buffer-create decklet-edit-buffer-name)))
-      (with-current-buffer buffer
-        (decklet-edit-mode)
-        (decklet-edit-refresh))
-      (switch-to-buffer buffer))))
+    (let ((buffer (get-buffer-create decklet-edit-buffer-name))
+          (started nil))
+      (unwind-protect
+          (progn
+            (with-current-buffer buffer
+              (decklet-edit-mode))
+            (run-hooks 'decklet-edit-start-hook)
+            (with-current-buffer buffer
+              (decklet-edit-refresh))
+            (switch-to-buffer buffer)
+            (setq started t))
+        (when (and (not started) (buffer-live-p buffer))
+          (kill-buffer buffer))))))
 
 (defun decklet-edit--on-kill-buffer ()
   "Clear the edit session state when the edit buffer is killed.
