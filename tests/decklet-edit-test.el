@@ -49,6 +49,21 @@ Declining the confirmation deletes nothing and keeps the marks."
 
 ;;; Filter
 
+(ert-deftest decklet-test-edit-marks-clear-on-filter-and-delete ()
+  "Switching filters clears marks, and deleting a card drops its mark."
+  (decklet-test--with-temp-db
+    (let ((a (plist-get (decklet--add-card "alpha") :card-id))
+          (b (plist-get (decklet--add-card "beta") :card-id)))
+      (decklet-edit-test--with-buffer
+        (decklet-edit--goto-card-id a)
+        (decklet-edit-mark-at-point)
+        (decklet-edit--goto-card-id b)
+        (decklet-edit-mark-at-point)
+        (decklet-delete-card a)
+        (should (equal (list b) (decklet-edit--marked-card-ids)))
+        (decklet-edit-filter-toggle-archive)
+        (should (= 0 (hash-table-count decklet-edit--marked)))))))
+
 (ert-deftest decklet-test-edit-filter-tag-refuses-other-buffers ()
   "Filtering by tag outside the edit buffer leaves that buffer untouched."
   (decklet-test--with-temp-db

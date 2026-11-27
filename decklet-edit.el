@@ -447,6 +447,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   "Show only review cards in the edit table."
   (interactive)
   (setq decklet-edit--filter 'review)
+  (decklet-edit--unmark-all)
   (decklet-edit-refresh)
   (message "Filter: review"))
 
@@ -454,6 +455,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   "Show only learning cards in the edit table."
   (interactive)
   (setq decklet-edit--filter 'learning)
+  (decklet-edit--unmark-all)
   (decklet-edit-refresh)
   (message "Filter: learning"))
 
@@ -462,6 +464,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (interactive)
   (setq decklet-edit--filter
         (if (eq decklet-edit--filter 'all) 'archived 'all))
+  (decklet-edit--unmark-all)
   (decklet-edit-refresh)
   (message "Filter: %s" decklet-edit--filter))
 
@@ -495,6 +498,7 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (setq decklet-edit--tag-filter
         (let ((tag (completing-read "Tag (empty for all): " (decklet-list-tags))))
           (unless (string-empty-p tag) tag)))
+  (decklet-edit--unmark-all)
   (decklet-edit-refresh))
 
 (defun decklet-edit-set-hint ()
@@ -636,8 +640,14 @@ Accepts any hook signature; arguments are ignored."
         (setq decklet-edit--refresh-pending nil)
         (decklet-edit-refresh)))))
 
+(defun decklet-edit--on-cards-deleted (events)
+  "Drop deleted cards in EVENTS from marks and refresh the edit buffer."
+  (dolist (event events)
+    (remhash (plist-get event :card-id) decklet-edit--marked))
+  (decklet-edit--on-card-change))
+
+(add-hook 'decklet-cards-deleted-functions #'decklet-edit--on-cards-deleted)
 (dolist (hook '(decklet-cards-added-functions
-                decklet-cards-deleted-functions
                 decklet-cards-renamed-functions
                 decklet-cards-archived-functions
                 decklet-cards-unarchived-functions
