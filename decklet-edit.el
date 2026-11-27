@@ -554,7 +554,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
                          (format "Delete \"%s\" from the deck? " word)))
       (when marked (decklet-edit--unmark-all))
       (decklet-edit--execute-mutation #'decklet-delete-card card-ids)
-      (message (if marked
+      (message "%s"
+               (if marked
                    (format "Deleted %d cards" (length card-ids))
                  (format "Deleted \"%s\"" word))))))
 
@@ -577,7 +578,8 @@ Under the `archived' filter, the action is unarchive instead."
                         (t (format "%s \"%s\" from review? " verb word))))
       (when marked (decklet-edit--unmark-all))
       (decklet-edit--execute-mutation action card-ids)
-      (message (if marked
+      (message "%s"
+               (if marked
                    (format "%s %d cards" done-verb (length card-ids))
                  (format "%s \"%s\"" done-verb word))))))
 
@@ -621,9 +623,8 @@ Under the `archived' filter, the card is unarchived first."
       (unwind-protect
           (progn
             (with-current-buffer buffer
-              (decklet-edit-mode))
-            (run-hooks 'decklet-edit-start-hook)
-            (with-current-buffer buffer
+              (decklet-edit-mode)
+              (run-hooks 'decklet-edit-start-hook)
               (decklet-edit-refresh))
             (switch-to-buffer buffer)
             (setq started t))
@@ -633,8 +634,6 @@ Under the `archived' filter, the card is unarchived first."
 (defun decklet-edit--on-kill-buffer ()
   "Run edit session teardown when the edit buffer is killed.
 This runs for `decklet-edit-quit' and for a plain `kill-buffer' alike."
-  (remove-hook 'window-selection-change-functions
-               #'decklet-edit--flush-pending-refresh)
   (decklet-card-back--close-at-session-end)
   (decklet-run-hook-isolated 'decklet-edit-quit-hook))
 
@@ -661,12 +660,10 @@ Accepts any hook signature; arguments are ignored."
 
 (defun decklet-edit--flush-pending-refresh (&rest _)
   "Flush a pending refresh when the edit buffer becomes selected."
-  (when-let* ((buffer (get-buffer decklet-edit-buffer-name)))
-    (when (and (eq buffer (window-buffer (selected-window)))
-               (buffer-local-value 'decklet-edit--refresh-pending buffer))
-      (with-current-buffer buffer
-        (setq decklet-edit--refresh-pending nil)
-        (decklet-edit-refresh)))))
+  (when (and decklet-edit--refresh-pending
+             (eq (current-buffer) (window-buffer (selected-window))))
+    (setq decklet-edit--refresh-pending nil)
+    (decklet-edit-refresh)))
 
 (defun decklet-edit--on-cards-deleted (events)
   "Drop deleted cards in EVENTS from marks and refresh the edit buffer."
@@ -727,10 +724,10 @@ Accepts any hook signature; arguments are ignored."
   (setq tabulated-list-printer #'decklet-edit--print-entry)
   (setq tabulated-list-padding 2)
   (tabulated-list-init-header)
-  ;; Global, so it is installed only while an edit buffer exists and
-  ;; removed by `decklet-edit--on-kill-buffer'.
+  (add-hook 'window-buffer-change-functions
+            #'decklet-edit--flush-pending-refresh nil t)
   (add-hook 'window-selection-change-functions
-            #'decklet-edit--flush-pending-refresh)
+            #'decklet-edit--flush-pending-refresh nil t)
   (add-hook 'kill-buffer-hook #'decklet-edit--on-kill-buffer nil t))
 
 (provide 'decklet-edit)
