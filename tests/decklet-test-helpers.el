@@ -41,8 +41,12 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           ;; Reset UI state to prevent cross-test pollution.
           (decklet-current-card-id nil)
           (decklet-review--due-card-ids nil)
+          (decklet-review--trail-past nil)
+          (decklet-review--trail-future nil)
           (decklet-queue--cache nil)
           (decklet-review--queue-context nil)
+          (decklet-edit--marked (make-hash-table :test 'eql))
+          (decklet-edit--filter 'all)
           (decklet-edit--tag-filter nil)
           (decklet-review--counter
            (copy-sequence (default-value 'decklet-review--counter))))

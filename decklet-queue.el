@@ -186,29 +186,30 @@ reuse the queue so counter refreshes do not reshuffle cards."
                               (funcall (plist-get group :match)
                                        state (gethash card-id tags-by-card)))
                             groups)))
-         ;; One list of DUE-CARDS per group, in group order:
-         ;; (((:card-id 3 ...) (:card-id 9 ...)) nil ((:card-id 7 ...)) ...)
+         (bucket
+          (lambda (items state-fn id-fn)
+            (let ((buckets (make-vector (length groups) nil)))
+              (dolist (item items)
+                (let ((index (funcall group-index
+                                      (funcall state-fn item)
+                                      (funcall id-fn item))))
+                  (when index
+                    (push item (aref buckets index)))))
+              (mapcar #'nreverse buckets))))
+         ;; One list of DUE-CARDS per group, in group order.
          (due-by-group
-          (cl-loop for index below (length groups)
-                   collect (seq-filter
-                            (lambda (card)
-                              (eql index (funcall
-                                          group-index
-                                          (plist-get card :effective-state)
-                                          (plist-get card :card-id))))
-                            due-cards)))
-         ;; Distinct cards each group handed out today, in group order:
-         ;; (4 90 2 0).  Repeated ratings of a card count once.
+          (funcall bucket due-cards
+                   (lambda (c) (plist-get c :effective-state))
+                   (lambda (c) (plist-get c :card-id))))
+         ;; Distinct cards each group handed out today, in group order.
          (used-by-group
-          (cl-loop for index below (length groups)
-                   collect (length
-                            (seq-uniq
-                             (cl-loop for rating in ratings-today
-                                      for card-id = (plist-get rating :card_id)
-                                      for state = (decklet--normalize-fsrs-state
-                                                   (plist-get rating :pre_effective_state))
-                                      when (eql index (funcall group-index state card-id))
-                                      collect card-id)))))
+          (mapcar (lambda (ratings)
+                    (length (seq-uniq (mapcar (lambda (r) (plist-get r :card_id))
+                                              ratings))))
+                  (funcall bucket ratings-today
+                           (lambda (r) (decklet--normalize-fsrs-state
+                                        (plist-get r :pre_effective_state)))
+                           (lambda (r) (plist-get r :card_id)))))
          ;; (DAY-START ORDER DUE-BY-GROUP USED-BY-GROUP), the cache key
          (inputs (list day-start (copy-tree decklet-review-order)
                        due-by-group used-by-group)))

@@ -10,6 +10,8 @@
 
 ;;; Code:
 
+(require 'seq)
+
 (require 'decklet-core)
 (require 'decklet-db)
 (require 'decklet-deck)
@@ -78,6 +80,29 @@ Review and edit call this while their buffer is being killed."
     (remove-hook 'kill-buffer-query-functions
                  #'decklet-card-back--kill-buffer-query t)))
 
+(defun decklet-card-back--buffer-name (word)
+  "Return the card back popup buffer name for WORD."
+  (format "*Decklet Card Back: %s*" word))
+
+(defun decklet-card-back--find-buffer (card-id)
+  "Return the live card back popup buffer for CARD-ID, or nil."
+  (seq-find (lambda (buffer)
+              (eql (buffer-local-value 'decklet-card-back--card-id buffer)
+                   card-id))
+            (buffer-list)))
+
+(defun decklet-card-back--on-cards-renamed (events)
+  "Rename open card back popups whose cards were renamed in EVENTS."
+  (dolist (event events)
+    (let ((buffer (decklet-card-back--find-buffer (plist-get event :card-id))))
+      (when buffer
+        (with-current-buffer buffer
+          (rename-buffer
+           (decklet-card-back--buffer-name (plist-get event :new-word))
+           t))))))
+
+(add-hook 'decklet-cards-renamed-functions #'decklet-card-back--on-cards-renamed)
+
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."
   (interactive (list (decklet-prompt-word "Word: ")))
@@ -86,15 +111,14 @@ Review and edit call this while their buffer is being killed."
                      (user-error "No card found for \"%s\"" word))))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
-         (buf-name (format "*Decklet Card Back: %s*" word))
-         (buffer (get-buffer-create buf-name)))
+         (buffer (or (decklet-card-back--find-buffer card-id)
+                     (get-buffer-create (decklet-card-back--buffer-name word)))))
     ;; Keep unsaved edits in the popup and show them as is.
-    (if (and (buffer-modified-p buffer)
-             (eql (buffer-local-value 'decklet-card-back--card-id buffer)
-                  card-id))
-        (pop-to-buffer buffer)
-      (decklet-card-back--load buffer card-id back)
-      (pop-to-buffer buffer))))
+    (unless (and (buffer-modified-p buffer)
+                 (eql (buffer-local-value 'decklet-card-back--card-id buffer)
+                      card-id))
+      (decklet-card-back--load buffer card-id back))
+    (pop-to-buffer buffer)))
 
 (defun decklet-card-back--load (buffer card-id back)
   "Fill BUFFER with CARD-ID's card BACK and enable the popup mode."
