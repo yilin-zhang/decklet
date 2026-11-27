@@ -99,6 +99,7 @@ backup can be restored."
            (decklet-backup-prune-max-count 1))
       (make-directory decklet-backup-directory t)
       (decklet-test--touch backup-file database-payload)
+      (set-file-times backup-file (date-to-time "2026-01-01T01:01:01Z"))
       (decklet-test--touch log-backup log-payload)
       (decklet-test--touch journal-file "stale-journal")
       ;; A refusing pre-connect hook aborts before overwriting the DB.
