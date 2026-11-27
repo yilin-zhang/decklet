@@ -63,12 +63,23 @@ the pre-disconnect hook exactly once."
         (should (= hook-count 1))))))
 
 (ert-deftest decklet-test-db-pre-connect-hook-gates-each-connection ()
-  "The pre-connect hook can refuse a connection, and runs once per opening."
+  "The pre-connect hook can refuse a connection, and runs once per opening.
+A failure after `pre-connect-hook' closes the partial connection and
+runs `pre-disconnect-hook' so lock holders clean up."
   (decklet-test--with-temp-db
     (let ((decklet-db-pre-connect-hook (list (lambda () (user-error "Refused")))))
       (should-error (decklet-db--ensure) :type 'user-error)
       (should-not decklet-db--conn)
       (should-not (file-exists-p decklet-db-file)))
+    (let* ((disconnects 0)
+           (decklet-db-pre-connect-hook (list #'ignore))
+           (decklet-db-pre-disconnect-hook
+            (list (lambda () (cl-incf disconnects)))))
+      (cl-letf (((symbol-function 'sqlite-execute)
+                 (lambda (&rest _) (error "Schema init failed"))))
+        (should-error (decklet-db--ensure)))
+      (should-not decklet-db--conn)
+      (should (= disconnects 1)))
     (let* ((hook-count 0)
            (decklet-db-pre-connect-hook (list (lambda () (cl-incf hook-count)))))
       (decklet-db--ensure)

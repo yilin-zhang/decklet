@@ -143,6 +143,12 @@ If either copy fails, neither file is changed."
           (copy-file db-backup db-tmp 'overwrite 'keep-time)
           (copy-file log-backup log-tmp 'overwrite 'keep-time)
           (rename-file db-tmp db-target 'overwrite)
+          ;; Drop stale journal/WAL sidecars from the replaced DB so
+          ;; SQLite does not roll them back onto the restored file.
+          (dolist (suffix '("-journal" "-wal" "-shm"))
+            (let ((sidecar (concat db-target suffix)))
+              (when (file-exists-p sidecar)
+                (delete-file sidecar))))
           (rename-file log-tmp log-target 'overwrite)
           ;; The scan cache assumes the log only grows.
           (decklet-review-log--clear-scan-cache))
@@ -240,7 +246,21 @@ Registered by the review and edit modules on their session hooks."
         ;; Release the file before replacing it.
         (when decklet-db--conn
           (decklet-db--disconnect))
-        (decklet-backup--replace-db-and-log backup-file review-log-backup)
+        (run-hooks 'decklet-db-pre-connect-hook)
+        (unwind-protect
+            (progn
+              ;; Back up the current DB before overwriting it, skipping
+              ;; pruning so the chosen backup cannot be deleted, and
+              ;; skipping if a same-second write would overwrite it.
+              (unless (equal (file-name-nondirectory backup-file)
+                             (decklet-backup--backup-name
+                              (file-name-base decklet-db-file)
+                              "sqlite"
+                              (decklet-backup--timestamp)))
+                (let ((decklet-backup-prune-max-count nil))
+                  (decklet-db-backup)))
+              (decklet-backup--replace-db-and-log backup-file review-log-backup))
+          (decklet-run-hook-isolated 'decklet-db-pre-disconnect-hook))
         (message "Restored database and review log from %s"
                  (file-name-nondirectory backup-file))))))
 

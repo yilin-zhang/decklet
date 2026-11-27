@@ -83,27 +83,47 @@ backup can be restored."
         (should decklet-db--conn)))))
 
 (ert-deftest decklet-test-backup-restore-auto-disconnects-without-session ()
-  "With no session buffers open, restore disconnects and overwrites the DB."
+  "Restore respects pre-connect guards, backs up live data, and drops journals."
   (decklet-test--with-temp-db
-    (decklet-db--ensure)
-    (let ((database-payload "backup-payload")
-          (log-payload "log-payload")
-          (backup-file (expand-file-name
-                        "decklet-20260101T010101Z.sqlite"
+    (decklet--add-card "live-word")
+    (let* ((database-payload "backup-payload")
+           (log-payload "log-payload")
+           (backup-file (expand-file-name
+                         "decklet-20260101T010101Z.sqlite"
+                         decklet-backup-directory))
+           (log-backup (expand-file-name
+                        "review-log-20260101T010101Z.jsonl"
                         decklet-backup-directory))
-          (log-backup (expand-file-name
-                       "review-log-20260101T010101Z.jsonl"
-                       decklet-backup-directory)))
+           (journal-file (concat decklet-db-file "-journal"))
+           (live-before (decklet-test--file-string decklet-db-file))
+           (decklet-backup-prune-max-count 1))
       (make-directory decklet-backup-directory t)
       (decklet-test--touch backup-file database-payload)
       (decklet-test--touch log-backup log-payload)
-      (cl-letf (((symbol-function 'decklet-backup--backup-files)
-                 (lambda () (list backup-file)))
-                ((symbol-function 'decklet-backup--read-backup-choice)
-                 (lambda (_choices default) default))
-                ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
-        (decklet-db-restore))
+      (decklet-test--touch journal-file "stale-journal")
+      ;; A refusing pre-connect hook aborts before overwriting the DB.
+      (let ((decklet-db-pre-connect-hook
+             (list (lambda () (user-error "Sync busy")))))
+        (cl-letf (((symbol-function 'decklet-backup--read-backup-choice)
+                   (lambda (_choices default) default))
+                  ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
+          (should-error (decklet-db-restore) :type 'user-error)))
+      (should (string= live-before (decklet-test--file-string decklet-db-file)))
+      ;; With the guard passing, restore backs up the live DB without pruning
+      ;; the chosen backup, clears stale journal sidecars, and pairs disconnect.
+      (let* ((connects 0)
+             (disconnects 0)
+             (decklet-db-pre-connect-hook (list (lambda () (cl-incf connects))))
+             (decklet-db-pre-disconnect-hook (list (lambda () (cl-incf disconnects)))))
+        (cl-letf (((symbol-function 'decklet-backup--read-backup-choice)
+                   (lambda (_choices default) default))
+                  ((symbol-function 'yes-or-no-p) (lambda (_p) t)))
+          (decklet-db-restore))
+        (should (= connects 1))
+        (should (= disconnects 1)))
       (should-not decklet-db--conn)
+      (should-not (file-exists-p journal-file))
+      (should (= 2 (length (decklet-backup--backup-files))))
       (should (string= (decklet-test--file-string decklet-db-file)
                        database-payload))
       (should (string= (decklet-test--file-string decklet-review-log-file)

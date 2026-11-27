@@ -78,39 +78,49 @@ Text is normalized when written, so it is taken as stored."
   "Ensure SQLite connection and schema are initialized."
   (unless decklet-db--conn
     (run-hooks 'decklet-db-pre-connect-hook)
-    (when-let* ((dir (file-name-directory decklet-db-file)))
-      (make-directory dir t))
-    (setq decklet-db--conn (sqlite-open decklet-db-file))
-    (sqlite-execute decklet-db--conn "PRAGMA journal_mode = TRUNCATE;")
-    (sqlite-execute decklet-db--conn "PRAGMA foreign_keys = ON;")
-    (sqlite-execute decklet-db--conn
-                    "CREATE TABLE IF NOT EXISTS cards (
-                       card_id     INTEGER PRIMARY KEY,
-                       word        TEXT    UNIQUE NOT NULL,
-                       hint        TEXT,
-                       back        TEXT,
-                       added_date  TEXT    NOT NULL,
-                       last_review TEXT,
-                       due         TEXT    NOT NULL,
-                       archived_at TEXT,
-                       state       TEXT    NOT NULL,
-                       step        INTEGER,
-                       stability   REAL,
-                       difficulty  REAL,
-                       tags        TEXT    NOT NULL DEFAULT '[]'
-                     );")
-    ;; `card_id' is the rowid and `word' is UNIQUE, so both are indexed.
-    (sqlite-execute decklet-db--conn
-                    "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);"))
+    (let ((conn nil)
+          (ok nil))
+      (unwind-protect
+          (progn
+            (when-let* ((dir (file-name-directory decklet-db-file)))
+              (make-directory dir t))
+            (setq conn (sqlite-open decklet-db-file))
+            (sqlite-execute conn "PRAGMA journal_mode = TRUNCATE;")
+            (sqlite-execute conn "PRAGMA foreign_keys = ON;")
+            (sqlite-execute conn
+                            "CREATE TABLE IF NOT EXISTS cards (
+                               card_id     INTEGER PRIMARY KEY,
+                               word        TEXT    UNIQUE NOT NULL,
+                               hint        TEXT,
+                               back        TEXT,
+                               added_date  TEXT    NOT NULL,
+                               last_review TEXT,
+                               due         TEXT    NOT NULL,
+                               archived_at TEXT,
+                               state       TEXT    NOT NULL,
+                               step        INTEGER,
+                               stability   REAL,
+                               difficulty  REAL,
+                               tags        TEXT    NOT NULL DEFAULT '[]'
+                             );")
+            ;; `card_id' is the rowid and `word' is UNIQUE, so both are indexed.
+            (sqlite-execute conn
+                            "CREATE INDEX IF NOT EXISTS idx_cards_due ON cards(due);")
+            (setq decklet-db--conn conn
+                  ok t))
+        (unless ok
+          (when conn
+            (ignore-errors (sqlite-close conn)))
+          (decklet-run-hook-isolated 'decklet-db-pre-disconnect-hook)))))
   decklet-db--conn)
 
 (defun decklet-db--disconnect ()
   "Close the SQLite connection used by Decklet."
-  (when decklet-db--conn
+  (when-let* ((conn decklet-db--conn))
     ;; A failing extension must not keep the connection open.
     (decklet-run-hook-isolated 'decklet-db-pre-disconnect-hook)
-    (sqlite-close decklet-db--conn)
-    (setq decklet-db--conn nil)))
+    (setq decklet-db--conn nil)
+    (sqlite-close conn)))
 
 (defun decklet-db--acquire-session-buffer ()
   "Mark the current buffer as holding the Decklet session.
@@ -458,7 +468,10 @@ The result is a plist of :rows, a list of (DATE-STRING COUNT), and
 (defun decklet-open-db-file ()
   "Open the SQLite database file in `sqlite-mode'."
   (interactive)
-  (sqlite-mode-open-file decklet-db-file))
+  (decklet-with-db
+    (decklet-db--ensure)
+    (sqlite-mode-open-file decklet-db-file)
+    (decklet-db--acquire-session-buffer)))
 
 (provide 'decklet-db)
 ;;; decklet-db.el ends here
