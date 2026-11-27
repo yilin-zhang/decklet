@@ -163,8 +163,7 @@ since the core operation has already committed."
    args))
 
 (defun decklet-fire-one-card-event (hook &rest plist)
-  "Fire HOOK with a one-element event list built from PLIST.
-Shorthand for `decklet-run-hook-isolated' with a single-card event."
+  "Fire HOOK with a one-element event list built from PLIST."
   (decklet-run-hook-isolated hook (list plist)))
 
 ;; Per-card files.  Extensions name them by card id, which survives

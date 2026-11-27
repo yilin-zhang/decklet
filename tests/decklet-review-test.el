@@ -1,19 +1,17 @@
-;;; decklet-review-test.el --- This file tests decklet-review.el. -*- lexical-binding: t; -*-
+;;; decklet-review-test.el --- Tests for decklet-review.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 
 (require 'decklet-test-helpers)
 
 (defmacro decklet-test-review--in-session (&rest body)
-  "Run BODY in a live review buffer with an empty trail, killing it on exit."
+  "Run BODY in a live review buffer, killing it on exit."
   (declare (indent 0) (debug t))
-  `(let ((decklet-review--trail-past nil)
-         (decklet-review--trail-future nil))
-     (with-current-buffer (get-buffer-create decklet-review-buffer-name)
-       (unwind-protect
-           (progn (decklet-review-mode) ,@body)
-         (setq kill-buffer-query-functions nil)
-         (kill-buffer (current-buffer))))))
+  `(with-current-buffer (get-buffer-create decklet-review-buffer-name)
+     (unwind-protect
+         (progn (decklet-review-mode) ,@body)
+       (setq kill-buffer-query-functions nil)
+       (kill-buffer (current-buffer)))))
 
 ;;; Grading
 
@@ -23,8 +21,6 @@
     (decklet--add-card "first")
     (decklet--add-card "second")
     (let* ((decklet-review-daily-goal 1)
-           (decklet-review--trail-past nil)
-           (decklet-review--trail-future nil)
            (hook-count 0)
            (decklet-review-daily-goal-reached-hook
             (list (lambda () (cl-incf hook-count)))))
@@ -88,10 +84,7 @@ The log voids the first record, and the new record's `pre_stability' is
 nil, the state of a new card."
   (decklet-test--with-temp-db
     (decklet--add-card "w")
-    (let ((decklet-current-card-id (decklet-test--card-id "w"))
-          (decklet-review--due-card-ids nil)
-          (decklet-review--trail-past nil)
-          (decklet-review--trail-future nil))
+    (let ((decklet-current-card-id (decklet-test--card-id "w")))
       (cl-letf (((symbol-function 'decklet-review--advance) #'ignore)
                 ((symbol-function 'decklet-review--reset-ui-state) #'ignore)
                 ((symbol-function 'decklet-review--render-buffer) #'ignore))
@@ -122,10 +115,7 @@ would leave a log rating the database no longer reflects."
     (decklet--add-card "a")
     (decklet--add-card "b")
     (let ((a (decklet-test--card-id "a"))
-          (b (decklet-test--card-id "b"))
-          (decklet-review--due-card-ids nil)
-          (decklet-review--trail-past nil)
-          (decklet-review--trail-future nil))
+          (b (decklet-test--card-id "b")))
       (cl-letf (((symbol-function 'decklet-review--advance)
                  (lambda ()
                    (setq decklet-current-card-id

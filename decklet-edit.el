@@ -102,7 +102,7 @@
 
 (defvar decklet-edit--filter 'all
   "Current filter for the edit table.
-One of: all, review, learning, archived.")
+One of all, review, learning or archived.")
 
 (defvar decklet-edit--inhibit-callback-refresh nil
   "When it is non-nil, inhibit refresh during bulk processing.")
@@ -234,7 +234,7 @@ numerically when it is a number."
     (let* ((current (car tabulated-list-sort-key))
            (descending (if (equal current column)
                            (not (cdr tabulated-list-sort-key))
-                         (not (null (member column decklet-edit--time-sort-columns))))))
+                         (and (member column decklet-edit--time-sort-columns) t))))
       (setq tabulated-list-sort-key (cons column descending))
       (decklet-edit-refresh)
       (message "Sort: %s (%s)"
@@ -274,15 +274,6 @@ CARD-IDS can be a single card id or a list of card ids."
                  (eql card-ids current)))
       (user-error "Current review word \"%s\" can only be modified in review mode"
                   (decklet-get-card-word current)))))
-
-(defun decklet-edit--card-at-point (&optional ensure-not-current)
-  "Return the current edit-row card as a plist with `:card-id' and `:word'.
-When ENSURE-NOT-CURRENT is non-nil, reject the current review card first."
-  (let ((card-id (decklet-edit--card-id-at-point)))
-    (when ensure-not-current
-      (decklet-edit--ensure-not-current card-id))
-    (list :card-id card-id
-          :word (decklet-get-card-word card-id))))
 
 (defun decklet-edit--entries ()
   "Return tabulated list entries for the edit buffer."
@@ -514,7 +505,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
   (interactive)
-  (decklet-show-card-back (plist-get (decklet-edit--card-at-point) :word)))
+  (decklet-show-card-back
+   (decklet-get-card-word (decklet-edit--card-id-at-point))))
 
 (defun decklet-edit-delete-card ()
   "Delete marked cards, or the card at point."
@@ -560,9 +552,8 @@ Under the `archived' filter, the card is unarchived first."
   (interactive)
   (when decklet-current-card-id
     (user-error "Rating is disabled while a review session is active"))
-  (let* ((card (decklet-edit--card-at-point t))
-         (card-id (plist-get card :card-id))
-         (word (plist-get card :word))
+  (let* ((card-id (decklet-edit--card-id-at-point))
+         (word (decklet-get-card-word card-id))
          (unarchive-p (eq decklet-edit--filter 'archived))
          (grade-options '((1 . "Again") (2 . "Hard") (3 . "Good") (4 . "Easy")))
          (prompt (concat (format "Rate \"%s\" " word)

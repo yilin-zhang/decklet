@@ -1,4 +1,4 @@
-;;; decklet-queue-test.el --- This file tests decklet-queue.el. -*- lexical-binding: t; -*-
+;;; decklet-queue-test.el --- Tests for decklet-queue.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

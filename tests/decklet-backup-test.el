@@ -1,4 +1,4 @@
-;;; decklet-backup-test.el --- This file tests Decklet backup functionality. -*- lexical-binding: t; -*-
+;;; decklet-backup-test.el --- Tests for decklet-backup.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

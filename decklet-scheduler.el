@@ -120,29 +120,10 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
       (intern (concat ":" state))
     state))
 
-(defun decklet--fsrs-schedulable-state (state)
-  "Return the FSRS scheduler state for STATE.
-Decklet uses `:new' as an effective display state for never-reviewed
-cards, but FSRS schedules those cards from the learning state."
-  (let ((state (decklet--normalize-fsrs-state state)))
-    (cond
-     ((eq state :new) :learning)
-     ((memq state '(:learning :review :relearning)) state)
-     (t (error "Invalid FSRS state: %S" state)))))
-
 (defun decklet-fsrs-state-string (state)
   "Return the serialized string representation of STATE."
   (when state
     (substring (symbol-name state) 1)))
-
-(defun decklet--fsrs-rating-from-grade (grade)
-  "Convert numeric GRADE to FSRS rating keyword."
-  (pcase grade
-    (1 :again)
-    (2 :hard)
-    (3 :good)
-    (4 :easy)
-    (_ (error "Invalid grade: %s" grade))))
 
 (defun decklet--rollover-time-on-relative-date (time day-offset)
   "Return rollover time DAY-OFFSET calendar days from TIME's local date."
@@ -177,31 +158,32 @@ cards, but FSRS schedules those cards from the learning state."
 (defun decklet--card-meta->fsrs-card (meta)
   "Create an FSRS card from card META.
 META's `card-id' is used directly as the FSRS card id."
-  (fsrs-make-card
-   :card-id (decklet-card-meta-card-id meta)
-   :state (decklet--fsrs-schedulable-state
-           (decklet-card-meta-state meta))
-   :step (decklet-card-meta-step meta)
-   :stability (decklet-card-meta-stability meta)
-   :difficulty (decklet-card-meta-difficulty meta)
-   :due (decklet-card-meta-due meta)
-   :last-review (decklet-card-meta-last-review meta)))
-
-(defun decklet--apply-fsrs-card (meta card)
-  "Update card META in-place from FSRS CARD and return META."
-  (setf (decklet-card-meta-state meta)       (fsrs-card-state card)
-        (decklet-card-meta-step meta)        (fsrs-card-step card)
-        (decklet-card-meta-stability meta)   (fsrs-card-stability card)
-        (decklet-card-meta-difficulty meta)  (fsrs-card-difficulty card)
-        (decklet-card-meta-due meta)         (fsrs-card-due card)
-        (decklet-card-meta-last-review meta) (fsrs-card-last-review card))
-  meta)
+  (let* ((raw-state (decklet--normalize-fsrs-state
+                     (decklet-card-meta-state meta)))
+         ;; Never-reviewed cards use `:new' for display, `:learning' in FSRS.
+         (state (cond
+                 ((eq raw-state :new) :learning)
+                 ((memq raw-state '(:learning :review :relearning)) raw-state)
+                 (t (error "Invalid FSRS state: %S" raw-state)))))
+    (fsrs-make-card
+     :card-id (decklet-card-meta-card-id meta)
+     :state state
+     :step (decklet-card-meta-step meta)
+     :stability (decklet-card-meta-stability meta)
+     :difficulty (decklet-card-meta-difficulty meta)
+     :due (decklet-card-meta-due meta)
+     :last-review (decklet-card-meta-last-review meta))))
 
 (defun decklet--simulate-fsrs-review (meta grade)
   "Run FSRS scheduler on META with GRADE without mutating META.
 Return the list (NEW-FSRS-CARD REVIEW-TIME)."
   (let* ((scheduler (decklet--get-fsrs-scheduler))
-         (rating (decklet--fsrs-rating-from-grade grade))
+         (rating (pcase grade
+                   (1 :again)
+                   (2 :hard)
+                   (3 :good)
+                   (4 :easy)
+                   (_ (error "Invalid grade: %s" grade))))
          (review-time (decklet--now))
          (card (decklet--card-meta->fsrs-card meta)))
     (list (car (fsrs-scheduler-review-card scheduler card rating review-time))
@@ -216,8 +198,15 @@ Simulates one FSRS review without mutating META."
 
 (defun decklet--update-meta-with-grade (meta grade)
   "Return a copy of card META with GRADE applied via FSRS."
-  (let ((new-card (car (decklet--simulate-fsrs-review meta grade))))
-    (decklet--apply-fsrs-card (copy-decklet-card-meta meta) new-card)))
+  (let ((new-card (car (decklet--simulate-fsrs-review meta grade)))
+        (updated (copy-decklet-card-meta meta)))
+    (setf (decklet-card-meta-state updated)       (fsrs-card-state new-card)
+          (decklet-card-meta-step updated)        (fsrs-card-step new-card)
+          (decklet-card-meta-stability updated)   (fsrs-card-stability new-card)
+          (decklet-card-meta-difficulty updated)  (fsrs-card-difficulty new-card)
+          (decklet-card-meta-due updated)         (fsrs-card-due new-card)
+          (decklet-card-meta-last-review updated) (fsrs-card-last-review new-card))
+    updated))
 
 (provide 'decklet-scheduler)
 ;;; decklet-scheduler.el ends here

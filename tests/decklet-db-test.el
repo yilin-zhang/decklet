@@ -1,4 +1,4 @@
-;;; decklet-db-test.el --- This file tests decklet-db.el. -*- lexical-binding: t; -*-
+;;; decklet-db-test.el --- Tests for decklet-db.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 
@@ -104,8 +104,6 @@ disconnects when the body signals an error."
       (decklet-with-db
         (decklet-db--ensure))
       (should decklet-db--conn))))
-
-;;; Due-card selection and counts
 
 ;;; Calendar due counts
 

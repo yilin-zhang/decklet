@@ -363,7 +363,7 @@ start or right after another separator."
 (defun decklet-review--center-outputs (outputs)
   "Return OUTPUTS as text, each string centered on its own lines.
 An empty string stays empty so it is a blank line."
-  (let* ((separator (decklet-review--separator decklet-review--separator-width))
+  (let* ((separator (or (decklet-review-component-separator) ""))
          (strings (mapcan (lambda (output)
                             (if (eq output :separator)
                                 (list separator)
@@ -478,11 +478,6 @@ FIXED-OUTPUTS is centered vertically in the window."
                          (setq decklet-review--state-display-hint t)
                          (decklet-review--render-buffer t))))))
 
-(defun decklet-review--separator (width)
-  "Return the styled separator line, WIDTH characters wide."
-  (propertize (make-string width ?─)
-              'face 'decklet-review-separator-face))
-
 (defun decklet-review-component-title ()
   "Return the title line for the review header."
   (pcase (decklet-card-meta-effective-state decklet-review--render-meta)
@@ -564,7 +559,8 @@ On an undone card, the previous rating is highlighted."
 (defun decklet-review-component-separator ()
   "Return the separator line for the review components."
   (when (> decklet-review--separator-width 0)
-    (decklet-review--separator decklet-review--separator-width)))
+    (propertize (make-string decklet-review--separator-width ?─)
+                'face 'decklet-review-separator-face)))
 
 (defun decklet-review-component-linebreak ()
   "Return an empty component that is kept to force a blank line."
@@ -644,7 +640,7 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
 
 (defun decklet-review--undo-in-progress-p ()
   "Return non-nil when review is in undo state."
-  (not (null decklet-review--trail-future)))
+  (and decklet-review--trail-future t))
 
 (defun decklet-review--trail-current-entry ()
   "Return the entry currently being revisited during undo, or nil."

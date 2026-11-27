@@ -35,14 +35,10 @@ Set to nil to disable pruning."
   :type '(choice (const :tag "Disabled" nil) integer)
   :group 'decklet-db)
 
-(defconst decklet-backup--backup-timestamp-re "[0-9]\\{8\\}T[0-9]\\{6\\}Z"
-  "Regex matching the UTC timestamp produced by `decklet-backup--timestamp'.")
-
 (defun decklet-backup--backup-file-pattern (base ext)
   "Return a regexp matching timestamped backup files for BASE.EXT."
-  (format "\\`%s-\\(%s\\)\\.%s\\'"
+  (format "\\`%s-\\([0-9]\\{8\\}T[0-9]\\{6\\}Z\\)\\.%s\\'"
           (regexp-quote base)
-          decklet-backup--backup-timestamp-re
           (regexp-quote ext)))
 
 (defun decklet-backup--timestamp ()
@@ -86,8 +82,7 @@ are snapshots of the same state."
               (with-temp-file log-backup))))
       (error
        (dolist (file created)
-         (when (file-exists-p file)
-           (delete-file file)))
+         (delete-file file))
        (signal (car err) (cdr err))))
     (decklet-backup--prune-pairs)))
 

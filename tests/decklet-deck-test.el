@@ -1,4 +1,4 @@
-;;; decklet-deck-test.el --- This file tests decklet-deck.el. -*- lexical-binding: t; -*-
+;;; decklet-deck-test.el --- Tests for decklet-deck.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

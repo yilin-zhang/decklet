@@ -1,4 +1,4 @@
-;;; decklet-edit-test.el --- This file tests decklet-edit.el. -*- lexical-binding: t; -*-
+;;; decklet-edit-test.el --- Tests for decklet-edit.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 
@@ -6,12 +6,9 @@
 
 (defmacro decklet-edit-test--with-buffer (&rest body)
   "Run BODY inside a live `decklet-edit-mode' buffer backed by the test DB.
-Marks and filter are reset for the duration; the buffer is killed on exit.
-BODY can refer to `buf', the edit buffer."
+The buffer is killed on exit.  BODY can refer to `buf', the edit buffer."
   (declare (indent 0) (debug t))
-  `(let ((decklet-edit--marked (make-hash-table :test 'equal))
-         (decklet-edit--filter 'all)
-         (buf (get-buffer-create "*decklet-edit-test*")))
+  `(let ((buf (get-buffer-create "*decklet-edit-test*")))
      (unwind-protect
          (with-current-buffer buf
            (decklet-edit-mode)

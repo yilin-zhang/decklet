@@ -1,4 +1,4 @@
-;;; decklet-scheduler-test.el --- This file tests decklet-scheduler.el. -*- lexical-binding: t; -*-
+;;; decklet-scheduler-test.el --- Tests for decklet-scheduler.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

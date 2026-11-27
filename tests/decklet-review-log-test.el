@@ -1,4 +1,4 @@
-;;; decklet-review-log-test.el --- This file tests decklet-review-log.el. -*- lexical-binding: t; -*-
+;;; decklet-review-log-test.el --- Tests for decklet-review-log.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

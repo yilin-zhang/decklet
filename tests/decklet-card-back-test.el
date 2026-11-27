@@ -1,4 +1,4 @@
-;;; decklet-card-back-test.el --- This file tests decklet-card-back.el. -*- lexical-binding: t; -*-
+;;; decklet-card-back-test.el --- Tests for decklet-card-back.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

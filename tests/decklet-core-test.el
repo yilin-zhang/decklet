@@ -1,4 +1,4 @@
-;;; decklet-core-test.el --- This file tests decklet-core.el. -*- lexical-binding: t; -*-
+;;; decklet-core-test.el --- Tests for decklet-core.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 

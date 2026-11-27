@@ -1,4 +1,4 @@
-;;; decklet-batch-test.el --- This file tests decklet-batch.el. -*- lexical-binding: t; -*-
+;;; decklet-batch-test.el --- Tests for decklet-batch.el -*- lexical-binding: t; -*-
 
 ;;; Code:
 
