@@ -46,8 +46,18 @@ and returns nil."
       (progn
         (when-let* ((dir (file-name-directory decklet-review-log-file)))
           (make-directory dir t))
-        (let ((json (json-serialize record :null-object nil)))
+        (let* ((file (file-truename decklet-review-log-file))
+               (size (file-attribute-size (file-attributes file)))
+               ;; Guard against a prior truncated line swallowing the next record.
+               (needs-newline
+                (and size (> size 0)
+                     (with-temp-buffer
+                       (set-buffer-multibyte nil)
+                       (insert-file-contents-literally file nil (1- size) size)
+                       (/= (char-after (point-min)) ?\n))))
+               (json (json-serialize record :null-object nil)))
           (with-temp-buffer
+            (when needs-newline (insert "\n"))
             (insert json "\n")
             (let ((coding-system-for-write 'utf-8-unix))
               (write-region (point-min) (point-max)
@@ -65,7 +75,7 @@ and returns nil."
 WORD and CARD-ID identify the card, GRADE is 1-4, and OLD-META and
 NEW-META are the card meta before and after the rating.  Return nil
 if the write fails."
-  (let* ((now-str (decklet--now))
+  (let* ((now-str (or (decklet-card-meta-last-review new-meta) (decklet--now)))
          (record-id (decklet--mint-monotonic-id
                      'decklet-review-log--next-record-id))
          (last-review (decklet-card-meta-last-review old-meta))
@@ -135,8 +145,10 @@ Runs when the DB disconnects, and after anything rewrites the log."
 (defun decklet-review-log--parse-line (line)
   "Return LINE parsed as a plist, or nil when it is not valid JSON."
   (condition-case nil
-      (json-parse-string line :object-type 'plist :null-object nil
-                         :array-type 'list)
+      (let ((record (json-parse-string line :object-type 'plist :null-object nil
+                                       :array-type 'list)))
+        (when (and (listp record) (stringp (plist-get record :t)))
+          record))
     (error nil)))
 
 (defun decklet-review-log--read-lines (start end drop-first)

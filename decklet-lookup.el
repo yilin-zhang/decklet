@@ -47,18 +47,19 @@ When WORD is nil, prompt for it.
 When PROVIDER is nil, use `decklet-lookup-default-provider'."
   (interactive (list nil nil))
   (decklet-lookup--ensure-providers)
-  (let* ((word (or word (decklet-prompt-word "Lookup word: ")))
-         (provider (or provider decklet-lookup-default-provider))
+  (let* ((provider (or provider decklet-lookup-default-provider))
          (url-template (and provider
+                            (not (string-empty-p provider))
                             (cdr (assoc provider decklet-lookup-providers)))))
     (cond
-     ((null provider)
+     ((or (null provider) (string-empty-p provider))
       (user-error "No default lookup provider; set `decklet-lookup-default-provider' or use `decklet-lookup-with-provider'"))
      ((null url-template)
       (user-error "Unknown lookup provider `%s'" provider))
      (t
-      (browse-url (format url-template (url-hexify-string word)))
-      (run-hooks 'decklet-lookup-hook)))))
+      (let ((word (or word (decklet-prompt-word "Lookup word: "))))
+        (browse-url (string-replace "%s" (url-hexify-string word) url-template))
+        (run-hooks 'decklet-lookup-hook))))))
 
 ;;;###autoload
 (defun decklet-lookup-with-provider (word &optional provider)
@@ -71,6 +72,8 @@ When WORD or PROVIDER is nil, prompt for them."
                       (completing-read "Lookup provider: "
                                        (mapcar #'car decklet-lookup-providers)
                                        nil t))))
+    (when (string-empty-p provider)
+      (user-error "No lookup provider selected"))
     (decklet-lookup word provider)))
 
 ;;;###autoload
@@ -83,6 +86,8 @@ When WORD or PROVIDER is nil, prompt for them."
                                    nil t
                                    nil nil
                                    decklet-lookup-default-provider)))
+    (when (string-empty-p provider)
+      (user-error "No lookup provider selected"))
     (setq decklet-lookup-default-provider provider)
     (message "Default lookup provider set to `%s'." provider)))
 

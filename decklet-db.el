@@ -51,7 +51,7 @@ sidecar processes or caches.")
 The DB connection stays open while any of them lives.")
 
 (defconst decklet-db--card-columns
-  "card_id, word, hint, back, added_date, last_review, due, state, step, stability, difficulty, tags"
+  "card_id, word, hint, back, added_date, last_review, due, archived_at, state, step, stability, difficulty, tags"
   "Column list shared by card SELECTs that feed `decklet-db--normalize-row'.
 Column order must match `decklet-db--normalize-row's `pcase-let'.")
 
@@ -59,7 +59,7 @@ Column order must match `decklet-db--normalize-row's `pcase-let'.")
   "Turn ROW, selected with `decklet-db--card-columns', into a card plist.
 Text is normalized when written, so it is taken as stored."
   (when row
-    (pcase-let ((`(,card-id ,word ,hint ,back ,added ,last-review ,due ,state ,step ,stability ,difficulty ,tags) row))
+    (pcase-let ((`(,card-id ,word ,hint ,back ,added ,last-review ,due ,archived-at ,state ,step ,stability ,difficulty ,tags) row))
       (list :card-id card-id
             :word word
             :hint hint
@@ -67,6 +67,7 @@ Text is normalized when written, so it is taken as stored."
             :added added
             :last-review last-review
             :due due
+            :archived-at archived-at
             :state state
             :step step
             :stability stability

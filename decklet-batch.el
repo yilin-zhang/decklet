@@ -123,7 +123,9 @@ Each lifecycle hook fires once with the events of the whole batch."
                 (pcase (plist-get result :status)
                   ('added     (cl-incf added)
                               (push (list :card-id card-id) added-events))
-                  ('refreshed (cl-incf refreshed))
+                  ('refreshed (cl-incf refreshed)
+                              (push (list :card-id card-id :field 'added-date)
+                                    field-events))
                   ('exists    (cl-incf exists)))
                 ;; Fill hint only when the card has none yet, so re-importing
                 ;; does not overwrite a hand-written hint.

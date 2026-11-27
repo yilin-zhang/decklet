@@ -138,10 +138,15 @@ Emit a field-updated event only when the tags changed."
   "Read tag names with completion, using INITIAL names and optional PROMPT.
 Names are separated by whitespace; an empty response clears the list."
   (let ((crm-separator "[ \t]+"))
-    (decklet-normalize-tags
-     (completing-read-multiple (or prompt "Tags (space-separated): ")
-                               (decklet-list-tags) nil nil
-                               (string-join initial " ")))))
+    (minibuffer-with-setup-hook
+        (lambda ()
+          (let ((map (copy-keymap (current-local-map))))
+            (define-key map (kbd "SPC") #'self-insert-command)
+            (use-local-map map)))
+      (decklet-normalize-tags
+       (completing-read-multiple (or prompt "Tags (space-separated): ")
+                                 (decklet-list-tags) nil nil
+                                 (string-join initial " "))))))
 
 (defun decklet-prompt-set-tags (card-id)
   "Prompt to replace CARD-ID's tags, returning the new list."
@@ -226,17 +231,19 @@ Return non-nil when the stored value changed."
 
 (defun decklet-archive-card (card-id)
   "Archive CARD-ID without deleting it."
-  (decklet-db--require-card-row card-id)
-  (decklet-db--set-card-archived-at card-id (decklet--now))
-  (decklet-fire-one-card-event 'decklet-cards-archived-functions
-                               :card-id card-id))
+  (let ((row (decklet-db--require-card-row card-id)))
+    (unless (plist-get row :archived-at)
+      (decklet-db--set-card-archived-at card-id (decklet--now))
+      (decklet-fire-one-card-event 'decklet-cards-archived-functions
+                                   :card-id card-id))))
 
 (defun decklet-unarchive-card (card-id)
   "Unarchive CARD-ID and return it to the active deck."
-  (decklet-db--require-card-row card-id)
-  (decklet-db--set-card-archived-at card-id nil)
-  (decklet-fire-one-card-event 'decklet-cards-unarchived-functions
-                               :card-id card-id))
+  (let ((row (decklet-db--require-card-row card-id)))
+    (when (plist-get row :archived-at)
+      (decklet-db--set-card-archived-at card-id nil)
+      (decklet-fire-one-card-event 'decklet-cards-unarchived-functions
+                                   :card-id card-id))))
 
 (defun decklet-prompt-set-word (card-id)
   "Prompt for a new word for CARD-ID and rename if changed.
@@ -280,6 +287,11 @@ added card fires `decklet-cards-added-functions'."
           (list :card-id card-id
                 :status 'added
                 :message (format "Added \"%s\" to the deck. " word)))))
+     ;; An archived card is left archived and reported explicitly.
+     ((plist-get row :archived-at)
+      (list :card-id (decklet-card-meta-card-id meta)
+            :status 'exists
+            :message (format "Word \"%s\" already exists in the deck (archived). " word)))
      ;; A reviewed card is left alone.  A still-new card is refreshed
      ;; only when `decklet-add-and-refresh' is on.
      ((or (not (eq (decklet-card-meta-effective-state meta) :new))
@@ -294,6 +306,8 @@ added card fires `decklet-cards-added-functions'."
         (setf (decklet-card-meta-added-date meta) now)
         (setf (decklet-card-meta-due meta) now)
         (decklet-db--update-card-meta card-id meta)
+        (decklet-fire-one-card-event 'decklet-cards-field-updated-functions
+                                     :card-id card-id :field 'added-date)
         (list :card-id card-id
               :status 'refreshed
               :message (format "Refreshed the added date of existing new word \"%s\". " word)))))))

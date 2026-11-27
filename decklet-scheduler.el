@@ -106,14 +106,23 @@ The result is one of `:new', `:learning', `:relearning', or `:review'."
 (defun decklet--get-fsrs-scheduler ()
   "Return a configured FSRS scheduler for Decklet."
   (or decklet--fsrs-scheduler
-      (setq decklet--fsrs-scheduler
-            (apply #'fsrs-make-scheduler
-                   :desired-retention decklet-desired-retention
-                   :learning-steps decklet-learning-steps
-                   :relearning-steps decklet-relearning-steps
-                   :enable-fuzzing-p nil
-                   (when decklet-fsrs-parameters
-                     (list :parameters decklet-fsrs-parameters))))))
+      (progn
+        (unless (and (numberp decklet-desired-retention)
+                     (< 0 decklet-desired-retention 1))
+          (user-error "`decklet-desired-retention' must be between 0 and 1, got %S"
+                      decklet-desired-retention))
+        (when (and decklet-fsrs-parameters
+                   (not (and (vectorp decklet-fsrs-parameters)
+                             (= (length decklet-fsrs-parameters) 21))))
+          (user-error "`decklet-fsrs-parameters' must be a vector of 21 numbers"))
+        (setq decklet--fsrs-scheduler
+              (apply #'fsrs-make-scheduler
+                     :desired-retention decklet-desired-retention
+                     :learning-steps decklet-learning-steps
+                     :relearning-steps decklet-relearning-steps
+                     :enable-fuzzing-p nil
+                     (when decklet-fsrs-parameters
+                       (list :parameters decklet-fsrs-parameters)))))))
 
 (defun decklet--normalize-fsrs-state (state)
   "Normalize STATE into an FSRS keyword."

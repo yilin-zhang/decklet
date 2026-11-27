@@ -36,7 +36,7 @@ When nil, disable daily goal tracking and related UI."
 (defcustom decklet-review-hint-delay 1.5
   "Delay in seconds before the hint is revealed.
 When nil, the hint is shown immediately alongside the word."
-  :type '(choice (const :tag "No delay" nil) float)
+  :type '(choice (const :tag "No delay" nil) number)
   :group 'decklet-review)
 
 (defcustom decklet-review-hide-cursor t
@@ -261,14 +261,10 @@ See `decklet-queue--counts' for the keys.")
 
 (defun decklet--string-pixel-size (text)
   "Return the pixel (WIDTH . HEIGHT) of TEXT in the current buffer context."
-  (let ((remap face-remapping-alist)
-        (buffer-face (and (boundp 'buffer-face-mode-face)
-                          buffer-face-mode-face)))
+  (let ((remap face-remapping-alist))
     (with-temp-buffer
       (let ((face-remapping-alist remap)
             (inhibit-modification-hooks t))
-        (when (boundp 'buffer-face-mode-face)
-          (setq buffer-face-mode-face buffer-face))
         (insert text)
         (buffer-text-pixel-size (current-buffer))))))
 
@@ -390,7 +386,7 @@ FIXED-OUTPUTS is centered vertically in the window."
                           "")))
           (concat padding fixed-text floating-text))
       ;; In TTY, fall back to line counts for centering.
-      (let* ((line-count (length (split-string fixed-text "\n" t)))
+      (let* ((line-count (cl-count ?\n fixed-text))
              (half-body-h (floor (window-body-height) 2))
              (top-n-lines (max 0 (- half-body-h line-count))))
         (concat (make-string top-n-lines ?\n) fixed-text floating-text)))))
@@ -453,18 +449,12 @@ FIXED-OUTPUTS is centered vertically in the window."
           (decklet-review--render-buffer t))))))
 
 (defun decklet-review--enable-resize-refresh ()
-  "Enable refresh hooks for resize and text scaling."
-  (add-hook 'window-size-change-functions #'decklet-review--on-window-resize)
-  (unless (advice-member-p #'decklet-review--on-window-resize 'text-scale-adjust)
-    (advice-add 'text-scale-adjust :after #'decklet-review--on-window-resize))
-  (unless (advice-member-p #'decklet-review--on-window-resize 'text-scale-set)
-    (advice-add 'text-scale-set :after #'decklet-review--on-window-resize)))
+  "Enable refresh hooks for window resize."
+  (add-hook 'window-size-change-functions #'decklet-review--on-window-resize))
 
 (defun decklet-review--disable-resize-refresh ()
-  "Disable refresh hooks for resize and text scaling."
-  (remove-hook 'window-size-change-functions #'decklet-review--on-window-resize)
-  (advice-remove 'text-scale-adjust #'decklet-review--on-window-resize)
-  (advice-remove 'text-scale-set #'decklet-review--on-window-resize))
+  "Disable refresh hooks for window resize."
+  (remove-hook 'window-size-change-functions #'decklet-review--on-window-resize))
 
 (defun decklet-review--daily-goal-reached-p ()
   "Check if the daily review goal has been reached."
@@ -913,9 +903,7 @@ Trail entries whose card no longer exists are discarded."
          (word (decklet-get-card-word card-id)))
     (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
       (decklet-delete-card card-id)
-      (message "Deleted \"%s\" from the deck." word)
-      (when (eq major-mode 'decklet-review-mode)
-        (decklet-review--advance)))))
+      (message "Deleted \"%s\" from the deck." word))))
 
 (defun decklet-review-show-card-back ()
   "Show the card back for the current word in a read-only popup."
@@ -980,15 +968,18 @@ Trail entries whose card no longer exists are discarded."
     (decklet-review--refresh-visible)))
 
 (defun decklet-review--on-field-updated (events)
-  "Sync queue on tag changes in EVENTS, or redraw if the current card changed."
-  (if (cl-some (lambda (ev) (eq (plist-get ev :field) 'tags)) events)
+  "Sync queue on tag or added-date changes in EVENTS, or redraw if current."
+  (if (cl-some (lambda (ev) (memq (plist-get ev :field) '(tags added-date)))
+               events)
       (decklet-review--on-queue-changed)
     (decklet-review--redraw-if-current events)))
 
 (defun decklet-review--on-cards-deleted (events)
   "Drop deleted cards in EVENTS from review session state and sync counters."
-  (let ((deleted (mapcar (lambda (event) (plist-get event :card-id)) events)))
-    (when (memql decklet-current-card-id deleted)
+  (let* ((deleted (mapcar (lambda (event) (plist-get event :card-id)) events))
+         (current-deleted (memql decklet-current-card-id deleted)))
+    (when current-deleted
+      (decklet-review--cancel-hint-timer)
       (setq decklet-current-card-id nil))
     (setq decklet-review--due-card-ids
           (seq-remove (lambda (id) (memql id deleted))
@@ -997,8 +988,22 @@ Trail entries whose card no longer exists are discarded."
                 (seq-remove (lambda (entry) (memql (plist-get entry :card-id) deleted))
                             entries)))
       (setq decklet-review--trail-past (keep decklet-review--trail-past)
+            decklet-review--trail-future (keep decklet-review--trail-future)))
+    (if (and current-deleted (get-buffer decklet-review-buffer-name))
+        (progn
+          (decklet-review--refresh-counter)
+          (decklet-review--advance))
+      (decklet-review--sync-counter))))
+
+(defun decklet-review--on-cards-archived (events)
+  "Drop archived cards in EVENTS from the review trail and pending queue."
+  (let ((archived (mapcar (lambda (event) (plist-get event :card-id)) events)))
+    (cl-flet ((keep (entries)
+                (seq-remove (lambda (entry) (memql (plist-get entry :card-id) archived))
+                            entries)))
+      (setq decklet-review--trail-past (keep decklet-review--trail-past)
             decklet-review--trail-future (keep decklet-review--trail-future))))
-  (decklet-review--sync-counter))
+  (decklet-review--on-queue-changed))
 
 (defun decklet-review--on-external-rating (_events)
   "Sync queue after ratings made outside the review UI."
@@ -1008,9 +1013,9 @@ Trail entries whose card no longer exists are discarded."
 (add-hook 'decklet-cards-renamed-functions #'decklet-review--redraw-if-current)
 (add-hook 'decklet-cards-field-updated-functions #'decklet-review--on-field-updated)
 (add-hook 'decklet-cards-deleted-functions #'decklet-review--on-cards-deleted)
+(add-hook 'decklet-cards-archived-functions #'decklet-review--on-cards-archived)
 (add-hook 'decklet-cards-rated-functions #'decklet-review--on-external-rating)
 (dolist (hook '(decklet-cards-added-functions
-                decklet-cards-archived-functions
                 decklet-cards-unarchived-functions))
   (add-hook hook #'decklet-review--on-queue-changed))
 
@@ -1039,6 +1044,7 @@ Trail entries whose card no longer exists are discarded."
   (decklet-db--acquire-session-buffer)
   (setq buffer-read-only t)
   (buffer-disable-undo)
+  (add-hook 'text-scale-mode-hook #'decklet-review--on-window-resize nil t)
   (add-hook 'kill-buffer-hook #'decklet-review--on-kill-buffer nil t))
 
 (provide 'decklet-review)

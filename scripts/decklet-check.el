@@ -52,7 +52,16 @@ scratch config, say) is left alone."
   (dolist (file (decklet-check--elisp-files))
     (with-temp-buffer
       (insert-file-contents file)
-      (check-parens))))
+      (let ((emacs-lisp-mode-hook nil)
+            (prog-mode-hook nil))
+        (emacs-lisp-mode))
+      (condition-case err
+          (check-parens)
+        (error
+         (error "%s:%d: %s"
+                (file-relative-name file decklet-check--root)
+                (line-number-at-pos)
+                (error-message-string err)))))))
 
 (defun decklet-check--register-indent-declaration (form)
   "Register the symbol `lisp-indent-function' spec declared by FORM."
