@@ -458,13 +458,10 @@ FIXED-OUTPUTS is centered vertically in the window."
 
 (defun decklet-review--daily-goal-reached-p ()
   "Check if the daily review goal has been reached."
-  (when decklet-review-daily-goal
-    (or (>= (plist-get decklet-review--counter :reviewed)
-            decklet-review-daily-goal)
-        (and (<= (+ (plist-get decklet-review--counter :due-review)
-                    (plist-get decklet-review--counter :due-learning))
-                 0)
-             (<= (plist-get decklet-review--counter :new) 0)))))
+  (and decklet-review-daily-goal
+       (> decklet-review-daily-goal 0)
+       (>= (plist-get decklet-review--counter :reviewed)
+           decklet-review-daily-goal)))
 
 (defun decklet-review--cancel-hint-timer ()
   "Cancel `decklet-review--hint-timer'."
