@@ -259,7 +259,14 @@ Registered by the review and edit modules on their session hooks."
                               (decklet-backup--timestamp)))
                 (let ((decklet-backup-prune-max-count nil))
                   (decklet-db-backup)))
-              (decklet-backup--replace-db-and-log backup-file review-log-backup))
+              (decklet-backup--replace-db-and-log backup-file review-log-backup)
+              ;; Close unmodified card-back popups so stale pre-restore text
+              ;; cannot be edited and saved back over the restored database.
+              (dolist (buffer (buffer-list))
+                (when (with-current-buffer buffer
+                        (and (bound-and-true-p decklet-card-back-mode)
+                             (not (buffer-modified-p))))
+                  (kill-buffer buffer))))
           (decklet-run-hook-isolated 'decklet-db-pre-disconnect-hook))
         (message "Restored database and review log from %s"
                  (file-name-nondirectory backup-file))))))

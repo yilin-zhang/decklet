@@ -512,7 +512,11 @@ selection.  Otherwise, mark the card at point and move to the next line."
   (decklet-edit--require-mode)
   (let ((marked (decklet-edit--marked-card-ids)))
     (if (null marked)
-        (decklet-prompt-set-tags (decklet-edit--card-id-at-point))
+        (let* ((card-id (decklet-edit--card-id-at-point))
+               (tags (decklet-read-tags (decklet-get-card-tags card-id))))
+          (decklet-edit--execute-mutation
+           (lambda (id) (decklet-set-card-tags id tags))
+           (list card-id)))
       (let* ((action (read-char-choice "Marked tags: (a)dd or (r)emove? " '(?a ?r)))
              (tags (decklet-read-tags)))
         (decklet-edit--execute-mutation
