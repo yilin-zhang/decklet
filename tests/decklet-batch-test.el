@@ -49,19 +49,23 @@ collapse."
       (should-error (decklet--batch-collect-cards) :type 'user-error))))
 
 (ert-deftest decklet-test-batch-readd-merges-tags ()
-  "Re-adding a word in a batch merges its tags with the existing ones."
+  "Re-adding a word in a batch merges tags and preserves existing hints."
   (decklet-test--with-temp-db
-    (let ((id (plist-get (decklet--add-card "rose") :card-id)))
+    (let ((id (plist-get (decklet--add-card "rose") :card-id))
+          (bare-id (plist-get (decklet--add-card "fern") :card-id)))
       (decklet-set-card-tags id '("reading"))
+      (decklet-set-card-hint id "my rose hint")
       (with-temp-buffer
         (decklet-add-card-batch-mode)
-        (insert "rose\n:botany\n# a flower\nlily\n:botany\n")
-        (cl-letf (((symbol-function 'quit-window) #'ignore))
-          (decklet-add-card-batch-confirm)))
+        (insert "rose\n:botany\n# a flower\nfern\n#\n# a plant\nlily\n:botany\n#\n")
+        (decklet-add-card-batch-confirm))
       (should-not decklet-db--conn)
       (should (equal (decklet-get-card-tags id) '("botany" "reading")))
+      (should (equal (decklet-get-card-hint id) "my rose hint"))
+      (should (equal (decklet-get-card-hint bare-id) "a plant"))
       (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "lily"))
-                     '("botany"))))))
+                     '("botany")))
+      (should-not (decklet-get-card-hint (decklet-get-card-id-by-word "lily"))))))
 
 (provide 'decklet-batch-test)
 ;;; decklet-batch-test.el ends here
