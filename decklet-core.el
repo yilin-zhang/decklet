@@ -4,7 +4,8 @@
 
 ;;; Commentary:
 
-;; Shared root group and directory settings used by all modules.
+;; Shared settings, palette faces, tag helpers, lifecycle hooks,
+;; sidecar naming and monotonic id minting used across modules.
 
 ;;; Code:
 

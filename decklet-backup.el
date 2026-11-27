@@ -73,6 +73,8 @@ are snapshots of the same state."
           ;; an existing backup it was overwriting.
           (unless (file-exists-p backup-file)
             (push backup-file created))
+          ;; Copying the live database file is safe because `decklet-db.el'
+          ;; uses TRUNCATE journal mode and Emacs runs single-threaded.
           (copy-file decklet-db-file backup-file t t t)
           (unless (file-exists-p log-backup)
             (push log-backup created))
