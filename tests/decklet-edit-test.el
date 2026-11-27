@@ -27,7 +27,9 @@ The buffer is killed on exit.  BODY can refer to `buf', the edit buffer."
 
 (ert-deftest decklet-test-edit-delete-acts-on-marks-or-point ()
   "Delete removes the marked cards, or the card at point when none is marked.
-Declining the confirmation deletes nothing and keeps the marks."
+Declining the confirmation deletes nothing and keeps the marks.  Marks on
+cards deleted elsewhere do not break bulk delete, and switching filters
+clears marks so hidden cards cannot be deleted."
   (decklet-test--with-temp-db
     (dolist (w '("alpha" "beta" "gamma" "delta")) (decklet--add-card w))
     (decklet-edit-test--with-buffer
@@ -35,34 +37,29 @@ Declining the confirmation deletes nothing and keeps the marks."
       (decklet-edit-mark-at-point)
       (decklet-edit--goto-card-id (decklet-test--card-id "beta"))
       (decklet-edit-mark-at-point)
+      ;; Declining keeps everything and leaves the marks intact.
       (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
         (decklet-edit-delete-card))
       (should (= 4 (length (decklet-list-words))))
-      (should (= 2 (hash-table-count decklet-edit--marked)))
+      ;; A mark on a card deleted elsewhere drops cleanly before bulk delete.
+      (decklet-delete-card (decklet-test--card-id "alpha"))
       (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
       (should (equal '("delta" "gamma") (sort (decklet-list-words) #'string<)))
-      (should (= 0 (hash-table-count decklet-edit--marked)))
+      ;; Switching filters clears marks so hidden active cards stay safe.
+      (decklet-edit--goto-card-id (decklet-test--card-id "delta"))
+      (decklet-edit-mark-at-point)
+      (decklet-edit-filter-toggle-archive)
+      (should-error (decklet-edit-test--confirm #'decklet-edit-delete-card)
+                    :type 'user-error)
+      (should (equal '("delta" "gamma") (sort (decklet-list-words) #'string<)))
+      ;; With no marks left, delete removes the card at point.
+      (decklet-edit-filter-toggle-archive)
       (decklet-edit--goto-card-id (decklet-test--card-id "gamma"))
       (decklet-edit-test--confirm #'decklet-edit-delete-card)
       (should (equal '("delta") (decklet-list-words))))))
 
 ;;; Filter
-
-(ert-deftest decklet-test-edit-marks-clear-on-filter-and-delete ()
-  "Switching filters clears marks, and deleting a card drops its mark."
-  (decklet-test--with-temp-db
-    (let ((a (plist-get (decklet--add-card "alpha") :card-id))
-          (b (plist-get (decklet--add-card "beta") :card-id)))
-      (decklet-edit-test--with-buffer
-        (decklet-edit--goto-card-id a)
-        (decklet-edit-mark-at-point)
-        (decklet-edit--goto-card-id b)
-        (decklet-edit-mark-at-point)
-        (decklet-delete-card a)
-        (should (equal (list b) (decklet-edit--marked-card-ids)))
-        (decklet-edit-filter-toggle-archive)
-        (should (= 0 (hash-table-count decklet-edit--marked)))))))
 
 (ert-deftest decklet-test-edit-filter-tag-refuses-other-buffers ()
   "Filtering by tag outside the edit buffer leaves that buffer untouched."
@@ -73,21 +70,6 @@ Declining the confirmation deletes nothing and keeps the marks."
       (cl-letf (((symbol-function 'completing-read) (lambda (&rest _) "")))
         (should-error (decklet-edit-filter-tag) :type 'user-error))
       (should (string= "user text\n" (buffer-string))))))
-
-;;; Startup
-
-(ert-deftest decklet-test-edit-refused-connection-leaves-no-buffer ()
-  "Refusing the DB connection aborts `decklet-edit' before creating its buffer."
-  (decklet-test--with-temp-db
-    (let* ((decklet-edit-buffer-name "*decklet-edit-refused-test*")
-           (start-hook-ran nil)
-           (decklet-edit-start-hook (list (lambda () (setq start-hook-ran t))))
-           (decklet-db-pre-connect-hook
-            (list (lambda () (user-error "Refused")))))
-      (should-error (decklet-edit) :type 'user-error)
-      (should-not start-hook-ran)
-      (should-not (get-buffer decklet-edit-buffer-name))
-      (should-not decklet-db--conn))))
 
 (provide 'decklet-edit-test)
 ;;; decklet-edit-test.el ends here

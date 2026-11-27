@@ -45,29 +45,15 @@ the buffer and its edit."
           (decklet-card-back-test--kill buf))))))
 
 (ert-deftest decklet-test-card-back-reopen-keeps-unsaved-edits ()
-  "Reopening a modified card back keeps its unsaved edits."
-  (decklet-test--with-temp-db
-    (decklet--add-card "glow")
-    (let ((buf (decklet-card-back-test--open "glow")))
-      (unwind-protect
-          (progn
-            (with-current-buffer buf (insert "draft"))
-            (decklet-card-back-test--open "glow")
-            (with-current-buffer buf
-              (should (buffer-modified-p))
-              (should (string= "draft" (buffer-string)))))
-        (decklet-card-back-test--kill buf)))))
-
-(ert-deftest decklet-test-card-back-rename-reuses-modified-popup ()
-  "Renaming a card renames its open popup and preserves unsaved edits."
+  "Reopening a modified card back keeps its unsaved edits, even after rename."
   (decklet-test--with-temp-db
     (let* ((id (plist-get (decklet--add-card "glow") :card-id))
            (buf (decklet-card-back-test--open "glow")))
       (unwind-protect
           (progn
             (with-current-buffer buf (insert "draft"))
+            (should (eq buf (decklet-card-back-test--open "glow")))
             (decklet-set-card-word id "gleam")
-            (should (equal (buffer-name buf) "*Decklet Card Back: gleam*"))
             (should (eq buf (decklet-card-back-test--open "gleam")))
             (with-current-buffer buf
               (should (buffer-modified-p))

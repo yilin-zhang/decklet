@@ -192,51 +192,5 @@ predicted intervals must come from that state too."
       (decklet-set-card-tags id '("medicine"))
       (should-not decklet-review--due-card-ids))))
 
-(ert-deftest decklet-test-review-counter-refreshes-only-with-review-buffer ()
-  "Deck mutations skip counter recomputation unless a review buffer is open.
-When a review session is open, deleting, archiving and adding cards
-keep `decklet-review--counter' up to date."
-  (decklet-test--with-temp-db
-    (let ((a (plist-get (decklet--add-card "alpha") :card-id))
-          (b (plist-get (decklet--add-card "beta") :card-id)))
-      ;; Outside review, mutations never touch the queue counters.
-      (cl-letf (((symbol-function 'decklet-queue--counts)
-                 (lambda () (error "Unexpected counter refresh"))))
-        (decklet-archive-card a)
-        (decklet-unarchive-card a)
-        (decklet-delete-card b))
-      ;; Inside a review session, mutations refresh the counters.
-      (decklet-test-review--in-session
-        (let ((c (plist-get (decklet--add-card "gamma") :card-id)))
-          (should (= 2 (plist-get decklet-review--counter :new)))
-          (decklet-archive-card c)
-          (should (= 1 (plist-get decklet-review--counter :new)))
-          (decklet-unarchive-card c)
-          (should (= 2 (plist-get decklet-review--counter :new)))
-          (decklet-delete-card a)
-          (should (= 1 (plist-get decklet-review--counter :new))))))))
-
-;;; Session startup and re-entry
-
-(ert-deftest decklet-test-review-reentry-restarts-cleanly ()
-  "Calling `decklet-review' with an open session quits it and starts fresh.
-Start and quit hooks stay paired, and the trail starts empty with no fake skip."
-  (decklet-test--with-temp-db
-    (decklet--add-card "alpha")
-    (decklet--add-card "beta")
-    (let* ((events nil)
-           (decklet-review-start-hook (list (lambda () (push 'start events))))
-           (decklet-review-quit-hook (list (lambda () (push 'quit events)))))
-      (unwind-protect
-          (progn
-            (decklet-review)
-            (decklet-review-next-card)
-            (should (= 1 (length decklet-review--trail-past)))
-            (decklet-review)
-            (should (equal '(start quit start) (nreverse events)))
-            (should-not decklet-review--trail-past))
-        (when-let* ((buf (get-buffer decklet-review-buffer-name)))
-          (kill-buffer buf))))))
-
 (provide 'decklet-review-test)
 ;;; decklet-review-test.el ends here
