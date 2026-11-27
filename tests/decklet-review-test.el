@@ -7,11 +7,14 @@
 (defmacro decklet-test-review--in-session (&rest body)
   "Run BODY in a live review buffer, killing it on exit."
   (declare (indent 0) (debug t))
-  `(with-current-buffer (get-buffer-create decklet-review-buffer-name)
+  `(let ((buf (get-buffer-create decklet-review-buffer-name)))
      (unwind-protect
-         (progn (decklet-review-mode) ,@body)
-       (setq kill-buffer-query-functions nil)
-       (kill-buffer (current-buffer)))))
+         (with-current-buffer buf
+           (decklet-review-mode)
+           ,@body)
+       (when (buffer-live-p buf)
+         (with-current-buffer buf (setq kill-buffer-query-functions nil))
+         (kill-buffer buf)))))
 
 ;;; Grading
 
@@ -183,6 +186,28 @@ predicted intervals must come from that state too."
           (kill-buffer (current-buffer)))))))
 
 ;;; Queue invalidation
+
+(ert-deftest decklet-test-review-rerate-removes-card-from-pending-queue ()
+  "Re-rating a card during undo drops any copy waiting in the pending queue."
+  (decklet-test--with-temp-db
+    (let ((decklet-review-order '(((state :new) (sort :added :asc))))
+          (a (plist-get (decklet--add-card "a") :card-id))
+          (b (plist-get (decklet--add-card "b") :card-id)))
+      (decklet-test-review--in-session
+        (setq decklet-current-card-id a
+              decklet-review--due-card-ids (list b))
+        ;; Skip A and B so the queue refills with (A B), then undo to B.
+        (decklet-review-next-card)
+        (decklet-review-next-card)
+        (should (eql a decklet-current-card-id))
+        (decklet-review-undo)
+        (should (eql b decklet-current-card-id))
+        ;; Grade B, confirm A and grade A; B must not pop out again.
+        (cl-letf (((symbol-function 'y-or-n-p) (lambda (&rest _) t)))
+          (decklet-review--handle-grade 3)
+          (should (eql a decklet-current-card-id))
+          (decklet-review--handle-grade 3))
+        (should-not (get-buffer decklet-review-buffer-name))))))
 
 (ert-deftest decklet-test-review-retag-drops-pending-queue ()
   "Changing a card's tags drops the pending queue, which was grouped by tags."

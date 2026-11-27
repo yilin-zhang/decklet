@@ -742,8 +742,21 @@ It names a spent daily limit and the wait for the next learning card."
       (if decklet-review--due-card-ids
           (decklet-review--present-card (pop decklet-review--due-card-ids))
         (let ((reason (decklet-review--nothing-due-message)))
-          (decklet-review-quit)
-          (message "%s" reason))))))
+          (setq decklet-current-card-id nil
+                decklet-review--trail-past
+                (decklet-review--trail-drop-dead decklet-review--trail-past))
+          (if (or (null decklet-review--trail-past)
+                  (condition-case nil
+                      (y-or-n-p (format "%s. Quit review? " reason))
+                    (quit nil)))
+              (progn
+                (decklet-review-quit)
+                (message "%s" reason))
+            ;; Enter undo on the last card so pressing 1-4 re-rates it
+            ;; instead of grading it a second time.
+            (push (pop decklet-review--trail-past) decklet-review--trail-future)
+            (decklet-review--present-card
+             (plist-get (decklet-review--trail-current-entry) :card-id))))))))
 
 (defun decklet-review-next-card ()
   "Review the next due card.
@@ -809,6 +822,10 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
         (push (list :card-id card-id :grade grade :pre-meta pre-meta
                     :log-id new-log-id)
               decklet-review--trail-past)))
+    ;; A card re-rated during undo can still sit in the pending snapshot.
+    (setq decklet-review--due-card-ids
+          (seq-remove (lambda (id) (eql id card-id))
+                      decklet-review--due-card-ids))
     (decklet-review--refresh-counter)
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
