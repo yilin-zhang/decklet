@@ -75,6 +75,36 @@ the pre-disconnect hook exactly once."
       (decklet-db--ensure)
       (should (= hook-count 1)))))
 
+(ert-deftest decklet-test-db-with-db-disconnects-when-idle-and-outermost ()
+  "`decklet-with-db' closes an idle connection only at the outermost exit.
+It keeps the connection open while a session buffer lives, and still
+disconnects when the body signals an error."
+  (decklet-test--with-temp-db
+    ;; Nested calls share one connection and disconnect only once at the end.
+    (let* ((disconnects 0)
+           (decklet-db-pre-disconnect-hook
+            (list (lambda () (cl-incf disconnects)))))
+      (decklet-with-db
+        (decklet-db--ensure)
+        (decklet-with-db
+          (should decklet-db--conn))
+        (should decklet-db--conn)
+        (should (= disconnects 0)))
+      (should-not decklet-db--conn)
+      (should (= disconnects 1)))
+    ;; Errors still release an idle connection.
+    (should-error
+     (decklet-with-db
+       (decklet-db--ensure)
+       (error "Boom")))
+    (should-not decklet-db--conn)
+    ;; A live session buffer keeps the connection open across `decklet-with-db'.
+    (decklet-test--with-temp-buffers (session)
+      (with-current-buffer session (decklet-db--acquire-session-buffer))
+      (decklet-with-db
+        (decklet-db--ensure))
+      (should decklet-db--conn))))
+
 ;;; Due-card selection and counts
 
 ;;; Calendar due counts

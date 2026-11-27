@@ -29,15 +29,11 @@
     (unless card-id
       (user-error "No card associated with this buffer"))
     (let ((content (buffer-substring-no-properties (point-min) (point-max))))
-      (unwind-protect
-          (progn
-            (decklet-set-card-back card-id content)
-            (set-buffer-modified-p nil)
-            (message "Wrote card back of word \"%s\""
-                     (decklet-get-card-word card-id)))
-        ;; Outside a review or edit session the save opened the
-        ;; connection itself, so close it again.
-        (decklet-db--disconnect-if-idle)))))
+      (decklet-with-db
+        (decklet-set-card-back card-id content)
+        (set-buffer-modified-p nil)
+        (message "Wrote card back of word \"%s\""
+                 (decklet-get-card-word card-id))))))
 
 (defun decklet-card-back--write-contents ()
   "`write-contents-functions' handler for `decklet-card-back-mode'.
@@ -85,10 +81,9 @@ Review and edit call this while their buffer is being killed."
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."
   (interactive (list (decklet-prompt-word "Word: ")))
-  (let* ((card (unwind-protect
-                   (or (decklet-db--select-card-row-by-word word)
-                       (user-error "No card found for \"%s\"" word))
-                 (decklet-db--disconnect-if-idle)))
+  (let* ((card (decklet-with-db
+                 (or (decklet-db--select-card-row-by-word word)
+                     (user-error "No card found for \"%s\"" word))))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
          (buf-name (format "*Decklet Card Back: %s*" word))

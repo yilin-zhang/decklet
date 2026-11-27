@@ -56,6 +56,7 @@ collapse."
         (insert "rose\n:botany\n# a flower\nlily\n:botany\n")
         (cl-letf (((symbol-function 'quit-window) #'ignore))
           (decklet-add-card-batch-confirm)))
+      (should-not decklet-db--conn)
       (should (equal (decklet-get-card-tags id) '("botany" "reading")))
       (should (equal (decklet-get-card-tags (decklet-get-card-id-by-word "lily"))
                      '("botany"))))))

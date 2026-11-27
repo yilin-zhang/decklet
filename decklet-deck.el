@@ -336,21 +336,22 @@ added card fires `decklet-cards-added-functions'."
   (interactive (list (read-string "Word to add: ")))
   (let ((interactive-p (called-interactively-p 'any))
         (more t))
-    (while more
-      (let* ((result (decklet--add-card word))
-             (card-id (plist-get result :card-id))
-             (status (plist-get result :message))
-             (editing interactive-p))
-        (setq more nil)
-        (while editing
-          (pcase (read-char-choice
-                  (concat status "Add another? (y/n, ENTER=yes, H=hint, t=tags): ")
-                  '(?y ?n ?\r ?H ?t))
-            (?H (decklet-prompt-set-hint card-id))
-            (?t (decklet-prompt-set-tags card-id))
-            ((or ?y ?\r)
-             (setq word (read-string "Word to add: ") more t editing nil))
-            (?n (setq editing nil))))))))
+    (decklet-with-db
+      (while more
+        (let* ((result (decklet--add-card word))
+               (card-id (plist-get result :card-id))
+               (status (plist-get result :message))
+               (editing interactive-p))
+          (setq more nil)
+          (while editing
+            (pcase (read-char-choice
+                    (concat status "Add another? (y/n, ENTER=yes, H=hint, t=tags): ")
+                    '(?y ?n ?\r ?H ?t))
+              (?H (decklet-prompt-set-hint card-id))
+              (?t (decklet-prompt-set-tags card-id))
+              ((or ?y ?\r)
+               (setq word (read-string "Word to add: ") more t editing nil))
+              (?n (setq editing nil)))))))))
 
 (provide 'decklet-deck)
 ;;; decklet-deck.el ends here

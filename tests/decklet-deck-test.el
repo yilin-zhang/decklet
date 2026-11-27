@@ -40,6 +40,13 @@
       (decklet--add-card "beta")
       (should-not (= first (decklet-test--card-id "beta"))))))
 
+(ert-deftest decklet-test-deck-add-card-outside-session-closes-connection ()
+  "`decklet-add-card' disconnects when called with no session buffer open."
+  (decklet-test--with-temp-db
+    (decklet-add-card "lucid")
+    (should-not decklet-db--conn)
+    (should (equal '("lucid") (decklet-list-words)))))
+
 ;;; Rating commit
 
 (ert-deftest decklet-test-deck-rating-survives-failure-after-db-write ()

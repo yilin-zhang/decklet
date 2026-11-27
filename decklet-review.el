@@ -883,22 +883,20 @@ Trail entries whose card no longer exists are discarded."
 (defun decklet-review ()
   "Start a review session."
   (interactive)
-  (decklet--refresh-due-card-ids)
-  (setq decklet-review--queue-context (decklet-review--queue-context))
-  (if (null decklet-due-card-ids)
-      (let ((reason (decklet-review--nothing-due-message)))
-        ;; No session buffer will hold the connection opened above.
-        (decklet-db--disconnect-if-idle)
-        (message "%s" reason))
-    ;; Only a session buffer's kill runs the quit hook, so the start hook
-    ;; runs only when that buffer opens.
-    (run-hooks 'decklet-review-start-hook)
-    (setq decklet-review--trail-past nil
-          decklet-review--trail-future nil)
-    (let ((buffer (decklet-review--setup-buffer)))
-      (switch-to-buffer buffer)
-      (decklet--refresh-counter)
-      (decklet-review-next-card))))
+  (decklet-with-db
+    (decklet--refresh-due-card-ids)
+    (setq decklet-review--queue-context (decklet-review--queue-context))
+    (if (null decklet-due-card-ids)
+        (message "%s" (decklet-review--nothing-due-message))
+      ;; Only a session buffer's kill runs the quit hook, so the start hook
+      ;; runs only when that buffer opens.
+      (run-hooks 'decklet-review-start-hook)
+      (setq decklet-review--trail-past nil
+            decklet-review--trail-future nil)
+      (let ((buffer (decklet-review--setup-buffer)))
+        (switch-to-buffer buffer)
+        (decklet--refresh-counter)
+        (decklet-review-next-card)))))
 
 ;; Backup (see `decklet-backup-automatic')
 (add-hook 'decklet-review-start-hook #'decklet-backup-session)

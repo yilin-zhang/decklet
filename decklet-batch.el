@@ -98,51 +98,52 @@ The Commentary describes the line format.  A malformed line signals a
   "Add every card in the batch buffer and report what happened.
 Each lifecycle hook fires once with the events of the whole batch."
   (interactive)
-  (let* ((cards (decklet--batch-collect-cards))
-         (conn (decklet-db--ensure))
-         (added-events nil)
-         (field-events nil)
-         (added 0)
-         (refreshed 0)
-         (exists 0))
-    (with-sqlite-transaction conn
-      ;; Each hook fires once for the whole batch, after the commit.
-      (let ((decklet-cards-added-functions nil)
-            (decklet-cards-field-updated-functions nil))
-        (dolist (card cards)
-          (let* ((word (plist-get card :word))
-                 (hint (plist-get card :hint))
-                 (result (decklet--add-card word))
-                 (card-id (plist-get result :card-id)))
-            (pcase (plist-get result :status)
-              ('added     (cl-incf added)
-                          (push (list :card-id card-id) added-events))
-              ('refreshed (cl-incf refreshed))
-              ('exists    (cl-incf exists)))
-            (when (and hint (decklet-set-card-hint card-id hint))
-              (push (list :card-id card-id :field 'hint) field-events))
-            (when (plist-member card :tags)
-              (let ((old (decklet-get-card-tags card-id)))
-                (unless (equal old (decklet-add-card-tags card-id (plist-get card :tags)))
-                  (push (list :card-id card-id :field 'tags) field-events))))))))
-    (when added-events
-      (decklet-run-hook-isolated 'decklet-cards-added-functions
-                                 (nreverse added-events)))
-    (when field-events
-      (decklet-run-hook-isolated 'decklet-cards-field-updated-functions
-                                 (nreverse field-events)))
-    (when (functionp decklet-add-card-batch--on-confirm)
-      (condition-case err
-          (funcall decklet-add-card-batch--on-confirm
-                   (mapcar (lambda (card) (plist-get card :word)) cards))
-        (error
-         (display-warning
-          'decklet
-          (format "Batch confirmation callback failed: %s"
-                  (error-message-string err))
-          :error))))
-    (message "Imported %d: %d added, %d refreshed, %d already existed"
-             (length cards) added refreshed exists))
+  (decklet-with-db
+    (let* ((cards (decklet--batch-collect-cards))
+           (conn (decklet-db--ensure))
+           (added-events nil)
+           (field-events nil)
+           (added 0)
+           (refreshed 0)
+           (exists 0))
+      (with-sqlite-transaction conn
+        ;; Each hook fires once for the whole batch, after the commit.
+        (let ((decklet-cards-added-functions nil)
+              (decklet-cards-field-updated-functions nil))
+          (dolist (card cards)
+            (let* ((word (plist-get card :word))
+                   (hint (plist-get card :hint))
+                   (result (decklet--add-card word))
+                   (card-id (plist-get result :card-id)))
+              (pcase (plist-get result :status)
+                ('added     (cl-incf added)
+                            (push (list :card-id card-id) added-events))
+                ('refreshed (cl-incf refreshed))
+                ('exists    (cl-incf exists)))
+              (when (and hint (decklet-set-card-hint card-id hint))
+                (push (list :card-id card-id :field 'hint) field-events))
+              (when (plist-member card :tags)
+                (let ((old (decklet-get-card-tags card-id)))
+                  (unless (equal old (decklet-add-card-tags card-id (plist-get card :tags)))
+                    (push (list :card-id card-id :field 'tags) field-events))))))))
+      (when added-events
+        (decklet-run-hook-isolated 'decklet-cards-added-functions
+                                   (nreverse added-events)))
+      (when field-events
+        (decklet-run-hook-isolated 'decklet-cards-field-updated-functions
+                                   (nreverse field-events)))
+      (when (functionp decklet-add-card-batch--on-confirm)
+        (condition-case err
+            (funcall decklet-add-card-batch--on-confirm
+                     (mapcar (lambda (card) (plist-get card :word)) cards))
+          (error
+           (display-warning
+            'decklet
+            (format "Batch confirmation callback failed: %s"
+                    (error-message-string err))
+            :error))))
+      (message "Imported %d: %d added, %d refreshed, %d already existed"
+               (length cards) added refreshed exists)))
   (quit-window t))
 
 (defun decklet-add-card-batch-cancel ()

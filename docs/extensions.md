@@ -66,7 +66,9 @@ case-insensitive file system.
 ### Connection
 
 The review and edit buffers hold the SQLite connection while they live. Other
-code that calls the API opens it when needed.
+code that calls the API opens it when needed. Wrap one-shot commands outside a
+session in `(decklet-with-db BODY...)`, which disconnects afterward when no
+session buffer is open (and shares the connection across nested calls).
 
 - `decklet-db-pre-connect-hook` runs before each connection opens. Signal an
   error, usually a `user-error`, to refuse it. This guards every command that

@@ -30,6 +30,9 @@
 (defvar decklet-db--conn nil
   "SQLite connection for Decklet.")
 
+(defvar decklet-db--in-operation nil
+  "Non-nil while an outer `decklet-with-db' owns the DB connection lifetime.")
+
 (defvar decklet-db--last-card-id nil
   "Last minted card id, seeded from `MAX(card_id)' on first use.")
 
@@ -130,6 +133,19 @@ Used after one-shot work outside a session, such as loading or saving
 a card back, which opens the connection lazily."
   (unless (decklet-db--session-buffers)
     (decklet-db--disconnect)))
+
+(defmacro decklet-with-db (&rest body)
+  "Run BODY and disconnect the DB afterward if no session buffer is open.
+Nested calls share the connection and disconnect only when the
+outermost form exits."
+  (declare (indent 0) (debug t))
+  (let ((outer (make-symbol "outer")))
+    `(let ((,outer (not decklet-db--in-operation))
+           (decklet-db--in-operation t))
+       (unwind-protect
+           (progn ,@body)
+         (when ,outer
+           (decklet-db--disconnect-if-idle))))))
 
 (defun decklet-db--on-session-buffer-killed ()
   "Disconnect the DB when the last session buffer is killed."

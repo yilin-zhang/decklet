@@ -25,6 +25,7 @@ on exit.  BODY can refer to `tmp-dir', the temporary directory."
           (decklet-review-log-file
            (expand-file-name "review-log.jsonl" tmp-dir))
           (decklet-db--conn nil)
+          (decklet-db--in-operation nil)
           (decklet--fsrs-scheduler nil)
           ;; Shadow tuner-installed weights so scheduler tests can
           ;; toggle the override without leaking the global default.
