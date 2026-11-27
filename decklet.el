@@ -6,7 +6,7 @@
 ;; Keywords: tools
 ;; Version: 0.1.0
 ;; URL: https://github.com/yilin-zhang/decklet
-;; Package-Requires: ((emacs "31.1") (fsrs "6.0"))
+;; Package-Requires: ((emacs "30.1") (fsrs "6.0"))
 
 ;; This file is not part of GNU Emacs.
 
