@@ -54,6 +54,7 @@ Receives a list of added words.")
 (define-derived-mode decklet-add-card-batch-mode text-mode "Decklet-Batch"
   "Major mode for editing batch word entries.
 Word lines are emphasized; only the hint prefix is subdued."
+  :interactive nil
   ;; A `#' is special only at the start of a line, where it marks a hint.
   ;; The comment variables are set by hand, because `#' comment syntax
   ;; in the syntax table would also catch words such as "C#".
@@ -96,7 +97,9 @@ The Commentary describes the line format.  A malformed line signals a
 (defun decklet-add-card-batch-confirm ()
   "Add every card in the batch buffer and report what happened.
 Each lifecycle hook fires once with the events of the whole batch."
-  (interactive)
+  (interactive nil decklet-add-card-batch-mode)
+  (unless (derived-mode-p 'decklet-add-card-batch-mode)
+    (user-error "Not in a Decklet batch buffer"))
   (decklet-with-db
     (let* ((cards (decklet--batch-collect-cards))
            (conn (decklet-db--ensure))
@@ -147,7 +150,9 @@ Each lifecycle hook fires once with the events of the whole batch."
 
 (defun decklet-add-card-batch-cancel ()
   "Cancel batch import and close the buffer."
-  (interactive)
+  (interactive nil decklet-add-card-batch-mode)
+  (unless (derived-mode-p 'decklet-add-card-batch-mode)
+    (user-error "Not in a Decklet batch buffer"))
   (message "Batch import canceled")
   (quit-window t))
 

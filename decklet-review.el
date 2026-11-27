@@ -762,7 +762,9 @@ It names a spent daily limit and the wait for the next learning card."
   "Review the next due card.
 When in undo state, confirm the current undone card and advance.
 When current list is empty, re-check for due cards and continue if any exist."
-  (interactive)
+  (interactive nil decklet-review-mode)
+  (unless (get-buffer decklet-review-buffer-name)
+    (user-error "No active review session"))
   (if (decklet-review--undo-in-progress-p)
       ;; Confirm the undone card by moving its entry back to the past side.
       (push (pop decklet-review--trail-future) decklet-review--trail-past)
@@ -839,7 +841,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
   "Go back to the previous card and redisplay it.
 The original rating stays in the DB until the card is re-rated.
 Trail entries whose card no longer exists are discarded."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (let ((before (length decklet-review--trail-past)))
     (setq decklet-review--trail-past
           (decklet-review--trail-drop-dead decklet-review--trail-past))
@@ -860,27 +862,27 @@ Trail entries whose card no longer exists are discarded."
 
 (defun decklet-review-rate-again ()
   "Rate the current word as `again'."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (decklet-review--handle-grade 1))
 
 (defun decklet-review-rate-hard ()
   "Rate the current word as `hard'."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (decklet-review--handle-grade 2))
 
 (defun decklet-review-rate-good ()
   "Rate the current word as `good'."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (decklet-review--handle-grade 3))
 
 (defun decklet-review-rate-easy ()
   "Rate the current word as `easy'."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (decklet-review--handle-grade 4))
 
 (defun decklet-review-refresh ()
   "Refresh the review window."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (when decklet-current-card-id
     (let ((buffer (decklet-review--setup-buffer)))
       (switch-to-buffer buffer)
@@ -889,24 +891,24 @@ Trail entries whose card no longer exists are discarded."
 
 (defun decklet-review-set-word ()
   "Prompt to rename the current word."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (let ((card-id (decklet-review--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-word card-id))))
 
 (defun decklet-review-set-tags ()
   "Edit the current review card's tags."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (decklet-prompt-set-tags (decklet-review--require-current-card-id "tag")))
 
 (defun decklet-review-set-hint ()
   "Prompt to update the current card's hint."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (let ((card-id (decklet-review--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-hint card-id))))
 
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (let* ((card-id (decklet-review--require-current-card-id "delete"))
          (word (decklet-get-card-word card-id)))
     (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
@@ -917,7 +919,7 @@ Trail entries whose card no longer exists are discarded."
 
 (defun decklet-review-show-card-back ()
   "Show the card back for the current word in a read-only popup."
-  (interactive)
+  (interactive nil decklet-review-mode)
   (let* ((card-id (decklet-review--require-current-card-id "show card back for"))
          (word (decklet-get-card-word card-id)))
     (decklet-show-card-back word)))
@@ -1033,6 +1035,7 @@ Trail entries whose card no longer exists are discarded."
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"
   "Major mode for reviewing vocabulary with FSRS algorithm."
+  :interactive nil
   (decklet-db--acquire-session-buffer)
   (setq buffer-read-only t)
   (buffer-disable-undo)

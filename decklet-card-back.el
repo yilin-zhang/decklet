@@ -27,7 +27,7 @@
 
 (defun decklet-save-card-back ()
   "Save the card back content to db and return non-nil."
-  (interactive)
+  (interactive nil decklet-card-back-mode)
   (let ((card-id decklet-card-back--card-id))
     (unless card-id
       (user-error "No card associated with this buffer"))

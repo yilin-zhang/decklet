@@ -10,6 +10,7 @@
   "Quitting mid-batch rolls back and leaves no transaction open."
   (decklet-test--with-temp-db
     (with-temp-buffer
+      (decklet-add-card-batch-mode)
       (insert "first\nsecond\n# hint\n")
       (cl-letf (((symbol-function 'decklet-set-card-hint)
                  (lambda (&rest _) (signal 'quit nil))))
@@ -53,6 +54,7 @@ collapse."
     (let ((id (plist-get (decklet--add-card "rose") :card-id)))
       (decklet-set-card-tags id '("reading"))
       (with-temp-buffer
+        (decklet-add-card-batch-mode)
         (insert "rose\n:botany\n# a flower\nlily\n:botany\n")
         (cl-letf (((symbol-function 'quit-window) #'ignore))
           (decklet-add-card-batch-confirm)))

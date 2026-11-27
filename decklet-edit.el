@@ -413,6 +413,11 @@ CARD-IDS can be a single card id or a list of card ids."
 
 ;;; Edit mode commands
 
+(defun decklet-edit--require-mode ()
+  "Signal a `user-error' unless the current buffer is in `decklet-edit-mode'."
+  (unless (derived-mode-p 'decklet-edit-mode)
+    (user-error "Not in a Decklet edit buffer")))
+
 (defun decklet-edit--refresh-table ()
   "Rebuild and reprint the edit table without touching window position."
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
@@ -421,7 +426,8 @@ CARD-IDS can be a single card id or a list of card ids."
 
 (defun decklet-edit-refresh ()
   "Refresh the card list buffer, keeping point on its screen line."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (decklet-edit--preserving-window-position
     (decklet-edit--refresh-table)))
 
@@ -429,7 +435,8 @@ CARD-IDS can be a single card id or a list of card ids."
   "Mark card(s) at point.
 If a region is active, mark all selected rows and move to the line after the
 selection.  Otherwise, mark the card at point and move to the next line."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (if (use-region-p)
       (let ((beg (region-beginning))
             (end (region-end)))
@@ -445,7 +452,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-unmark-at-point ()
   "Unmark the card at point and move to the next line."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (let ((card-id (decklet-edit--card-id-at-point)))
     (remhash card-id decklet-edit--marked)
     (remove-overlays (line-beginning-position) (line-end-position)
@@ -454,13 +462,15 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-unmark-all ()
   "Clear all mark in the edit view."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (decklet-edit--unmark-all)
   (message "Cleared all marks"))
 
 (defun decklet-edit-filter-review ()
   "Show only review cards in the edit table."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (setq decklet-edit--filter 'review)
   (decklet-edit--unmark-all)
   (decklet-edit-refresh)
@@ -468,7 +478,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-filter-learning ()
   "Show only learning cards in the edit table."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (setq decklet-edit--filter 'learning)
   (decklet-edit--unmark-all)
   (decklet-edit-refresh)
@@ -476,7 +487,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-filter-toggle-archive ()
   "Toggle between archived cards and all cards in the edit table."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (setq decklet-edit--filter
         (if (eq decklet-edit--filter 'all) 'archived 'all))
   (decklet-edit--unmark-all)
@@ -485,13 +497,15 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-set-word ()
   "Rename the card at point, which may be the current review card."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (message "Updated \"%s\""
            (decklet-prompt-set-word (decklet-edit--card-id-at-point))))
 
 (defun decklet-edit-set-tags ()
   "Edit tags at point, or add/remove tags on marked cards."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (let ((marked (decklet-edit--marked-card-ids)))
     (if (null marked)
         (decklet-prompt-set-tags (decklet-edit--card-id-at-point))
@@ -505,11 +519,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-filter-tag ()
   "Filter the edit view by a tag; empty input clears the tag filter."
-  (interactive)
-  ;; The refresh reprints the current buffer as the card table, so
-  ;; running this anywhere else would overwrite that buffer's text.
-  (unless (derived-mode-p 'decklet-edit-mode)
-    (user-error "Not in a Decklet edit buffer"))
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (setq decklet-edit--tag-filter
         (let ((tag (completing-read "Tag (empty for all): " (decklet-list-tags))))
           (unless (string-empty-p tag) tag)))
@@ -518,19 +529,22 @@ selection.  Otherwise, mark the card at point and move to the next line."
 
 (defun decklet-edit-set-hint ()
   "Set the hint for the card at point."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (message "Updated \"%s\""
            (decklet-prompt-set-hint (decklet-edit--card-id-at-point))))
 
 (defun decklet-edit-show-card-back ()
   "Show the card back for the card at point in a read-only popup."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (decklet-show-card-back
    (decklet-get-card-word (decklet-edit--card-id-at-point))))
 
 (defun decklet-edit-delete-card ()
   "Delete marked cards, or the card at point."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (let* ((marked (decklet-edit--marked-card-ids))
          (card-ids (or marked (list (decklet-edit--card-id-at-point))))
          (word (and (not marked) (decklet-get-card-word (car card-ids)))))
@@ -547,7 +561,8 @@ selection.  Otherwise, mark the card at point and move to the next line."
 (defun decklet-edit-archive-card ()
   "Archive marked cards, or the card at point.
 Under the `archived' filter, the action is unarchive instead."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (let* ((marked (decklet-edit--marked-card-ids))
          (card-ids (or marked (list (decklet-edit--card-id-at-point))))
          (word (and (not marked) (decklet-get-card-word (car card-ids))))
@@ -569,7 +584,8 @@ Under the `archived' filter, the action is unarchive instead."
 (defun decklet-edit-rate-card ()
   "Rate the card at point, regardless of its current state.
 Under the `archived' filter, the card is unarchived first."
-  (interactive)
+  (interactive nil decklet-edit-mode)
+  (decklet-edit--require-mode)
   (when decklet-current-card-id
     (user-error "Rating is disabled while a review session is active"))
   (let* ((card-id (decklet-edit--card-id-at-point))
@@ -703,6 +719,7 @@ Accepts any hook signature; arguments are ignored."
 
 (define-derived-mode decklet-edit-mode tabulated-list-mode "Decklet-Edit"
   "Major mode for listing and editing Decklet cards."
+  :interactive nil
   (decklet-db--acquire-session-buffer)
   (setq decklet-edit--marked (make-hash-table :test 'eql))
   (setq tabulated-list-format (decklet-edit--tabulated-list-format))
