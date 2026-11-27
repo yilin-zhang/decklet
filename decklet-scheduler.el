@@ -10,6 +10,7 @@
 
 (require 'cl-lib)
 (require 'fsrs)
+(require 'parse-time)
 
 (require 'decklet-core)
 
@@ -174,8 +175,14 @@ META's `card-id' is used directly as the FSRS card id."
      :due (decklet-card-meta-due meta)
      :last-review (decklet-card-meta-last-review meta))))
 
-(defun decklet--simulate-fsrs-review (meta grade)
-  "Run FSRS scheduler on META with GRADE without mutating META.
+(defun decklet--review-day-difference (now-time last-review-ts)
+  "Return the number of review days from LAST-REVIEW-TS to NOW-TIME."
+  (- (time-to-days (decklet-day-start-time now-time))
+     (time-to-days (decklet-day-start-time
+                    (parse-iso8601-time-string last-review-ts)))))
+
+(defun decklet--simulate-fsrs-review (meta grade &optional time)
+  "Run FSRS scheduler on META with GRADE at TIME without mutating META.
 Return the list (NEW-FSRS-CARD REVIEW-TIME)."
   (let* ((scheduler (decklet--get-fsrs-scheduler))
          (rating (pcase grade
@@ -184,8 +191,17 @@ Return the list (NEW-FSRS-CARD REVIEW-TIME)."
                    (3 :good)
                    (4 :easy)
                    (_ (error "Invalid grade: %s" grade))))
-         (review-time (decklet--now))
-         (card (decklet--card-meta->fsrs-card meta)))
+         (now (or time (current-time)))
+         (review-time (decklet--now now))
+         (card (decklet--card-meta->fsrs-card meta))
+         (last-review (fsrs-card-last-review card)))
+    ;; Align interday reviews to review-day counts so early next-day
+    ;; reviews are not truncated to 0 days by FSRS.
+    (when last-review
+      (let ((days (decklet--review-day-difference now last-review)))
+        (when (>= days 1)
+          (setf (fsrs-card-last-review card)
+                (fsrs-timestamp+ review-time (- days) :day)))))
     (list (car (fsrs-scheduler-review-card scheduler card rating review-time))
           review-time)))
 

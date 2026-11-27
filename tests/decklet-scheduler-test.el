@@ -67,5 +67,29 @@ The scheduler is cached, so a stale cache would keep the old weights."
       (should (equal (fsrs-scheduler-parameters (decklet--get-fsrs-scheduler))
                      override)))))
 
+(ert-deftest decklet-test-scheduler-early-next-day-review-uses-long-term-stability ()
+  "Reviewing a 1-day card earlier on the next review day still counts as 1 day.
+The stored `last-review' stays at the real review timestamp."
+  (decklet-test--with-temp-db
+    (decklet-test-scheduler--in-los-angeles
+      (let* ((decklet-day-rollover-hour 4)
+             (t-prev (date-to-time "2026-01-01T21:00:00-08:00"))
+             (t-early (date-to-time "2026-01-02T20:00:00-08:00"))
+             (t-exact (date-to-time "2026-01-02T21:00:00-08:00"))
+             (meta (decklet-test--make-card-meta
+                    :added-date (decklet-test--ts t-prev)
+                    :last-review (decklet-test--ts t-prev)
+                    :due (decklet-test--ts t-exact)
+                    :state :review :stability 1.4 :difficulty 7.0))
+             (early-good (car (decklet--simulate-fsrs-review meta 3 t-early)))
+             (exact-good (car (decklet--simulate-fsrs-review meta 3 t-exact)))
+             (early-hard (car (decklet--simulate-fsrs-review meta 2 t-early))))
+        (should (< (abs (- (fsrs-card-stability early-good)
+                           (fsrs-card-stability exact-good)))
+                   0.001))
+        (should (> (fsrs-card-stability early-hard) 1.4))
+        (should (equal (fsrs-card-last-review early-good)
+                       (decklet-test--ts t-early)))))))
+
 (provide 'decklet-scheduler-test)
 ;;; decklet-scheduler-test.el ends here

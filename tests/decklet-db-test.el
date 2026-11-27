@@ -126,5 +126,45 @@ This is the public API the calendar extension relies on."
         (should (= 1 (plist-get result :overdue)))
         (should (= 1 (apply #'+ (mapcar #'cadr (plist-get result :rows)))))))))
 
+;;; Due queries
+
+(ert-deftest decklet-test-db-due-items-follow-review-day-boundaries ()
+  "Interday learning cards come due by review day; intraday ones by minute.
+On a 25-hour DST fall-back day, a review card graded today is not due again."
+  (decklet-test--with-temp-db
+    (let ((old-tz (getenv "TZ"))
+          (decklet-day-rollover-hour 4))
+      (unwind-protect
+          (progn
+            (setenv "TZ" "America/Los_Angeles")
+            ;; 2026-10-31 04:30 PDT: inside a 25-hour fall-back review day
+            ;; ending 2026-11-01 04:00 PST (12:00Z).
+            (let* ((now (date-to-time "2026-10-31T04:30:00-07:00"))
+                   (yesterday (date-to-time "2026-10-30T21:00:00-07:00"))
+                   (interday-due (date-to-time "2026-10-31T21:00:00-07:00"))
+                   (intraday-due (date-to-time "2026-10-31T04:40:00-07:00"))
+                   (fallback-due (date-to-time "2026-11-01T03:30:00-08:00")))
+              (decklet-test--add-card-meta
+               "interday-learn" :state :learning :step 1
+               :added-date (decklet-test--ts yesterday)
+               :last-review (decklet-test--ts yesterday)
+               :due (decklet-test--ts interday-due))
+              (decklet-test--add-card-meta
+               "intraday-learn" :state :learning :step 0
+               :added-date (decklet-test--ts now)
+               :last-review (decklet-test--ts now)
+               :due (decklet-test--ts intraday-due))
+              (decklet-test--add-card-meta
+               "graded-today" :state :review
+               :added-date (decklet-test--ts yesterday)
+               :last-review (decklet-test--ts now)
+               :due (decklet-test--ts fallback-due))
+              (should (equal '("interday-learn")
+                             (mapcar (lambda (c) (plist-get c :word))
+                                     (decklet-db--due-items now))))
+              (should (equal (decklet-test--ts intraday-due)
+                             (decklet-db--next-due-time now)))))
+        (setenv "TZ" old-tz)))))
+
 (provide 'decklet-db-test)
 ;;; decklet-db-test.el ends here

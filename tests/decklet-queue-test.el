@@ -24,7 +24,7 @@
                  (decklet-test--ts (time-add now (seconds-to-time secs))))))
       (dolist (pair '(("review-a" . -300) ("review-b" . -200) ("review-c" . -100)))
         (decklet-test--add-card-meta
-         (car pair) :added-date (funcall at -7200) :last-review (funcall at -3600)
+         (car pair) :added-date (funcall at -172800) :last-review (funcall at -90000)
          :due (funcall at (cdr pair))))
       (decklet-test--add-card-meta "new-a" :last-review nil
                                    :added-date (funcall at 0)

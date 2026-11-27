@@ -355,26 +355,33 @@ across Emacs sessions; see `decklet--mint-monotonic-id'."
 
 (defun decklet-db--due-items (now)
   "Return the cards due at NOW as plists, in card-id order.
-Learning and relearning cards are due by the minute, review and new
-cards by the review day.  Each item's :effective-state is an FSRS
-keyword, or :new for a card never reviewed."
-  (let ((rows (sqlite-select
-               (decklet-db--ensure)
-               "SELECT card_id, word, due, added_date, last_review,
-                       stability, difficulty, state
-                  FROM cards
-                 WHERE archived_at IS NULL
-                   AND ((last_review IS NOT NULL AND state IN (?, ?) AND due <= ?)
-                        OR (last_review IS NOT NULL AND state = ? AND due <= ?)
-                        OR (last_review IS NULL AND due <= ?))
-                 ORDER BY card_id;"
-               (let ((day-end (decklet--now
-                               (decklet--next-day-start-time now))))
-                 (list (decklet-fsrs-state-string :learning)
-                       (decklet-fsrs-state-string :relearning)
-                       (decklet--now now)
-                       (decklet-fsrs-state-string :review) day-end
-                       day-end)))))
+Each item's :effective-state is an FSRS keyword, or :new for a card
+never reviewed."
+  ;; Intraday learning/relearning cards come due by the minute;
+  ;; interday learning, review and new cards come due by the review day.
+  (let* ((now-ts (decklet--now now))
+         (day-start (decklet--now (decklet-day-start-time now)))
+         (day-end (decklet--now (decklet--next-day-start-time now)))
+         (rows (sqlite-select
+                (decklet-db--ensure)
+                "SELECT card_id, word, due, added_date, last_review,
+                        stability, difficulty, state
+                   FROM cards
+                  WHERE archived_at IS NULL
+                    AND ((last_review IS NOT NULL
+                          AND state IN (?, ?)
+                          AND (due <= ? OR (last_review < ? AND due < ?)))
+                         OR (last_review IS NOT NULL
+                             AND state = ?
+                             AND last_review < ?
+                             AND due < ?)
+                         OR (last_review IS NULL AND due < ?))
+                  ORDER BY card_id;"
+                (list (decklet-fsrs-state-string :learning)
+                      (decklet-fsrs-state-string :relearning)
+                      now-ts day-start day-end
+                      (decklet-fsrs-state-string :review) day-start day-end
+                      day-end))))
     (mapcar (pcase-lambda (`(,card-id ,word ,due ,added ,last-review
                                       ,stability ,difficulty ,state))
               (list :card-id card-id :word word :due due :added added
@@ -385,20 +392,22 @@ keyword, or :new for a card never reviewed."
                                        :new)))
             rows)))
 
-(defun decklet-db--next-due-time ()
-  "Return the next time a card falls due today, or nil when none does.
-Only learning and relearning cards can come due later in the same
-review day; anything further out belongs to a later day."
-  (let ((now (current-time)))
+(defun decklet-db--next-due-time (&optional time)
+  "Return the next due timestamp later in TIME's review day, or nil."
+  ;; Only intraday learning/relearning cards can come due later today;
+  ;; interday cards are already due for the whole day.
+  (let ((now (or time (current-time))))
     (caar (sqlite-select
            (decklet-db--ensure)
            "SELECT MIN(due) FROM cards
              WHERE archived_at IS NULL
                AND last_review IS NOT NULL
+               AND last_review >= ?
                AND state IN (?, ?)
                AND due > ?
                AND due < ?;"
-           (list (decklet-fsrs-state-string :learning)
+           (list (decklet--now (decklet-day-start-time now))
+                 (decklet-fsrs-state-string :learning)
                  (decklet-fsrs-state-string :relearning)
                  (decklet--now now)
                  (decklet--now
