@@ -699,7 +699,9 @@ ACTION is a verb phrase, as in \"No word to ACTION\"."
   "Set CARD-ID as the current card and render the review buffer."
   (setq decklet-current-card-id card-id)
   (decklet-review--reset-ui-state)
-  (run-hooks 'decklet-review-next-card-hook)
+  ;; Extensions such as `decklet-cloze' prepare card presentation before
+  ;; rendering, so run the hook first while isolating subscriber errors.
+  (decklet-run-hook-isolated 'decklet-review-next-card-hook)
   (decklet-review--render-buffer))
 
 (defun decklet-review--nothing-due-message ()
@@ -769,7 +771,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
         decklet-review--trail-future nil)
   (decklet-review--reset-ui-state)
   (decklet-card-back--close-at-session-end)
-  (run-hooks 'decklet-review-quit-hook))
+  (decklet-run-hook-isolated 'decklet-review-quit-hook))
 
 (defun decklet-review-quit ()
   "Quit Decklet review."
@@ -810,7 +812,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
     (decklet-review--refresh-counter)
     (when (and (not goal-was-reached)
                (decklet-review--daily-goal-reached-p))
-      (run-hooks 'decklet-review-daily-goal-reached-hook))
+      (decklet-run-hook-isolated 'decklet-review-daily-goal-reached-hook))
     (message "Rated \"%s\" as (%s)" word
              (pcase grade (1 "Again") (2 "Hard") (3 "Good") (4 "Easy")))
     ;; `decklet-review-next-card' would record a skip for this card.

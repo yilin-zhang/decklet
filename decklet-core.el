@@ -145,7 +145,7 @@ Each event plist has keys:
 Undo, confirming an undone rating and skipping a card fire nothing.")
 
 (defun decklet-run-hook-isolated (hook &rest args)
-  "Run abnormal HOOK with ARGS, isolating subscriber failures.
+  "Run HOOK with ARGS, isolating subscriber failures.
 Every subscriber runs.  An error from one is reported as a warning,
 since the core operation has already committed."
   (apply

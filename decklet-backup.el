@@ -191,7 +191,13 @@ chronological order."
   "Back up the database when `decklet-backup-automatic' is non-nil.
 Registered by the review and edit modules on their session hooks."
   (when decklet-backup-automatic
-    (decklet-db-backup)))
+    (condition-case err
+        (decklet-db-backup)
+      (error
+       (display-warning
+        'decklet
+        (format "Automatic backup failed: %s" (error-message-string err))
+        :error)))))
 
 ;;;###autoload
 (defun decklet-db-restore ()
