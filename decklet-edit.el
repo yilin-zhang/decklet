@@ -614,7 +614,6 @@ Under the `archived' filter, the card is unarchived first."
 
 ;;; Edit mode setup
 
-;;;###autoload
 (defun decklet-edit ()
   "Open the card list for editing, restarting if one is already open."
   (interactive)

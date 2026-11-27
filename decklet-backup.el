@@ -168,7 +168,6 @@ chronological order."
                    (complete-with-action action choices string pred)))))
     (completing-read "Restore backup: " table nil t nil nil default)))
 
-;;;###autoload
 (defun decklet-db-backup ()
   "Create a database backup if the DB has changed since the last backup."
   (interactive)
@@ -201,7 +200,6 @@ Registered by the review and edit modules on their session hooks."
         (format "Automatic backup failed: %s" (error-message-string err))
         :error)))))
 
-;;;###autoload
 (defun decklet-db-restore ()
   "Restore the database from a selected backup file."
   (interactive)

@@ -39,7 +39,6 @@ Each entry is (NAME . URL), where URL expects a single %s for the word."
   (unless decklet-lookup-providers
     (user-error "No lookup providers configured; set `decklet-lookup-providers'")))
 
-;;;###autoload
 (defun decklet-lookup (word &optional provider)
   "Lookup WORD in the browser using PROVIDER.
 PROVIDER should be a key in `decklet-lookup-providers'.
@@ -61,7 +60,6 @@ When PROVIDER is nil, use `decklet-lookup-default-provider'."
         (browse-url (string-replace "%s" (url-hexify-string word) url-template))
         (run-hooks 'decklet-lookup-hook))))))
 
-;;;###autoload
 (defun decklet-lookup-with-provider (word &optional provider)
   "Lookup WORD using a selected PROVIDER.
 When WORD or PROVIDER is nil, prompt for them."
@@ -76,7 +74,6 @@ When WORD or PROVIDER is nil, prompt for them."
       (user-error "No lookup provider selected"))
     (decklet-lookup word provider)))
 
-;;;###autoload
 (defun decklet-switch-default-provider ()
   "Prompt and set `decklet-lookup-default-provider'."
   (interactive)

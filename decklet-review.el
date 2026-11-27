@@ -914,7 +914,6 @@ Trail entries whose card no longer exists are discarded."
 
 ;; Review mode setup
 
-;;;###autoload
 (defun decklet-review ()
   "Start a review session, restarting if one is already open."
   (interactive)

@@ -153,7 +153,6 @@ outermost form exits."
   (unless (decklet-db--session-buffers (current-buffer))
     (decklet-db--disconnect)))
 
-;;;###autoload
 (defun decklet-disconnect ()
   "Close the Decklet review and edit buffers, then disconnect the DB."
   (interactive)
@@ -456,7 +455,6 @@ The result is a plist of :rows, a list of (DATE-STRING COUNT), and
 
 ;; Maintenance command
 
-;;;###autoload
 (defun decklet-open-db-file ()
   "Open the SQLite database file in `sqlite-mode'."
   (interactive)

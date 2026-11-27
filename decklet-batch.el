@@ -168,7 +168,6 @@ Each lifecycle hook fires once with the events of the whole batch."
   (message "Batch import canceled")
   (quit-window t))
 
-;;;###autoload
 (defun decklet-add-card-batch (&optional words &rest options)
   "Open a buffer for batch word entry.
 WORDS, when non-nil, are inserted one per line.

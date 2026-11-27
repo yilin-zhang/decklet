@@ -312,7 +312,6 @@ added card fires `decklet-cards-added-functions'."
               :status 'refreshed
               :message (format "Refreshed the added date of existing new word \"%s\". " word)))))))
 
-;;;###autoload
 (defun decklet-add-card (word)
   "Add WORD, then offer hint and tag editing when called interactively."
   (interactive (list (read-string "Word to add: ")))

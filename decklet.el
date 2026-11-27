@@ -44,5 +44,20 @@
 (require 'decklet-edit)
 (require 'decklet-review)
 
+;; Route all public entry points through `decklet' so `with-eval-after-load'
+;; and `(use-package decklet :config ...)' run regardless of which command
+;; triggers loading.
+;;;###autoload (autoload 'decklet-review "decklet" "Start a review session, restarting if one is already open." t)
+;;;###autoload (autoload 'decklet-edit "decklet" "Open the card list for editing, restarting if one is already open." t)
+;;;###autoload (autoload 'decklet-add-card "decklet" "Add WORD, then offer hint and tag editing when called interactively." t)
+;;;###autoload (autoload 'decklet-add-card-batch "decklet" "Open a buffer for batch word entry." t)
+;;;###autoload (autoload 'decklet-lookup "decklet" "Lookup WORD in the browser using PROVIDER." t)
+;;;###autoload (autoload 'decklet-lookup-with-provider "decklet" "Lookup WORD using a selected PROVIDER." t)
+;;;###autoload (autoload 'decklet-switch-default-provider "decklet" "Prompt and set `decklet-lookup-default-provider'." t)
+;;;###autoload (autoload 'decklet-db-backup "decklet" "Create a database backup if the DB has changed since the last backup." t)
+;;;###autoload (autoload 'decklet-db-restore "decklet" "Restore the database from a selected backup file." t)
+;;;###autoload (autoload 'decklet-disconnect "decklet" "Close the Decklet review and edit buffers, then disconnect the DB." t)
+;;;###autoload (autoload 'decklet-open-db-file "decklet" "Open the SQLite database file in `sqlite-mode'." t)
+
 (provide 'decklet)
 ;;; decklet.el ends here
