@@ -17,6 +17,7 @@
 (require 'decklet-queue)
 (require 'decklet-deck)
 (require 'decklet-card-back)
+(require 'decklet-lookup)
 (require 'decklet-review-log)
 (require 'decklet-backup)
 
@@ -201,6 +202,8 @@ Entries take the same forms as in `decklet-review-fixed-components'."
   :group 'decklet-review)
 
 ;; Internal
+
+(defvar decklet-review-mode-map)
 
 (defvar decklet-review-buffer-name "*Decklet Review*"
   "Name of the buffer used for reviews.")
@@ -990,7 +993,9 @@ Trail entries whose card no longer exists are discarded."
     "H" #'decklet-review-set-hint
     "t" #'decklet-review-set-tags
     "u" #'decklet-review-undo
-    "b" #'decklet-review-show-card-back)
+    "b" #'decklet-review-show-card-back
+    "l" #'decklet-lookup
+    "L" #'decklet-lookup-with-provider)
   "Keymap for `decklet-review-mode'.")
 
 (define-derived-mode decklet-review-mode special-mode "Decklet-Review"

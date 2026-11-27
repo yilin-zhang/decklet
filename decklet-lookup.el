@@ -13,8 +13,6 @@
 
 (require 'decklet-core)
 (require 'decklet-deck)
-(require 'decklet-edit)
-(require 'decklet-review)
 
 (defgroup decklet-lookup nil
   "Browser lookup for Decklet."
@@ -87,13 +85,6 @@ When WORD or PROVIDER is nil, prompt for them."
                                    decklet-lookup-default-provider)))
     (setq decklet-lookup-default-provider provider)
     (message "Default lookup provider set to `%s'." provider)))
-
-;; Default keybindings
-
-(dolist (binding '(("l" . decklet-lookup)
-                   ("L" . decklet-lookup-with-provider)))
-  (keymap-set decklet-review-mode-map (car binding) (cdr binding))
-  (keymap-set decklet-edit-mode-map (car binding) (cdr binding)))
 
 (provide 'decklet-lookup)
 ;;; decklet-lookup.el ends here

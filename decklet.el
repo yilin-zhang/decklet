@@ -40,9 +40,9 @@
 (require 'decklet-deck)
 (require 'decklet-batch)
 (require 'decklet-card-back)
+(require 'decklet-lookup)
 (require 'decklet-edit)
 (require 'decklet-review)
-(require 'decklet-lookup)
 
 (provide 'decklet)
 ;;; decklet.el ends here

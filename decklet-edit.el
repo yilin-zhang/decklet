@@ -19,6 +19,7 @@
 (require 'decklet-backup)
 (require 'decklet-deck)
 (require 'decklet-card-back)
+(require 'decklet-lookup)
 
 (defgroup decklet-edit nil
   "Edit mode for Decklet."
@@ -652,6 +653,8 @@ Accepts any hook signature; arguments are ignored."
     "t" #'decklet-edit-set-tags
     ". t" #'decklet-edit-filter-tag
     "b" #'decklet-edit-show-card-back
+    "l" #'decklet-lookup
+    "L" #'decklet-lookup-with-provider
     "D" #'decklet-edit-delete-card
     ". r" #'decklet-edit-filter-review
     ". l" #'decklet-edit-filter-learning
