@@ -132,16 +132,18 @@ are snapshots of the same state."
 (defun decklet-backup--replace-db-and-log (db-backup log-backup)
   "Replace the database and review log with DB-BACKUP and LOG-BACKUP.
 If either copy fails, neither file is changed."
-  (let ((db-tmp (decklet-backup--temp-file-beside decklet-db-file))
-        (log-tmp (decklet-backup--temp-file-beside decklet-review-log-file)))
+  (let* ((db-target (file-truename decklet-db-file))
+         (log-target (file-truename decklet-review-log-file))
+         (db-tmp (decklet-backup--temp-file-beside db-target))
+         (log-tmp (decklet-backup--temp-file-beside log-target)))
     (unwind-protect
         (progn
           ;; Keeping the mtime lets `decklet-db-backup' skip backing up
           ;; a database that was just restored.
           (copy-file db-backup db-tmp 'overwrite 'keep-time)
           (copy-file log-backup log-tmp 'overwrite 'keep-time)
-          (rename-file db-tmp decklet-db-file 'overwrite)
-          (rename-file log-tmp decklet-review-log-file 'overwrite)
+          (rename-file db-tmp db-target 'overwrite)
+          (rename-file log-tmp log-target 'overwrite)
           ;; The scan cache assumes the log only grows.
           (decklet-review-log--clear-scan-cache))
       (delete-file db-tmp)
@@ -173,12 +175,12 @@ chronological order."
   (if (not (file-exists-p decklet-db-file))
       (when (called-interactively-p 'any)
         (message "No database file found; skipping backup"))
-    (let* ((attrs (file-attributes decklet-db-file))
+    (let* ((attrs (file-attributes (file-truename decklet-db-file)))
            (mtime (file-attribute-modification-time attrs))
            (latest-backup (car (decklet-backup--backup-files)))
            (latest-mtime (when latest-backup
                            (file-attribute-modification-time
-                            (file-attributes latest-backup)))))
+                            (file-attributes (file-truename latest-backup))))))
       (if (and (equal mtime latest-mtime)
                (decklet-backup--matching-review-log-backup latest-backup))
           (when (called-interactively-p 'any)
@@ -210,7 +212,7 @@ Registered by the review and edit modules on their session hooks."
                               (cons (format-time-string
                                      "%Y-%m-%d %H:%M:%S"
                                      (file-attribute-modification-time
-                                      (file-attributes file)))
+                                      (file-attributes (file-truename file))))
                                     file))
                             files))
            (default (caar choices))

@@ -192,13 +192,12 @@ that record is already in RECORDS, or older than SINCE."
 Reuses the cached scan and parses only appended bytes when the log
 has merely grown; rescans the day from scratch otherwise.  Returns
 nil when the log file cannot be read."
-  (let ((size (file-attribute-size
-               (file-attributes decklet-review-log-file))))
+  (let* ((file (file-truename decklet-review-log-file))
+         (size (file-attribute-size (file-attributes file))))
     (when size
       (let* ((cache decklet-review-log--scan-cache)
              (reusable (and cache
-                            (equal (plist-get cache :file)
-                                   decklet-review-log-file)
+                            (equal (plist-get cache :file) file)
                             (equal (plist-get cache :since) since)
                             (<= (plist-get cache :size) size)))
              (from (if reusable (plist-get cache :size) nil))
@@ -211,7 +210,7 @@ nil when the log file cannot be read."
                       (error 'unreadable))))
         (unless (eq lines 'unreadable)
           (setq decklet-review-log--scan-cache
-                (list :file decklet-review-log-file
+                (list :file file
                       :since since
                       :size size
                       :records (decklet-review-log--collect
