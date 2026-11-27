@@ -167,7 +167,7 @@ predicted intervals must come from that state too."
                          (lambda ()
                            (push (cons decklet-current-card-id
                                        (decklet-card-meta-effective-state
-                                        decklet-review--render-meta))
+                                        (plist-get decklet-review--render-card :meta)))
                                  seen)
                            "")))
                 (decklet-review--handle-grade 3)

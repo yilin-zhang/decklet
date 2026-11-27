@@ -217,17 +217,11 @@ Entries take the same forms as in `decklet-review-fixed-components'."
 (defvar decklet-review--hint-timer nil
   "Delay timer for hint display.")
 
-(defvar decklet-review--render-meta nil
-  "Card meta of the word being rendered.")
+(defvar decklet-review--render-card nil
+  "Card plist being rendered, with `:meta' set to pre-rating state on undo.")
 
-(defvar decklet-review--render-word nil
-  "Word being rendered.")
-
-(defvar decklet-review--render-has-back nil
-  "Non-nil when the word being rendered has a card back.")
-
-(defvar decklet-review--render-hint nil
-  "Hint of the word being rendered, or nil.")
+(defvar-local decklet-review--last-layout nil
+  "Window size and text scale snapshot from the last render.")
 
 (defvar decklet-review--trail-past nil
   "Completed trail entries, newest first.
@@ -433,25 +427,44 @@ FIXED-OUTPUTS is centered vertically in the window."
   "Refresh review counters from database state."
   (setq decklet-review--counter (decklet-queue--counts)))
 
+(defun decklet-review--layout-key (window)
+  "Return the size of WINDOW and text scale used to center the review buffer."
+  (let ((graphic-p (display-graphic-p)))
+    (list (if graphic-p
+              (let ((edges (window-inside-pixel-edges window)))
+                (- (nth 2 edges) (nth 0 edges)))
+            (window-body-width window))
+          (window-body-height window graphic-p)
+          (and (boundp 'text-scale-mode-amount) text-scale-mode-amount))))
+
 (defun decklet-review--refresh-visible (&rest _args)
   "Refresh the review buffer if it is visible in a window."
   (when (and decklet-current-card-id
              (get-buffer-window decklet-review-buffer-name 'visible))
     (decklet-review--render-buffer t)))
 
+(defun decklet-review--on-window-resize (&rest _args)
+  "Redraw the review buffer if its visible window size or text scale changed."
+  (when decklet-current-card-id
+    (when-let* ((window (get-buffer-window decklet-review-buffer-name 'visible)))
+      (with-current-buffer (window-buffer window)
+        (unless (equal (decklet-review--layout-key window)
+                       decklet-review--last-layout)
+          (decklet-review--render-buffer t))))))
+
 (defun decklet-review--enable-resize-refresh ()
   "Enable refresh hooks for resize and text scaling."
-  (add-hook 'window-size-change-functions #'decklet-review--refresh-visible)
-  (unless (advice-member-p #'decklet-review--refresh-visible 'text-scale-adjust)
-    (advice-add 'text-scale-adjust :after #'decklet-review--refresh-visible))
-  (unless (advice-member-p #'decklet-review--refresh-visible 'text-scale-set)
-    (advice-add 'text-scale-set :after #'decklet-review--refresh-visible)))
+  (add-hook 'window-size-change-functions #'decklet-review--on-window-resize)
+  (unless (advice-member-p #'decklet-review--on-window-resize 'text-scale-adjust)
+    (advice-add 'text-scale-adjust :after #'decklet-review--on-window-resize))
+  (unless (advice-member-p #'decklet-review--on-window-resize 'text-scale-set)
+    (advice-add 'text-scale-set :after #'decklet-review--on-window-resize)))
 
 (defun decklet-review--disable-resize-refresh ()
   "Disable refresh hooks for resize and text scaling."
-  (remove-hook 'window-size-change-functions #'decklet-review--refresh-visible)
-  (advice-remove 'text-scale-adjust #'decklet-review--refresh-visible)
-  (advice-remove 'text-scale-set #'decklet-review--refresh-visible))
+  (remove-hook 'window-size-change-functions #'decklet-review--on-window-resize)
+  (advice-remove 'text-scale-adjust #'decklet-review--on-window-resize)
+  (advice-remove 'text-scale-set #'decklet-review--on-window-resize))
 
 (defun decklet-review--daily-goal-reached-p ()
   "Check if the daily review goal has been reached."
@@ -483,7 +496,8 @@ FIXED-OUTPUTS is centered vertically in the window."
 
 (defun decklet-review-component-title ()
   "Return the title line for the review header."
-  (pcase (decklet-card-meta-effective-state decklet-review--render-meta)
+  (pcase (decklet-card-meta-effective-state
+          (plist-get decklet-review--render-card :meta))
     (:new
      (propertize "NEW WORD" 'face 'decklet-review-state-new-face))
     ((or :learning :relearning)
@@ -544,7 +558,7 @@ META at GRADE.  LABEL is highlighted when UNDO-GRADE equals GRADE."
 (defun decklet-review-component-rates ()
   "Return the rating options line.
 On an undone card, the previous rating is highlighted."
-  (let* ((meta decklet-review--render-meta)
+  (let* ((meta (plist-get decklet-review--render-card :meta))
          (undo-entry (decklet-review--trail-current-entry))
          (undo-grade (and undo-entry (plist-get undo-entry :grade)))
          (option-lines
@@ -577,18 +591,19 @@ returned something."
 
 (defun decklet-review-component-word ()
   "Insert the current word in the review buffer."
-  (propertize decklet-review--render-word 'face 'decklet-review-word-face))
+  (propertize (plist-get decklet-review--render-card :word)
+              'face 'decklet-review-word-face))
 
 (defun decklet-review-component-hint ()
   "Insert the current word's hint in the review buffer."
-  (when decklet-review--render-hint
+  (when-let* ((hint (plist-get decklet-review--render-card :hint)))
     (if decklet-review--state-display-hint
-        (decklet-fill-text decklet-review--render-hint decklet-review-fill-column)
+        (decklet-fill-text hint decklet-review-fill-column)
       (propertize decklet-review-hint-indicator 'face 'decklet-review-hint-indicator-face))))
 
 (defun decklet-review-component-card-back-indicator ()
   "Return a card back indicator when the current card has a back."
-  (when decklet-review--render-has-back
+  (when (plist-get decklet-review--render-card :back)
     (propertize decklet-review-card-back-indicator 'face 'decklet-review-card-back-indicator-face)))
 
 (defun decklet-review--hide-cursor ()
@@ -606,31 +621,30 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   (with-current-buffer (get-buffer decklet-review-buffer-name)
     (when decklet-review-hide-cursor
       (decklet-review--hide-cursor))
-    (pcase-let* ((card-full (and decklet-current-card-id
-                                 (decklet-get-card decklet-current-card-id)))
-                 ((map (:word decklet-review--render-word)
-                       (:meta decklet-review--render-meta)
-                       (:back decklet-review--render-has-back)
-                       (:hint decklet-review--render-hint))
-                  card-full)
-                 (window (get-buffer-window (current-buffer) 0))
-                 (saved-point (when (and keep-position window) (window-point window)))
-                 (saved-start (when (and keep-position window) (window-start window)))
-                 (render (lambda ()
-                           (let ((inhibit-read-only t))
-                             (erase-buffer)
-                             (insert (decklet-review--render-components))))))
-      ;; An undone card is re-rated from its state before the rating,
-      ;; while the DB already holds the rated state.  Render from the
-      ;; earlier state, so the intervals shown match what a grade does.
-      (when-let* ((entry (decklet-review--trail-current-entry))
-                  (pre-meta (plist-get entry :pre-meta)))
-        (setq decklet-review--render-meta pre-meta))
+    (let* ((card (and decklet-current-card-id
+                      (decklet-get-card decklet-current-card-id)))
+           ;; An undone card is re-rated from its state before the rating,
+           ;; while the DB already holds the rated state.  Render from the
+           ;; earlier state, so the intervals shown match what a grade does.
+           (decklet-review--render-card
+            (if-let* ((entry (decklet-review--trail-current-entry))
+                      (pre-meta (plist-get entry :pre-meta)))
+                (plist-put (copy-sequence card) :meta pre-meta)
+              card))
+           (window (get-buffer-window (current-buffer) 0))
+           (saved-point (when (and keep-position window) (window-point window)))
+           (saved-start (when (and keep-position window) (window-start window)))
+           (render (lambda ()
+                     (let ((inhibit-read-only t))
+                       (erase-buffer)
+                       (insert (decklet-review--render-components))))))
       ;; Render using the review window so centering uses its dimensions.
       (if window
-          (with-selected-window window (funcall render))
+          (progn
+            (setq decklet-review--last-layout (decklet-review--layout-key window))
+            (with-selected-window window (funcall render)))
         (funcall render))
-      (if decklet-review--render-hint
+      (if (plist-get decklet-review--render-card :hint)
           (decklet-review--start-hint-timer)
         (decklet-review--cancel-hint-timer))
       (if (and keep-position window)
