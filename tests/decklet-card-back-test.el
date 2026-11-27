@@ -60,6 +60,40 @@ the buffer and its edit."
               (should (string= "draft" (buffer-string)))))
         (decklet-card-back-test--kill buf)))))
 
+(ert-deftest decklet-test-card-back-delete-and-narrow-preserve-content ()
+  "Saving while narrowed writes the full buffer; deleting preserves modified drafts."
+  (decklet-test--with-temp-db
+    (let* ((id (plist-get (decklet--add-card "glow") :card-id))
+           (clean-id (plist-get (decklet--add-card "clean") :card-id))
+           (buf (decklet-card-back-test--open "glow"))
+           (clean-buf (decklet-card-back-test--open "clean"))
+           (reopened nil))
+      (unwind-protect
+          (progn
+            (with-current-buffer buf
+              (insert "line1\nline2")
+              (narrow-to-region (point-min) (+ (point-min) 5))
+              (decklet-save-card-back))
+            (should (equal "line1\nline2" (decklet-get-card-back id)))
+            ;; Deleting closes unmodified popups and detaches modified ones so
+            ;; re-adding the same word opens a fresh popup without erasing drafts.
+            (with-current-buffer buf
+              (widen)
+              (goto-char (point-max))
+              (insert "\ndraft"))
+            (decklet-delete-card clean-id)
+            (should-not (buffer-live-p clean-buf))
+            (decklet-delete-card id)
+            (should (buffer-live-p buf))
+            (decklet--add-card "glow")
+            (setq reopened (decklet-card-back-test--open "glow"))
+            (should-not (eq reopened buf))
+            (with-current-buffer buf
+              (should (string= "line1\nline2\ndraft" (buffer-string)))))
+        (decklet-card-back-test--kill buf)
+        (decklet-card-back-test--kill clean-buf)
+        (decklet-card-back-test--kill reopened)))))
+
 (ert-deftest decklet-test-card-back-save-outside-session-closes-connection ()
   "Saving a card back with no review or edit open writes it and disconnects.
 The save opens the connection itself, so it must not leave it open."

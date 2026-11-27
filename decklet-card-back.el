@@ -23,26 +23,24 @@
 
 (defvar-local decklet-card-back--card-id nil
   "Card id associated with the current card back buffer.")
+(put 'decklet-card-back--card-id 'permanent-local t)
 
 (defun decklet-save-card-back ()
-  "Save the card back content to db."
+  "Save the card back content to db and return non-nil."
   (interactive)
   (let ((card-id decklet-card-back--card-id))
     (unless card-id
       (user-error "No card associated with this buffer"))
-    (let ((content (buffer-substring-no-properties (point-min) (point-max))))
+    (let ((content (save-restriction
+                     (widen)
+                     (buffer-substring-no-properties (point-min) (point-max)))))
       (decklet-with-db
         (decklet-set-card-back card-id content)
         (set-buffer-modified-p nil)
         (message "Wrote card back of word \"%s\""
-                 (decklet-get-card-word card-id))))))
-
-(defun decklet-card-back--write-contents ()
-  "`write-contents-functions' handler for `decklet-card-back-mode'.
-Save the card back to the DB and return non-nil, which tells Emacs
-the buffer has been written."
-  (decklet-save-card-back)
-  t)
+                 (decklet-get-card-word card-id))
+        t))))
+(put 'decklet-save-card-back 'permanent-local-hook t)
 
 (defun decklet-card-back--kill-buffer-query ()
   "`kill-buffer-query-functions' handler for `decklet-card-back-mode'.
@@ -56,6 +54,7 @@ Offer to save a modified buffer, and return nil if the user cancels."
       (?s (decklet-save-card-back) t)
       (?d (set-buffer-modified-p nil) t)
       (?c nil))))
+(put 'decklet-card-back--kill-buffer-query 'permanent-local-hook t)
 
 (defun decklet-card-back--close-at-session-end ()
   "Kill the unmodified card back popups if this is the last session buffer.
@@ -71,14 +70,15 @@ Review and edit call this while their buffer is being killed."
   :lighter " DeckletEdit"
   (if decklet-card-back-mode
       (progn
-        (add-hook 'write-contents-functions
-                  #'decklet-card-back--write-contents nil t)
+        (setq-local buffer-offer-save 'always)
+        (add-hook 'write-contents-functions #'decklet-save-card-back nil t)
         (add-hook 'kill-buffer-query-functions
                   #'decklet-card-back--kill-buffer-query nil t))
-    (remove-hook 'write-contents-functions
-                 #'decklet-card-back--write-contents t)
+    (kill-local-variable 'buffer-offer-save)
+    (remove-hook 'write-contents-functions #'decklet-save-card-back t)
     (remove-hook 'kill-buffer-query-functions
                  #'decklet-card-back--kill-buffer-query t)))
+(put 'decklet-card-back-mode 'permanent-local t)
 
 (defun decklet-card-back--buffer-name (word)
   "Return the card back popup buffer name for WORD."
@@ -101,7 +101,21 @@ Review and edit call this while their buffer is being killed."
            (decklet-card-back--buffer-name (plist-get event :new-word))
            t))))))
 
+(defun decklet-card-back--on-cards-deleted (events)
+  "Close unmodified popups for deleted cards in EVENTS, or detach modified ones."
+  (dolist (event events)
+    (when-let* ((buffer (decklet-card-back--find-buffer (plist-get event :card-id))))
+      (if (buffer-modified-p buffer)
+          (with-current-buffer buffer
+            (setq decklet-card-back--card-id nil)
+            (rename-buffer
+             (decklet-card-back--buffer-name
+              (concat (plist-get (plist-get event :card) :word) " [deleted]"))
+             t))
+        (kill-buffer buffer)))))
+
 (add-hook 'decklet-cards-renamed-functions #'decklet-card-back--on-cards-renamed)
+(add-hook 'decklet-cards-deleted-functions #'decklet-card-back--on-cards-deleted)
 
 (defun decklet-show-card-back (word)
   "Open the card back popup buffer for WORD."
@@ -111,8 +125,12 @@ Review and edit call this while their buffer is being killed."
                      (user-error "No card found for \"%s\"" word))))
          (card-id (plist-get card :card-id))
          (back (plist-get card :back))
+         (name (decklet-card-back--buffer-name word))
+         (existing (get-buffer name))
          (buffer (or (decklet-card-back--find-buffer card-id)
-                     (get-buffer-create (decklet-card-back--buffer-name word)))))
+                     (if (and existing (buffer-modified-p existing))
+                         (generate-new-buffer name)
+                       (get-buffer-create name)))))
     ;; Keep unsaved edits in the popup and show them as is.
     (unless (and (buffer-modified-p buffer)
                  (eql (buffer-local-value 'decklet-card-back--card-id buffer)
@@ -132,8 +150,9 @@ Review and edit call this while their buffer is being killed."
       (goto-char (point-min)))
     ;; An existing back opens read-only.
     (setq buffer-read-only (and back t))
-    ;; Loading is not an edit, so killing the buffer must not prompt.
+    ;; Loading is not an edit, so killing or undoing must not treat it as one.
     (set-buffer-modified-p nil)
+    (setq buffer-undo-list nil)
     (decklet-card-back-mode 1)))
 
 (provide 'decklet-card-back)
