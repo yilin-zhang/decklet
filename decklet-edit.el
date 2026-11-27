@@ -20,8 +20,6 @@
 (require 'decklet-deck)
 (require 'decklet-card-back)
 
-(defvar decklet-review-buffer-name)
-
 (defgroup decklet-edit nil
   "Edit mode for Decklet."
   :group 'decklet)
@@ -587,12 +585,14 @@ Under the `archived' filter, the card is unarchived first."
 (defun decklet-edit ()
   "Open the card list for editing."
   (interactive)
-  (run-hooks 'decklet-edit-start-hook)
-  (let ((buffer (get-buffer-create decklet-edit-buffer-name)))
-    (with-current-buffer buffer
-      (decklet-edit-mode)
-      (decklet-edit-refresh))
-    (switch-to-buffer buffer)))
+  (decklet-with-db
+    (decklet-db--ensure)
+    (run-hooks 'decklet-edit-start-hook)
+    (let ((buffer (get-buffer-create decklet-edit-buffer-name)))
+      (with-current-buffer buffer
+        (decklet-edit-mode)
+        (decklet-edit-refresh))
+      (switch-to-buffer buffer))))
 
 (defun decklet-edit--on-kill-buffer ()
   "Clear the edit session state when the edit buffer is killed.

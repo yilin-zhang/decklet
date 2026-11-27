@@ -48,7 +48,7 @@ resumes with the card that was showing before the undo."
           (c (decklet-test--card-id "c")))
       (decklet-test-review--in-session
         (setq decklet-current-card-id a
-              decklet-due-card-ids (list b c))
+              decklet-review--due-card-ids (list b c))
         (decklet-review--handle-grade 3)
         (decklet-review--handle-grade 3)
         (should (eql c decklet-current-card-id))
@@ -73,7 +73,7 @@ resumes with the card that was showing before the undo."
           (c (decklet-test--card-id "c")))
       (decklet-test-review--in-session
         (setq decklet-current-card-id a
-              decklet-due-card-ids (list b c))
+              decklet-review--due-card-ids (list b c))
         (decklet-review--handle-grade 3)
         (decklet-review--handle-grade 3)
         (decklet-delete-card b)
@@ -89,7 +89,7 @@ nil, the state of a new card."
   (decklet-test--with-temp-db
     (decklet--add-card "w")
     (let ((decklet-current-card-id (decklet-test--card-id "w"))
-          (decklet-due-card-ids nil)
+          (decklet-review--due-card-ids nil)
           (decklet-review--trail-past nil)
           (decklet-review--trail-future nil))
       (cl-letf (((symbol-function 'decklet-review--advance) #'ignore)
@@ -123,7 +123,7 @@ would leave a log rating the database no longer reflects."
     (decklet--add-card "b")
     (let ((a (decklet-test--card-id "a"))
           (b (decklet-test--card-id "b"))
-          (decklet-due-card-ids nil)
+          (decklet-review--due-card-ids nil)
           (decklet-review--trail-past nil)
           (decklet-review--trail-future nil))
       (cl-letf (((symbol-function 'decklet-review--advance)
@@ -171,7 +171,7 @@ predicted intervals must come from that state too."
             (progn
               (decklet-review-mode)
               (setq decklet-current-card-id id
-                    decklet-due-card-ids (list other))
+                    decklet-review--due-card-ids (list other))
               (cl-letf (((symbol-function 'run-hooks) #'ignore)
                         ((symbol-function 'decklet-review-component-rates)
                          (lambda ()
@@ -198,9 +198,9 @@ predicted intervals must come from that state too."
   "Changing a card's tags drops the pending queue, which was grouped by tags."
   (decklet-test--with-temp-db
     (let* ((id (plist-get (decklet--add-card "rose") :card-id))
-           (decklet-due-card-ids (list id)))
+           (decklet-review--due-card-ids (list id)))
       (decklet-set-card-tags id '("medicine"))
-      (should-not decklet-due-card-ids))))
+      (should-not decklet-review--due-card-ids))))
 
 (ert-deftest decklet-test-review-counter-refreshes-only-with-review-buffer ()
   "Deck mutations skip counter recomputation unless a review buffer is open.

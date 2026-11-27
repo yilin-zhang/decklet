@@ -62,5 +62,20 @@ Declining the confirmation deletes nothing and keeps the marks."
         (should-error (decklet-edit-filter-tag) :type 'user-error))
       (should (string= "user text\n" (buffer-string))))))
 
+;;; Startup
+
+(ert-deftest decklet-test-edit-refused-connection-leaves-no-buffer ()
+  "Refusing the DB connection aborts `decklet-edit' before creating its buffer."
+  (decklet-test--with-temp-db
+    (let* ((decklet-edit-buffer-name "*decklet-edit-refused-test*")
+           (start-hook-ran nil)
+           (decklet-edit-start-hook (list (lambda () (setq start-hook-ran t))))
+           (decklet-db-pre-connect-hook
+            (list (lambda () (user-error "Refused")))))
+      (should-error (decklet-edit) :type 'user-error)
+      (should-not start-hook-ran)
+      (should-not (get-buffer decklet-edit-buffer-name))
+      (should-not decklet-db--conn))))
+
 (provide 'decklet-edit-test)
 ;;; decklet-edit-test.el ends here

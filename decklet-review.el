@@ -236,6 +236,9 @@ skipping a card pushes one here, and undo moves them to
   "Entries being revisited by undo, with the card on screen at the head.
 Non-nil exactly while an undo is in progress.")
 
+(defvar decklet-review--due-card-ids nil
+  "List of pending card ids queued for the current review session.")
+
 (defvar decklet-review--queue-context nil
   "Day and rule snapshot used to validate the pending queue.")
 
@@ -672,6 +675,13 @@ They were rated from the state the re-rate just replaced."
       (message "Discarded %d later review%s of this card"
                dropped (if (= dropped 1) "" "s")))))
 
+(defun decklet-review--require-current-card-id (action)
+  "Return the current card id, or signal a `user-error' naming ACTION.
+ACTION is a verb phrase, as in \"No word to ACTION\"."
+  (unless decklet-current-card-id
+    (user-error "No word to %s" action))
+  decklet-current-card-id)
+
 (defun decklet-review--present-card (card-id)
   "Set CARD-ID as the current card and render the review buffer."
   (setq decklet-current-card-id card-id)
@@ -704,7 +714,7 @@ It names a spent daily limit and the wait for the next learning card."
   "Show the next card from the trail or the due queue, or quit."
   (unless (equal decklet-review--queue-context (decklet-review--queue-context))
     (when decklet-review--queue-context
-      (setq decklet-due-card-ids nil))
+      (setq decklet-review--due-card-ids nil))
     (setq decklet-review--queue-context (decklet-review--queue-context)))
   (setq decklet-review--trail-future
         (decklet-review--trail-drop-dead decklet-review--trail-future))
@@ -712,10 +722,10 @@ It names a spent daily limit and the wait for the next learning card."
       (decklet-review--present-card
        (plist-get (decklet-review--trail-current-entry) :card-id))
     (progn
-      (unless decklet-due-card-ids
-        (decklet--refresh-due-card-ids))
-      (if decklet-due-card-ids
-          (decklet-review--present-card (pop decklet-due-card-ids))
+      (unless decklet-review--due-card-ids
+        (setq decklet-review--due-card-ids (decklet-queue--due-card-ids)))
+      (if decklet-review--due-card-ids
+          (decklet-review--present-card (pop decklet-review--due-card-ids))
         (let ((reason (decklet-review--nothing-due-message)))
           (decklet-review-quit)
           (message "%s" reason))))))
@@ -741,7 +751,7 @@ When current list is empty, re-check for due cards and continue if any exist."
   "Clear the review session state when the review buffer is killed.
 This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
   (setq decklet-current-card-id nil
-        decklet-due-card-ids nil
+        decklet-review--due-card-ids nil
         decklet-review--trail-past nil
         decklet-review--trail-future nil)
   (decklet-review--reset-ui-state)
@@ -758,7 +768,7 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
 (defun decklet-review--handle-grade (grade)
   "Handle a GRADE input and move on to the next card."
   (let* ((decklet-review--grading t)
-         (card-id (decklet--require-current-card-id "rate"))
+         (card-id (decklet-review--require-current-card-id "rate"))
          (row (decklet-db--require-card-row card-id))
          (word (plist-get row :word))
          (goal-was-reached (decklet-review--daily-goal-reached-p)))
@@ -811,7 +821,7 @@ Trail entries whose card no longer exists are discarded."
     ;; it back on the due queue to see it again after the undo.
     (when (and (not (decklet-review--undo-in-progress-p))
                decklet-current-card-id)
-      (push decklet-current-card-id decklet-due-card-ids))
+      (push decklet-current-card-id decklet-review--due-card-ids))
     (push (pop decklet-review--trail-past) decklet-review--trail-future)
     (decklet-review--present-card
      (plist-get (decklet-review--trail-current-entry) :card-id))))
@@ -848,24 +858,24 @@ Trail entries whose card no longer exists are discarded."
 (defun decklet-review-set-word ()
   "Prompt to rename the current word."
   (interactive)
-  (let ((card-id (decklet--require-current-card-id "edit")))
+  (let ((card-id (decklet-review--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-word card-id))))
 
 (defun decklet-review-set-tags ()
   "Edit the current review card's tags."
   (interactive)
-  (decklet-prompt-set-tags (decklet--require-current-card-id "tag")))
+  (decklet-prompt-set-tags (decklet-review--require-current-card-id "tag")))
 
 (defun decklet-review-set-hint ()
   "Prompt to update the current card's hint."
   (interactive)
-  (let ((card-id (decklet--require-current-card-id "edit")))
+  (let ((card-id (decklet-review--require-current-card-id "edit")))
     (message "Updated \"%s\"" (decklet-prompt-set-hint card-id))))
 
 (defun decklet-review-delete-card ()
   "Delete the current card from the deck."
   (interactive)
-  (let* ((card-id (decklet--require-current-card-id "delete"))
+  (let* ((card-id (decklet-review--require-current-card-id "delete"))
          (word (decklet-get-card-word card-id)))
     (when (yes-or-no-p (format "Are you sure you want to delete \"%s\" from the deck? " word))
       (decklet-delete-card card-id)
@@ -876,7 +886,7 @@ Trail entries whose card no longer exists are discarded."
 (defun decklet-review-show-card-back ()
   "Show the card back for the current word in a read-only popup."
   (interactive)
-  (let* ((card-id (decklet--require-current-card-id "show card back for"))
+  (let* ((card-id (decklet-review--require-current-card-id "show card back for"))
          (word (decklet-get-card-word card-id)))
     (decklet-show-card-back word)))
 
@@ -887,9 +897,9 @@ Trail entries whose card no longer exists are discarded."
   "Start a review session."
   (interactive)
   (decklet-with-db
-    (decklet--refresh-due-card-ids)
+    (setq decklet-review--due-card-ids (decklet-queue--due-card-ids))
     (setq decklet-review--queue-context (decklet-review--queue-context))
-    (if (null decklet-due-card-ids)
+    (if (null decklet-review--due-card-ids)
         (message "%s" (decklet-review--nothing-due-message))
       ;; Only a session buffer's kill runs the quit hook, so the start hook
       ;; runs only when that buffer opens.
@@ -918,7 +928,7 @@ Trail entries whose card no longer exists are discarded."
 
 (defun decklet-review--on-queue-changed (&optional _events)
   "Drop pending cards and sync counters when queue membership changes."
-  (setq decklet-due-card-ids nil)
+  (setq decklet-review--due-card-ids nil)
   (decklet-review--sync-counter))
 
 (defun decklet-review--redraw-if-current (events)
@@ -935,8 +945,13 @@ Trail entries whose card no longer exists are discarded."
     (decklet-review--redraw-if-current events)))
 
 (defun decklet-review--on-cards-deleted (events)
-  "Drop trail entries for deleted cards in EVENTS and sync counters."
+  "Drop deleted cards in EVENTS from review session state and sync counters."
   (let ((deleted (mapcar (lambda (event) (plist-get event :card-id)) events)))
+    (when (memql decklet-current-card-id deleted)
+      (setq decklet-current-card-id nil))
+    (setq decklet-review--due-card-ids
+          (seq-remove (lambda (id) (memql id deleted))
+                      decklet-review--due-card-ids))
     (cl-flet ((keep (entries)
                 (seq-remove (lambda (entry) (memql (plist-get entry :card-id) deleted))
                             entries)))

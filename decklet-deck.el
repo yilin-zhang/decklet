@@ -15,7 +15,6 @@
 (require 'decklet-core)
 (require 'decklet-scheduler)
 (require 'decklet-db)
-(require 'decklet-queue)
 (require 'decklet-review-log)
 
 (defcustom decklet-add-and-refresh t
@@ -25,20 +24,6 @@
 
 (defvar decklet-current-card-id nil
   "The current card id being reviewed.")
-
-(defvar decklet-due-card-ids nil
-  "List of card ids that are due for review.")
-
-(defun decklet--refresh-due-card-ids ()
-  "Refresh the due card-id list from the database."
-  (setq decklet-due-card-ids (decklet-queue--due-card-ids)))
-
-(defun decklet--require-current-card-id (action)
-  "Return the current card id, or signal a `user-error' naming ACTION.
-ACTION is a verb phrase, as in \"No word to ACTION\"."
-  (unless decklet-current-card-id
-    (user-error "No word to %s" action))
-  decklet-current-card-id)
 
 ;; Public API: card accessors.  Cards are identified by id; callers that
 ;; start from a word look the id up first.
@@ -236,9 +221,6 @@ Return non-nil when the stored value changed."
   "Delete CARD-ID from the deck."
   (let ((card (decklet-require-card card-id)))
     (decklet-db--delete-card card-id)
-    (when (eql decklet-current-card-id card-id)
-      (setq decklet-current-card-id nil))
-    (setq decklet-due-card-ids (delete card-id decklet-due-card-ids))
     (decklet-fire-one-card-event 'decklet-cards-deleted-functions
                                  :card-id card-id :card card)))
 
