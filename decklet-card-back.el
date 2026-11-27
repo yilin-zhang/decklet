@@ -37,6 +37,12 @@
       (decklet-with-db
         (decklet-set-card-back card-id content)
         (set-buffer-modified-p nil)
+        ;; Non-file buffers have a constant 0 modtime, so invalidate prior
+        ;; `(t . TIME)' undo markers or undoing past save clears modified-p.
+        (when (consp buffer-undo-list)
+          (dolist (entry buffer-undo-list)
+            (when (eq (car-safe entry) t)
+              (setcdr entry -1))))
         (message "Wrote card back of word \"%s\""
                  (decklet-get-card-word card-id))
         t))))
@@ -47,13 +53,20 @@
 Offer to save a modified buffer, and return nil if the user cancels."
   (if (not (buffer-modified-p))
       t
-    (pcase (read-char-choice
-            (format "Card back \"%s\" modified; (s)ave, (d)iscard, or (c)ancel? "
-                    (buffer-name))
-            '(?s ?d ?c))
-      (?s (decklet-save-card-back) t)
-      (?d (set-buffer-modified-p nil) t)
-      (?c nil))))
+    (if decklet-card-back--card-id
+        (pcase (read-char-choice
+                (format "Card back \"%s\" modified; (s)ave, (d)iscard, or (c)ancel? "
+                        (buffer-name))
+                '(?s ?d ?c))
+          (?s (decklet-save-card-back) t)
+          (?d (set-buffer-modified-p nil) t)
+          (?c nil))
+      (pcase (read-char-choice
+              (format "Deleted card back \"%s\" modified; (d)iscard or (c)ancel? "
+                      (buffer-name))
+              '(?d ?c))
+        (?d (set-buffer-modified-p nil) t)
+        (?c nil)))))
 (put 'decklet-card-back--kill-buffer-query 'permanent-local-hook t)
 
 (defun decklet-card-back--close-at-session-end ()
@@ -67,6 +80,7 @@ Review and edit call this while their buffer is being killed."
 
 (define-minor-mode decklet-card-back-mode
   "Minor mode for editing a Decklet card back in a popup."
+  :interactive nil
   :lighter " DeckletEdit"
   (if decklet-card-back-mode
       (progn
@@ -108,6 +122,10 @@ Review and edit call this while their buffer is being killed."
       (if (buffer-modified-p buffer)
           (with-current-buffer buffer
             (setq decklet-card-back--card-id nil)
+            ;; Detach DB saving so `C-x C-s' can write to a file and
+            ;; `save-some-buffers' does not fail on this buffer.
+            (kill-local-variable 'buffer-offer-save)
+            (remove-hook 'write-contents-functions #'decklet-save-card-back t)
             (rename-buffer
              (decklet-card-back--buffer-name
               (concat (plist-get (plist-get event :card) :word) " [deleted]"))

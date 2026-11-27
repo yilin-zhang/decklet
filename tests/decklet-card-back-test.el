@@ -72,15 +72,16 @@ the buffer and its edit."
           (progn
             (with-current-buffer buf
               (insert "line1\nline2")
+              (undo-boundary)
               (narrow-to-region (point-min) (+ (point-min) 5))
               (decklet-save-card-back))
             (should (equal "line1\nline2" (decklet-get-card-back id)))
-            ;; Deleting closes unmodified popups and detaches modified ones so
-            ;; re-adding the same word opens a fresh popup without erasing drafts.
+            ;; Undoing past a save must still mark the popup as modified.
             (with-current-buffer buf
               (widen)
-              (goto-char (point-max))
-              (insert "\ndraft"))
+              (undo)
+              (should (buffer-modified-p))
+              (insert "line1\nline2\ndraft"))
             (decklet-delete-card clean-id)
             (should-not (buffer-live-p clean-buf))
             (decklet-delete-card id)
@@ -89,6 +90,7 @@ the buffer and its edit."
             (setq reopened (decklet-card-back-test--open "glow"))
             (should-not (eq reopened buf))
             (with-current-buffer buf
+              (should-not (memq #'decklet-save-card-back write-contents-functions))
               (should (string= "line1\nline2\ndraft" (buffer-string)))))
         (decklet-card-back-test--kill buf)
         (decklet-card-back-test--kill clean-buf)
