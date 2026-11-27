@@ -12,7 +12,6 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'seq)
 (require 'sqlite)
 (require 'subr-x)
 

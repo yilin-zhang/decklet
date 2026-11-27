@@ -9,10 +9,10 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'fsrs)
 (require 'seq)
 
 (require 'decklet-core)
+(require 'decklet-scheduler)
 (require 'decklet-db)
 (require 'decklet-queue)
 (require 'decklet-deck)
@@ -697,7 +697,7 @@ It names a spent daily limit and the wait for the next learning card."
          (wait (and next-due
                     (format "next card in %s"
                             (decklet--format-interval
-                             (fsrs-timestamp-difference next-due (decklet--now)))))))
+                             (decklet--timestamp-difference next-due (decklet--now)))))))
     (cond
      ((and (plist-get decklet-review--counter :limited) wait)
       (format "Daily limit reached; %s" wait))

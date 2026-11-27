@@ -88,7 +88,7 @@ if the write fails."
                        :post_difficulty (decklet-card-meta-difficulty new-meta)
                        :elapsed_days
                        (if last-review
-                           (/ (fsrs-timestamp-difference now-str last-review)
+                           (/ (decklet--timestamp-difference now-str last-review)
                               86400.0)
                          0.0))))
     (and (decklet-review-log--append-line record)

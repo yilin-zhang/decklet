@@ -170,6 +170,10 @@ cards, but FSRS schedules those cards from the learning state."
   "Return TIME, or the current time, as an FSRS timestamp string."
   (fsrs-now time))
 
+(defun decklet--timestamp-difference (ts1 ts2)
+  "Return the difference in seconds between timestamps TS1 and TS2."
+  (fsrs-timestamp-difference ts1 ts2))
+
 (defun decklet--card-meta->fsrs-card (meta)
   "Create an FSRS card from card META.
 META's `card-id' is used directly as the FSRS card id."
