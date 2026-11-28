@@ -155,9 +155,7 @@ If either copy fails, neither file is changed."
           ;; Drop stale journal/WAL sidecars from the replaced DB so
           ;; SQLite does not roll them back onto the restored file.
           (dolist (suffix '("-journal" "-wal" "-shm"))
-            (let ((sidecar (concat db-target suffix)))
-              (when (file-exists-p sidecar)
-                (delete-file sidecar))))
+            (delete-file (concat db-target suffix)))
           (rename-file log-tmp log-target 'overwrite)
           ;; The scan cache assumes the log only grows.
           (decklet-review-log--clear-scan-cache))

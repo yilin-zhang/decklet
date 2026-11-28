@@ -253,11 +253,10 @@ See `decklet-queue--counts' for the keys.")
 
 (defun decklet--string-max-line-width (text)
   "Return the maximum line width for TEXT."
-  (let ((max-width 0))
-    (dolist (line (split-string text "\n") max-width)
-      ;; Strip left padding so separators match the real content width.
-      (let ((width (string-width (string-trim-left line))))
-        (setq max-width (max max-width width))))))
+  ;; Strip left padding so separators match the real content width.
+  (apply #'max 0
+         (mapcar (lambda (line) (string-width (string-trim-left line)))
+                 (split-string text "\n"))))
 
 (defun decklet--string-pixel-size (text)
   "Return the pixel (WIDTH . HEIGHT) of TEXT in the current buffer context."
@@ -510,7 +509,7 @@ The due and new figures count what is left to hand out today."
             (propertize (number-to-string n-new) 'face 'decklet-review-counter-new-face))))
 
 (defun decklet-review-component-daily-goal ()
-  "Insert the daily goal banner in the review buffer."
+  "Return the daily goal banner for the review buffer."
   (when (and decklet-review-daily-goal (> decklet-review-daily-goal 0))
     (if (decklet-review--daily-goal-reached-p)
         (propertize "DAILY GOAL REACHED" 'face 'decklet-review-state-goal-face)
@@ -580,12 +579,12 @@ returned something."
   " ")
 
 (defun decklet-review-component-word ()
-  "Insert the current word in the review buffer."
+  "Return the current word for the review buffer."
   (propertize (plist-get decklet-review--render-card :word)
               'face 'decklet-review-word-face))
 
 (defun decklet-review-component-hint ()
-  "Insert the current word's hint in the review buffer."
+  "Return the current word's hint for the review buffer."
   (when-let* ((hint (plist-get decklet-review--render-card :hint)))
     (if decklet-review--state-display-hint
         (decklet-fill-text hint decklet-review-fill-column)
@@ -653,15 +652,6 @@ When KEEP-POSITION is non-nil, preserve the window scroll and point."
   "Return the entry currently being revisited during undo, or nil."
   (car decklet-review--trail-future))
 
-(defun decklet-review--trail-drop-dead (entries)
-  "Return ENTRIES without leading entries whose card no longer exists.
-The delete hook covers deletes made through Decklet, so this only
-catches rows removed elsewhere."
-  (seq-drop-while
-   (lambda (entry)
-     (not (decklet-card-exists-p (plist-get entry :card-id))))
-   entries))
-
 (defun decklet-review--trail-drop-later-entries (card-id)
   "Void and drop CARD-ID's entries after the one being revisited.
 They were rated from the state the re-rate just replaced."
@@ -721,33 +711,28 @@ It names a spent daily limit and the wait for the next learning card."
     (when decklet-review--queue-context
       (setq decklet-review--due-card-ids nil))
     (setq decklet-review--queue-context (decklet-review--queue-context)))
-  (setq decklet-review--trail-future
-        (decklet-review--trail-drop-dead decklet-review--trail-future))
   (if (decklet-review--undo-in-progress-p)
       (decklet-review--present-card
        (plist-get (decklet-review--trail-current-entry) :card-id))
-    (progn
-      (unless decklet-review--due-card-ids
-        (setq decklet-review--due-card-ids (decklet-queue--due-card-ids)))
-      (if decklet-review--due-card-ids
-          (decklet-review--present-card (pop decklet-review--due-card-ids))
-        (let ((reason (decklet-review--nothing-due-message)))
-          (decklet-review--cancel-hint-timer)
-          (setq decklet-current-card-id nil
-                decklet-review--trail-past
-                (decklet-review--trail-drop-dead decklet-review--trail-past))
-          (if (or (null decklet-review--trail-past)
-                  (condition-case nil
-                      (y-or-n-p (format "%s. Quit review? " reason))
-                    (quit nil)))
-              (progn
-                (decklet-review-quit)
-                (message "%s" reason))
-            ;; Enter undo on the last card so pressing 1-4 re-rates it
-            ;; instead of grading it a second time.
-            (push (pop decklet-review--trail-past) decklet-review--trail-future)
-            (decklet-review--present-card
-             (plist-get (decklet-review--trail-current-entry) :card-id))))))))
+    (unless decklet-review--due-card-ids
+      (setq decklet-review--due-card-ids (decklet-queue--due-card-ids)))
+    (if decklet-review--due-card-ids
+        (decklet-review--present-card (pop decklet-review--due-card-ids))
+      (let ((reason (decklet-review--nothing-due-message)))
+        (decklet-review--cancel-hint-timer)
+        (setq decklet-current-card-id nil)
+        (if (or (null decklet-review--trail-past)
+                (condition-case nil
+                    (y-or-n-p (format "%s. Quit review? " reason))
+                  (quit nil)))
+            (progn
+              (decklet-review-quit)
+              (message "%s" reason))
+          ;; Enter undo on the last card so pressing 1-4 re-rates it
+          ;; instead of grading it a second time.
+          (push (pop decklet-review--trail-past) decklet-review--trail-future)
+          (decklet-review--present-card
+           (plist-get (decklet-review--trail-current-entry) :card-id)))))))
 
 (defun decklet-review-next-card ()
   "Review the next due card.
@@ -800,8 +785,6 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
                (pre-meta (plist-get entry :pre-meta))
                (prior-grade (plist-get entry :grade))
                (prior-log-id (plist-get entry :log-id)))
-          (unless (eql card-id (plist-get entry :card-id))
-            (user-error "Review undo state no longer matches the current card"))
           (let ((new-log-id (decklet--rate-card-state
                              card-id word pre-meta grade prior-grade)))
             (plist-put entry :log-id new-log-id))
@@ -832,16 +815,8 @@ This runs for `decklet-review-quit' and for a plain `kill-buffer' alike."
 
 (defun decklet-review-undo ()
   "Go back to the previous card and redisplay it.
-The original rating stays in the DB until the card is re-rated.
-Trail entries whose card no longer exists are discarded."
+The original rating stays in the DB until the card is re-rated."
   (interactive nil decklet-review-mode)
-  (let ((before (length decklet-review--trail-past)))
-    (setq decklet-review--trail-past
-          (decklet-review--trail-drop-dead decklet-review--trail-past))
-    (let ((dropped (- before (length decklet-review--trail-past))))
-      (when (> dropped 0)
-        (message "Skipped %d deleted card%s while undoing"
-                 dropped (if (= dropped 1) "" "s")))))
   (if (null decklet-review--trail-past)
       (message "Nothing to undo")
     ;; Outside undo the current card is not on the trail yet, so put
@@ -976,45 +951,37 @@ Trail entries whose card no longer exists are discarded."
       (decklet-review--on-queue-changed)
     (decklet-review--redraw-if-current events)))
 
-(defun decklet-review--on-cards-deleted (events)
-  "Drop deleted cards in EVENTS from review session state and sync counters."
-  (let* ((deleted (mapcar (lambda (event) (plist-get event :card-id)) events))
-         (current-deleted (memql decklet-current-card-id deleted)))
-    (when current-deleted
+(defun decklet-review--drop-session-cards (events &optional reset-queue)
+  "Drop cards in EVENTS from review session state and sync counters.
+When RESET-QUEUE is non-nil, clear the pending queue instead of
+pruning individual IDs."
+  (let* ((ids (mapcar (lambda (event) (plist-get event :card-id)) events))
+         (current-dropped (memql decklet-current-card-id ids)))
+    (when current-dropped
       (decklet-review--cancel-hint-timer)
       (setq decklet-current-card-id nil))
-    (setq decklet-review--due-card-ids
-          (seq-remove (lambda (id) (memql id deleted))
-                      decklet-review--due-card-ids))
     (cl-flet ((keep (entries)
-                (seq-remove (lambda (entry) (memql (plist-get entry :card-id) deleted))
+                (seq-remove (lambda (entry) (memql (plist-get entry :card-id) ids))
                             entries)))
       (setq decklet-review--trail-past (keep decklet-review--trail-past)
             decklet-review--trail-future (keep decklet-review--trail-future)))
-    (if (and current-deleted (get-buffer decklet-review-buffer-name))
+    (setq decklet-review--due-card-ids
+          (unless reset-queue
+            (seq-remove (lambda (id) (memql id ids))
+                        decklet-review--due-card-ids)))
+    (if (and current-dropped (get-buffer decklet-review-buffer-name))
         (progn
           (decklet-review--refresh-counter)
           (decklet-review--advance))
       (decklet-review--sync-counter))))
 
+(defun decklet-review--on-cards-deleted (events)
+  "Drop deleted cards in EVENTS from review session state and sync counters."
+  (decklet-review--drop-session-cards events))
+
 (defun decklet-review--on-cards-archived (events)
   "Drop archived cards in EVENTS from the review session and pending queue."
-  (let* ((archived (mapcar (lambda (event) (plist-get event :card-id)) events))
-         (current-archived (memql decklet-current-card-id archived)))
-    (when current-archived
-      (decklet-review--cancel-hint-timer)
-      (setq decklet-current-card-id nil))
-    (cl-flet ((keep (entries)
-                (seq-remove (lambda (entry) (memql (plist-get entry :card-id) archived))
-                            entries)))
-      (setq decklet-review--trail-past (keep decklet-review--trail-past)
-            decklet-review--trail-future (keep decklet-review--trail-future)))
-    (setq decklet-review--due-card-ids nil)
-    (if (and current-archived (get-buffer decklet-review-buffer-name))
-        (progn
-          (decklet-review--refresh-counter)
-          (decklet-review--advance))
-      (decklet-review--sync-counter))))
+  (decklet-review--drop-session-cards events t))
 
 (defun decklet-review--on-external-rating (_events)
   "Sync queue after ratings made outside the review UI."

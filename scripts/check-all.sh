@@ -12,12 +12,7 @@ echo "[2/6] Check indentation"
 ./scripts/check-indent.sh
 
 echo "[3/6] Byte compile"
-# Compile every source file, not just the entrypoint: `require' loads the
-# other files as source, so compiling decklet.el alone never byte-compiles
-# them and their warnings go unseen.  `byte-compile-error-on-warn' then makes
-# those warnings fail the build — without it `batch-byte-compile' exits 0 and
-# CI stays green on real defects (e.g. a macro used before its definition,
-# which breaks only once the package is installed and compiled).
+# Compile every file with warnings as errors; compiling decklet.el alone skips required files.
 emacs --batch -Q -L "$FSRS_DIR" -L . \
       --eval '(setq byte-compile-error-on-warn t)' \
       -f batch-byte-compile decklet*.el
