@@ -132,21 +132,29 @@ the comments.
 ```
 
 Review mode hides the cursor and turns off `hl-line-mode`. Modal editing
-packages can bring the cursor back:
+packages can bring the cursor back or override review keys:
 
-- With [Evil](https://github.com/emacs-evil/evil), turn off `evil-local-mode`
-  in `decklet-review-mode`.
+- With [Evil](https://github.com/emacs-evil/evil), disable Evil in the review
+  buffer via `evil-buffer-regexps` (turning off `evil-local-mode` in
+  `decklet-review-mode-hook` runs too early, before Evil initializes the
+  buffer):
+
+  ```emacs-lisp
+  (with-eval-after-load 'evil
+    (add-to-list 'evil-buffer-regexps '("\\`\\*Decklet Review\\*\\'" . nil)))
+  ```
+
 - With [Meow](https://github.com/meow-edit/meow), the cursor may blink the
   first time the review buffer is shown. This buffer-local override stops
   Meow from redrawing it there:
 
-```emacs-lisp
-(use-package decklet
-  :hook
-  (decklet-review-mode . (lambda ()
+  ```emacs-lisp
+  (use-package decklet
+    :hook
+    (decklet-review-mode . (lambda ()
                              (setq-local meow-update-cursor-functions-alist
                                          '(((lambda () t) . ignore))))))
-```
+  ```
 
 ### Quick Start
 
