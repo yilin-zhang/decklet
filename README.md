@@ -111,8 +111,8 @@ candor       /ˈkændər/             reading         ♦     review     2025-04
 ```
 
 To bring Emacs back to the front after a browser lookup, add a function to
-`decklet-lookup-hook`. On another system than macOS, swap in the command from
-the comments.
+`decklet-lookup-hook`. On Linux or Windows, uncomment the matching command
+below.
 
 ```emacs-lisp
 (use-package decklet
@@ -311,9 +311,9 @@ in the [customization guide](docs/customization.md).
 
 ### Review Order
 
-`decklet-review-order` decides which cards review mode offers and in what
-order. Each entry is a group `(FILTER OP...)`. The filter picks cards, and
-the operations run on them from left to right.
+`decklet-review-order` controls which due cards appear and in what order. Each
+entry is a group `(FILTER OP...)`. `FILTER` selects cards, and the operations
+run on them from left to right.
 
 ```emacs-lisp
 ;; The default offers learning cards first, then reviews, then the newest words.
@@ -383,8 +383,8 @@ Hooks for card events (added, deleted, renamed, rated) are described in
 - Decklet keeps the newest 20 backups and deletes older ones.
 
 `M-x decklet-db-backup` makes a backup now, and `M-x decklet-db-restore`
-restores one you pick from a list, newest first. Backup options are in
-[Backup](docs/customization.md#backup) in the customization guide.
+restores one you pick from a list, newest first. See
+[Backup](docs/customization.md#backup) for options.
 
 ## Extensions
 
